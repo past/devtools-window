@@ -188,6 +188,9 @@ nsPluginErrorEvent::Run()
     case nsObjectLoadingContent::eFallbackClickToPlay:
       type = NS_LITERAL_STRING("PluginClickToPlay");
       break;
+    case nsObjectLoadingContent::eFallbackPlayPreview:
+      type = NS_LITERAL_STRING("PluginPlayPreview");
+      break;
     case nsObjectLoadingContent::eFallbackUnsupported:
       type = NS_LITERAL_STRING("PluginNotFound");
       break;
@@ -361,7 +364,7 @@ nsStopPluginRunnable::Run()
   nsCOMPtr<nsITimerCallback> kungFuDeathGrip = this;
   nsCOMPtr<nsIAppShell> appShell = do_GetService(kAppShellCID);
   if (appShell) {
-    PRUint32 currentLevel = 0;
+    uint32_t currentLevel = 0;
     appShell->GetEventloopNestingLevel(&currentLevel);
     if (currentLevel > mInstanceOwner->GetLastEventloopNestingLevel()) {
       if (!mTimer)
@@ -494,7 +497,7 @@ GetExtensionFromURI(nsIURI* uri, nsCString& ext)
     nsCString spec;
     uri->GetSpec(spec);
 
-    PRInt32 offset = spec.RFindChar('.');
+    int32_t offset = spec.RFindChar('.');
     if (offset != kNotFound) {
       ext = Substring(spec, offset + 1, spec.Length());
     }
@@ -578,7 +581,7 @@ nsObjectLoadingContent::IsSupportedDocument(const nsCString& aMimeType)
     webNav = do_GetInterface(currentDoc->GetScriptGlobalObject());
   }
   
-  PRUint32 supported;
+  uint32_t supported;
   nsresult rv = info->IsTypeSupported(aMimeType, webNav, &supported);
 
   if (NS_FAILED(rv)) {
@@ -659,6 +662,7 @@ nsObjectLoadingContent::nsObjectLoadingContent()
   , mInstantiating(false)
   , mNetworkCreated(true)
   , mActivated(false)
+  , mPlayPreviewCanceled(false)
   , mIsStopping(false)
   , mIsLoading(false)
   , mSrcStreamLoading(false) {}
@@ -683,9 +687,9 @@ nsObjectLoadingContent::~nsObjectLoadingContent()
 nsresult
 nsObjectLoadingContent::InstantiatePluginInstance()
 {
-  if (mType != eType_Plugin) {
-    LOG(("OBJLC [%p]: Refusing to instantiate non-plugin, "
-         "type %u", this, mType));
+  if (mType != eType_Plugin || mIsLoading) {
+    LOG(("OBJLC [%p]: Not instantiating loading or non-plugin object, type %u",
+         this, mType));
     return NS_OK;
   }
 
@@ -779,7 +783,7 @@ nsObjectLoadingContent::InstantiatePluginInstance()
     nsCOMPtr<nsIBlocklistService> blocklist =
       do_GetService("@mozilla.org/extensions/blocklist;1");
     if (blocklist) {
-      PRUint32 blockState = nsIBlocklistService::STATE_NOT_BLOCKED;
+      uint32_t blockState = nsIBlocklistService::STATE_NOT_BLOCKED;
       blocklist->GetPluginBlocklistState(pluginTag, EmptyString(),
                                          EmptyString(), &blockState);
       if (blockState == nsIBlocklistService::STATE_OUTDATED)
@@ -877,7 +881,7 @@ NS_IMETHODIMP
 nsObjectLoadingContent::OnDataAvailable(nsIRequest *aRequest,
                                         nsISupports *aContext,
                                         nsIInputStream *aInputStream,
-                                        PRUint32 aOffset, PRUint32 aCount)
+                                        uint32_t aOffset, uint32_t aCount)
 {
   NS_ENSURE_TRUE(nsContentUtils::IsCallerChrome(), NS_ERROR_NOT_AVAILABLE);
 
@@ -927,7 +931,7 @@ nsObjectLoadingContent::GetActualType(nsACString& aType)
 }
 
 NS_IMETHODIMP
-nsObjectLoadingContent::GetDisplayedType(PRUint32* aType)
+nsObjectLoadingContent::GetDisplayedType(uint32_t* aType)
 {
   *aType = mType;
   return NS_OK;
@@ -981,7 +985,7 @@ nsObjectLoadingContent::GetPluginInstance(nsNPAPIPluginInstance** aInstance)
 
 NS_IMETHODIMP
 nsObjectLoadingContent::GetContentTypeForMIMEType(const nsACString& aMIMEType,
-                                                  PRUint32* aType)
+                                                  uint32_t* aType)
 {
   *aType = GetTypeOfContent(PromiseFlatCString(aMIMEType));
   return NS_OK;
@@ -1004,7 +1008,7 @@ nsObjectLoadingContent::GetInterface(const nsIID & aIID, void **aResult)
 NS_IMETHODIMP
 nsObjectLoadingContent::AsyncOnChannelRedirect(nsIChannel *aOldChannel,
                                                nsIChannel *aNewChannel,
-                                               PRUint32 aFlags,
+                                               uint32_t aFlags,
                                                nsIAsyncVerifyRedirectCallback *cb)
 {
   // If we're already busy with a new load, or have no load at all,
@@ -1041,6 +1045,8 @@ nsObjectLoadingContent::ObjectState() const
           return NS_EVENT_STATE_USERDISABLED;
         case eFallbackClickToPlay:
           return NS_EVENT_STATE_TYPE_CLICK_TO_PLAY;
+        case eFallbackPlayPreview:
+          return NS_EVENT_STATE_TYPE_PLAY_PREVIEW;
         case eFallbackDisabled:
           return NS_EVENT_STATE_BROKEN | NS_EVENT_STATE_HANDLER_DISABLED;
         case eFallbackBlocklisted:
@@ -1070,7 +1076,7 @@ nsObjectLoadingContent::ObjectState() const
 }
 
 bool
-nsObjectLoadingContent::CheckLoadPolicy(PRInt16 *aContentPolicy)
+nsObjectLoadingContent::CheckLoadPolicy(int16_t *aContentPolicy)
 {
   if (!aContentPolicy || !mURI) {
     NS_NOTREACHED("Doing it wrong");
@@ -1108,7 +1114,7 @@ nsObjectLoadingContent::CheckLoadPolicy(PRInt16 *aContentPolicy)
 }
 
 bool
-nsObjectLoadingContent::CheckProcessPolicy(PRInt16 *aContentPolicy)
+nsObjectLoadingContent::CheckProcessPolicy(int16_t *aContentPolicy)
 {
   if (!aContentPolicy) {
     NS_NOTREACHED("Null out variable");
@@ -1121,7 +1127,7 @@ nsObjectLoadingContent::CheckProcessPolicy(PRInt16 *aContentPolicy)
 
   nsIDocument* doc = thisContent->OwnerDoc();
   
-  PRInt32 objectType;
+  int32_t objectType;
   switch (mType) {
     case eType_Image:
       objectType = nsIContentPolicy::TYPE_IMAGE;
@@ -1165,7 +1171,7 @@ nsObjectLoadingContent::UpdateObjectParameters()
     do_QueryInterface(static_cast<nsIImageLoadingContent*>(this));
   NS_ASSERTION(thisContent, "Must be an instance of content");
 
-  PRUint32 caps = GetCapabilities();
+  uint32_t caps = GetCapabilities();
   LOG(("OBJLC [%p]: Updating object parameters", this));
 
   nsresult rv;
@@ -1427,6 +1433,7 @@ nsObjectLoadingContent::UpdateObjectParameters()
 
   if (stateInvalid) {
     newType = eType_Null;
+    newMime.Truncate();
   } else if (useChannel) {
       // If useChannel is set above, we considered it in setting newMime
       newType = GetTypeOfContent(newMime);
@@ -1560,6 +1567,9 @@ nsObjectLoadingContent::LoadObject(bool aNotify,
   // original load call needs to abort when unwinding
   // NOTE this is located *after* the state change check, a subseqent load
   //      with no subsequently changed state will be a no-op.
+  if (mIsLoading) {
+    LOG(("OBJLC [%p]: Re-entering into LoadObject", this));
+  }
   mIsLoading = true;
   AutoSetLoadingToFalse reentryCheck(this);
 
@@ -1569,6 +1579,7 @@ nsObjectLoadingContent::LoadObject(bool aNotify,
   if (!mIsLoading) {
     // The event loop must've spun and re-entered into LoadObject, which
     // finished the load
+    LOG(("OBJLC [%p]: Re-entered into LoadObject, aborting outer load", this));
     return NS_OK;
   }
 
@@ -1601,7 +1612,7 @@ nsObjectLoadingContent::LoadObject(bool aNotify,
   //
 
   if (mType != eType_Null) {
-    PRInt16 contentPolicy = nsIContentPolicy::ACCEPT;
+    int16_t contentPolicy = nsIContentPolicy::ACCEPT;
     bool allowLoad = false;
     // We check load policy before opening a channel, and process policy before
     // going ahead with any final-type load
@@ -1618,6 +1629,13 @@ nsObjectLoadingContent::LoadObject(bool aNotify,
     } else {
       allowLoad = CheckProcessPolicy(&contentPolicy);
     }
+
+    // Content policy implementations can mutate the DOM, check for re-entry
+    if (!mIsLoading) {
+      LOG(("OBJLC [%p]: We re-entered in content policy, leaving original load",
+           this));
+      return NS_OK;
+    }
     
     // Load denied, switch to fallback and set disabled/suppressed if applicable
     if (!allowLoad) {
@@ -1632,6 +1650,15 @@ nsObjectLoadingContent::LoadObject(bool aNotify,
         fallbackType = eFallbackSuppressed;
       }
     }
+  }
+
+  // Items resolved as Image/Document will not be checked for previews, as well
+  // as invalid plugins (they will not have the mContentType set).
+  if ((mType == eType_Null || mType == eType_Plugin) && ShouldPreview()) {
+    // If plugin preview exists, we shall use it
+    LOG(("OBJLC [%p]: Using plugin preview", this));
+    mType = eType_Null;
+    fallbackType = eFallbackPlayPreview;
   }
 
   // If we're a plugin but shouldn't start yet, load fallback with
@@ -1664,6 +1691,10 @@ nsObjectLoadingContent::LoadObject(bool aNotify,
   ///
   /// Attempt to load new type
   ///
+  
+  // Remove blocker on entering into instantiate
+  mIsLoading = false;
+  
   switch (mType) {
     case eType_Image:
       if (!mChannel) {
@@ -1906,7 +1937,7 @@ nsObjectLoadingContent::OpenChannel()
   return NS_OK;
 }
 
-PRUint32
+uint32_t
 nsObjectLoadingContent::GetCapabilities() const
 {
   return eSupportImages |
@@ -2041,7 +2072,7 @@ nsObjectLoadingContent::GetTypeOfContent(const nsCString& aMIMEType)
     return eType_Null;
   }
 
-  PRUint32 caps = GetCapabilities();
+  uint32_t caps = GetCapabilities();
 
   if ((caps & eSupportImages) && IsSupportedImage(aMIMEType)) {
     return eType_Image;
@@ -2242,9 +2273,9 @@ nsObjectLoadingContent::LoadFallback(FallbackType aType, bool aNotify) {
   do_QueryInterface(static_cast<nsIImageLoadingContent*>(this));
   NS_ASSERTION(thisContent, "must be a content");
 
-  if (!thisContent->IsHTML()) {
-    // Don't let custom fallback handlers run outside HTML
-    LOG(("OBJLC [%p]: Non-HTML content, forcing eFallbackAlternate", this));
+  if (!thisContent->IsHTML() || mContentType.IsEmpty()) {
+    // Don't let custom fallback handlers run outside HTML, tags without a
+    // determined type should always just be alternate content
     aType = eFallbackAlternate;
   }
 
@@ -2335,6 +2366,7 @@ nsObjectLoadingContent::DoStopPlugin(nsPluginInstanceOwner* aInstanceOwner,
   }
 
   aInstanceOwner->Destroy();
+  mIsStopping = false;
 }
 
 NS_IMETHODIMP
@@ -2435,8 +2467,41 @@ NS_IMETHODIMP
 nsObjectLoadingContent::GetActivated(bool *aActivated)
 {
   FallbackType reason;
-  *aActivated = ShouldPlay(reason);
+  *aActivated = ShouldPlay(reason) && !ShouldPreview();
   return NS_OK;
+}
+
+NS_IMETHODIMP
+nsObjectLoadingContent::GetPluginFallbackType(uint32_t* aPluginFallbackType)
+{
+  NS_ENSURE_TRUE(nsContentUtils::IsCallerChrome(), NS_ERROR_NOT_AVAILABLE);
+  *aPluginFallbackType = mFallbackType;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsObjectLoadingContent::CancelPlayPreview()
+{
+  if (!nsContentUtils::IsCallerChrome())
+    return NS_ERROR_NOT_AVAILABLE;
+
+  if (mPlayPreviewCanceled || mActivated)
+    return NS_OK;
+
+  mPlayPreviewCanceled = true;
+  return LoadObject(true, true);
+}
+
+bool
+nsObjectLoadingContent::ShouldPreview()
+{
+  if (mPlayPreviewCanceled || mActivated)
+    return false;
+
+  nsRefPtr<nsPluginHost> pluginHost =
+    already_AddRefed<nsPluginHost>(nsPluginHost::GetInst());
+
+  return pluginHost->IsPluginPlayPreviewForType(mContentType.get());
 }
 
 bool
@@ -2488,7 +2553,7 @@ nsObjectLoadingContent::ShouldPlay(FallbackType &aReason)
   // the system principal, i.e. in chrome pages. That way the click-to-play
   // code here wouldn't matter at all. Bug 775301 is tracking this.
   if (!nsContentUtils::IsSystemPrincipal(topDoc->NodePrincipal())) {
-    PRUint32 permission;
+    uint32_t permission;
     rv = permissionManager->TestPermissionFromPrincipal(topDoc->NodePrincipal(),
                                                         "plugins",
                                                         &permission);
@@ -2496,7 +2561,7 @@ nsObjectLoadingContent::ShouldPlay(FallbackType &aReason)
     allowPerm = permission == nsIPermissionManager::ALLOW_ACTION;
   }
 
-  PRUint32 state;
+  uint32_t state;
   rv = pluginHost->GetBlocklistStateForType(mContentType.get(), &state);
   NS_ENSURE_SUCCESS(rv, false);
 

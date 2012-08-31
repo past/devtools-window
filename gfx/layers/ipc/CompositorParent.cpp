@@ -323,6 +323,18 @@ CompositorParent::ScheduleTask(CancelableTask* task, int time)
 }
 
 void
+CompositorParent::NotifyShadowTreeTransaction()
+{
+  if (mLayerManager) {
+    ShadowLayerManager *shadow = mLayerManager->AsShadowManager();
+    if (shadow) {
+      shadow->NotifyShadowTreeTransaction();
+    }
+  }
+  ScheduleComposition();
+}
+
+void
 CompositorParent::ScheduleComposition()
 {
   if (mCurrentCompositeTask) {
@@ -616,7 +628,7 @@ SampleAnimations(Layer* aLayer, TimeStamp aPoint)
 
   bool activeAnimations = false;
 
-  for (PRUint32 i = animations.Length(); i-- !=0; ) {
+  for (uint32_t i = animations.Length(); i-- !=0; ) {
     Animation& animation = animations[i];
     AnimData& animData = animationData[i];
 
@@ -761,7 +773,9 @@ CompositorParent::TransformShadowTree(TimeStamp aCurrentFrame)
 
     if (mIsFirstPaint) {
       mContentRect = metrics.mContentRect;
-      SetFirstPaintViewport(metrics.mViewportScrollOffset,
+      const gfx::Point& scrollOffset = metrics.mViewportScrollOffset;
+      SetFirstPaintViewport(nsIntPoint(NS_lround(scrollOffset.x),
+                                       NS_lround(scrollOffset.y)),
                             1/rootScaleX,
                             mContentRect,
                             metrics.mCSSContentRect);
@@ -775,9 +789,9 @@ CompositorParent::TransformShadowTree(TimeStamp aCurrentFrame)
     // notifications, so that Java can take these into account in its response.
     // Calculate the absolute display port to send to Java
     nsIntRect displayPort = metrics.mDisplayPort;
-    nsIntPoint scrollOffset = metrics.mViewportScrollOffset;
-    displayPort.x += scrollOffset.x;
-    displayPort.y += scrollOffset.y;
+    gfx::Point scrollOffset = metrics.mViewportScrollOffset;
+    displayPort.x += NS_lround(scrollOffset.x);
+    displayPort.y += NS_lround(scrollOffset.y);
 
     SyncViewportInfo(displayPort, 1/rootScaleX, mLayersUpdated,
                      mScrollOffset, mXScale, mYScale);
@@ -794,7 +808,8 @@ CompositorParent::TransformShadowTree(TimeStamp aCurrentFrame)
 
     nsIntPoint metricsScrollOffset(0, 0);
     if (metrics.IsScrollable()) {
-      metricsScrollOffset = metrics.mViewportScrollOffset;
+      metricsScrollOffset =
+        nsIntPoint(NS_lround(scrollOffset.x), NS_lround(scrollOffset.y));
     }
 
     nsIntPoint scrollCompensation(
@@ -884,6 +899,10 @@ CompositorParent::ShadowLayersUpdated(ShadowLayersParent* aLayerTree,
     SetShadowProperties(root);
   }
   ScheduleComposition();
+  ShadowLayerManager *shadow = mLayerManager->AsShadowManager();
+  if (shadow) {
+    shadow->NotifyShadowTreeTransaction();
+  }
 }
 
 PLayersParent*
@@ -949,7 +968,7 @@ CompositorParent::DeallocPLayers(PLayersParent* actor)
 }
 
 
-typedef map<PRUint64,CompositorParent*> CompositorMap;
+typedef map<uint64_t,CompositorParent*> CompositorMap;
 static CompositorMap* sCompositorMap;
 
 void CompositorParent::CreateCompositorMap()
@@ -969,22 +988,22 @@ void CompositorParent::DestroyCompositorMap()
   }
 }
 
-CompositorParent* CompositorParent::GetCompositor(PRUint64 id)
+CompositorParent* CompositorParent::GetCompositor(uint64_t id)
 {
   CompositorMap::iterator it = sCompositorMap->find(id);
   return it != sCompositorMap->end() ? it->second : nullptr;
 }
 
-void CompositorParent::AddCompositor(CompositorParent* compositor, PRUint64* outID)
+void CompositorParent::AddCompositor(CompositorParent* compositor, uint64_t* outID)
 {
-  static PRUint64 sNextID = 1;
+  static uint64_t sNextID = 1;
   
   ++sNextID;
   (*sCompositorMap)[sNextID] = compositor;
   *outID = sNextID;
 }
 
-CompositorParent* CompositorParent::RemoveCompositor(PRUint64 id)
+CompositorParent* CompositorParent::RemoveCompositor(uint64_t id)
 {
   CompositorMap::iterator it = sCompositorMap->find(id);
   if (it == sCompositorMap->end()) {
@@ -1191,7 +1210,7 @@ CrossProcessCompositorParent::ShadowLayersUpdated(
   }
   UpdateIndirectTree(id, shadowRoot, isFirstPaint);
 
-  sCurrentCompositor->ScheduleComposition();
+  sCurrentCompositor->NotifyShadowTreeTransaction();
 }
 
 void

@@ -7,18 +7,6 @@ var gNextTest = null;
 var gClickToPlayPluginActualEvents = 0;
 var gClickToPlayPluginExpectedEvents = 5;
 
-function get_test_plugin() {
-  var ph = Cc["@mozilla.org/plugin/host;1"].getService(Ci.nsIPluginHost);
-  var tags = ph.getPluginTags();
-
-  // Find the test plugin
-  for (var i = 0; i < tags.length; i++) {
-    if (tags[i].name == "Test Plug-in")
-      return tags[i];
-  }
-  ok(false, "Unable to find plugin");
-}
-
 Components.utils.import("resource://gre/modules/Services.jsm");
 
 // This listens for the next opened tab and checks it is of the right url.
@@ -112,7 +100,12 @@ function test1() {
   ok("application/x-unknown" in gTestBrowser.missingPlugins, "Test 1, Should know about application/x-unknown");
   ok(!("application/x-test" in gTestBrowser.missingPlugins), "Test 1, Should not know about application/x-test");
 
-  var plugin = get_test_plugin();
+  var pluginNode = gTestBrowser.contentDocument.getElementById("unknown");
+  ok(pluginNode, "Test 1, Found plugin in page");
+  var objLoadingContent = pluginNode.QueryInterface(Ci.nsIObjectLoadingContent);
+  is(objLoadingContent.pluginFallbackType, Ci.nsIObjectLoadingContent.PLUGIN_UNSUPPORTED, "Test 1, plugin fallback type should be PLUGIN_UNSUPPORTED");
+
+  var plugin = getTestPlugin();
   ok(plugin, "Should have a test plugin");
   plugin.disabled = false;
   plugin.blocklisted = false;
@@ -126,7 +119,7 @@ function test2() {
   ok(!notificationBox.getNotificationWithValue("blocked-plugins"), "Test 2, Should not have displayed the blocked plugin notification");
   ok(!gTestBrowser.missingPlugins, "Test 2, Should not be a missing plugin list");
 
-  var plugin = get_test_plugin();
+  var plugin = getTestPlugin();
   ok(plugin, "Should have a test plugin");
   plugin.disabled = true;
   prepareTest(test3, gTestRoot + "plugin_test.html");
@@ -143,6 +136,8 @@ function test3() {
 
   var pluginNode = gTestBrowser.contentDocument.getElementById("test");
   ok(pluginNode, "Test 3, Found plugin in page");
+  var objLoadingContent = pluginNode.QueryInterface(Ci.nsIObjectLoadingContent);
+  is(objLoadingContent.pluginFallbackType, Ci.nsIObjectLoadingContent.PLUGIN_DISABLED, "Test 3, plugin fallback type should be PLUGIN_DISABLED");
   var manageLink = gTestBrowser.contentDocument.getAnonymousElementByAttribute(pluginNode, "class", "managePluginsLink");
   ok(manageLink, "Test 3, found 'manage' link in plugin-problem binding");
 
@@ -155,7 +150,7 @@ function test4(tab, win) {
 }
 
 function prepareTest5() {
-  var plugin = get_test_plugin();
+  var plugin = getTestPlugin();
   plugin.disabled = false;
   plugin.blocklisted = true;
   prepareTest(test5, gTestRoot + "plugin_test.html");
@@ -169,6 +164,10 @@ function test5() {
   ok(gTestBrowser.missingPlugins, "Test 5, Should be a missing plugin list");
   ok("application/x-test" in gTestBrowser.missingPlugins, "Test 5, Should know about application/x-test");
   ok(!("application/x-unknown" in gTestBrowser.missingPlugins), "Test 5, Should not know about application/x-unknown");
+  var pluginNode = gTestBrowser.contentDocument.getElementById("test");
+  ok(pluginNode, "Test 5, Found plugin in page");
+  var objLoadingContent = pluginNode.QueryInterface(Ci.nsIObjectLoadingContent);
+  is(objLoadingContent.pluginFallbackType, Ci.nsIObjectLoadingContent.PLUGIN_BLOCKLISTED, "Test 5, plugin fallback type should be PLUGIN_BLOCKLISTED");
 
   prepareTest(test6, gTestRoot + "plugin_both.html");
 }
@@ -194,7 +193,7 @@ function test7() {
   ok("application/x-unknown" in gTestBrowser.missingPlugins, "Test 7, Should know about application/x-unknown");
   ok("application/x-test" in gTestBrowser.missingPlugins, "Test 7, Should know about application/x-test");
 
-  var plugin = get_test_plugin();
+  var plugin = getTestPlugin();
   plugin.disabled = false;
   plugin.blocklisted = false;
   Services.prefs.setBoolPref("plugins.click_to_play", true);
@@ -209,6 +208,11 @@ function test8() {
   ok(!notificationBox.getNotificationWithValue("blocked-plugins"), "Test 8, Should not have displayed the blocked plugin notification");
   ok(!gTestBrowser.missingPlugins, "Test 8, Should not be a missing plugin list");
   ok(PopupNotifications.getNotification("click-to-play-plugins", gTestBrowser), "Test 8, Should have a click-to-play notification");
+
+  var pluginNode = gTestBrowser.contentDocument.getElementById("test");
+  ok(pluginNode, "Test 8, Found plugin in page");
+  var objLoadingContent = pluginNode.QueryInterface(Ci.nsIObjectLoadingContent);
+  is(objLoadingContent.pluginFallbackType, Ci.nsIObjectLoadingContent.PLUGIN_CLICK_TO_PLAY, "Test 8, plugin fallback type should be PLUGIN_CLICK_TO_PLAY");
 
   prepareTest(test9a, gTestRoot + "plugin_test2.html");
 }
@@ -445,7 +449,7 @@ function test14() {
   var objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
   ok(objLoadingContent.activated, "Test 14, Plugin should be activated");
 
-  var plugin = get_test_plugin();
+  var plugin = getTestPlugin();
   plugin.disabled = false;
   plugin.blocklisted = false;
   Services.perms.removeAll();
@@ -572,7 +576,9 @@ function test18a() {
   ok(clickToPlayNotification, "Test 18a, Should have a click-to-play notification");
   var doc = gTestBrowser.contentDocument;
   var plugin = doc.getElementById("test");
+  ok(plugin, "Test 18a, Found plugin in page");
   var objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
+  is(objLoadingContent.pluginFallbackType, Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_UPDATABLE, "Test 18a, plugin fallback type should be PLUGIN_VULNERABLE_UPDATABLE");
   ok(!objLoadingContent.activated, "Test 18a, Plugin should not be activated");
   var overlay = doc.getAnonymousElementByAttribute(plugin, "class", "mainBox");
   ok(overlay.style.visibility != "hidden", "Test 18a, Plugin overlay should exist, not be hidden");
@@ -612,7 +618,9 @@ function test18c() {
   ok(clickToPlayNotification, "Test 18c, Should have a click-to-play notification");
   var doc = gTestBrowser.contentDocument;
   var plugin = doc.getElementById("test");
+  ok(plugin, "Test 18c, Found plugin in page");
   var objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
+  is(objLoadingContent.pluginFallbackType, Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_NO_UPDATE, "Test 18c, plugin fallback type should be PLUGIN_VULNERABLE_NO_UPDATE");
   ok(!objLoadingContent.activated, "Test 18c, Plugin should not be activated");
   var overlay = doc.getAnonymousElementByAttribute(plugin, "class", "mainBox");
   ok(overlay.style.visibility != "hidden", "Test 18c, Plugin overlay should exist, not be hidden");
@@ -620,7 +628,7 @@ function test18c() {
   ok(updateLink.style.display != "block", "Test 18c, Plugin should not have an update link");
 
   unregisterFakeBlocklistService();
-  var plugin = get_test_plugin();
+  var plugin = getTestPlugin();
   plugin.clicktoplay = false;
 
   prepareTest(test19a, gTestRoot + "plugin_test.html");

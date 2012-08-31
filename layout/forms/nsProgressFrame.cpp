@@ -84,7 +84,7 @@ nsProgressFrame::CreateAnonymousContent(nsTArray<ContentInfo>& aElements)
 
 void
 nsProgressFrame::AppendAnonymousContentTo(nsBaseContentList& aElements,
-                                          PRUint32 aFilter)
+                                          uint32_t aFilter)
 {
   aElements.MaybeAppendElement(mBarDiv);
 }
@@ -129,9 +129,6 @@ NS_IMETHODIMP nsProgressFrame::Reflow(nsPresContext*           aPresContext,
                        aReflowState.mComputedBorderPadding.LeftRight();
   aDesiredSize.height = aReflowState.ComputedHeight() +
                         aReflowState.mComputedBorderPadding.TopBottom();
-  aDesiredSize.height = NS_CSS_MINMAX(aDesiredSize.height,
-                                      aReflowState.mComputedMinHeight,
-                                      aReflowState.mComputedMaxHeight);
 
   aDesiredSize.SetOverflowAreasToDesiredBounds();
   ConsiderChildOverflow(aDesiredSize.mOverflowAreas, barFrame);
@@ -214,9 +211,9 @@ nsProgressFrame::ReflowBarFrame(nsIFrame*                aBarFrame,
 }
 
 NS_IMETHODIMP
-nsProgressFrame::AttributeChanged(PRInt32  aNameSpaceID,
+nsProgressFrame::AttributeChanged(int32_t  aNameSpaceID,
                                   nsIAtom* aAttribute,
-                                  PRInt32  aModType)
+                                  int32_t  aModType)
 {
   NS_ASSERTION(mBarDiv, "Progress bar div must exist!");
 

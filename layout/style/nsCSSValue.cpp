@@ -19,7 +19,7 @@
 
 namespace css = mozilla::css;
 
-nsCSSValue::nsCSSValue(PRInt32 aValue, nsCSSUnit aUnit)
+nsCSSValue::nsCSSValue(int32_t aValue, nsCSSUnit aUnit)
   : mUnit(aUnit)
 {
   NS_ABORT_IF_FALSE(aUnit == eCSSUnit_Integer || aUnit == eCSSUnit_Enumerated ||
@@ -73,14 +73,14 @@ nsCSSValue::nsCSSValue(nsCSSValue::Array* aValue, nsCSSUnit aUnit)
   mValue.mArray->AddRef();
 }
 
-nsCSSValue::nsCSSValue(nsCSSValue::URL* aValue)
+nsCSSValue::nsCSSValue(mozilla::css::URLValue* aValue)
   : mUnit(eCSSUnit_URL)
 {
   mValue.mURL = aValue;
   mValue.mURL->AddRef();
 }
 
-nsCSSValue::nsCSSValue(nsCSSValue::Image* aValue)
+nsCSSValue::nsCSSValue(mozilla::css::ImageValue* aValue)
   : mUnit(eCSSUnit_Image)
 {
   mValue.mImage = aValue;
@@ -302,7 +302,7 @@ void nsCSSValue::DoReset()
   mUnit = eCSSUnit_Null;
 }
 
-void nsCSSValue::SetIntValue(PRInt32 aValue, nsCSSUnit aUnit)
+void nsCSSValue::SetIntValue(int32_t aValue, nsCSSUnit aUnit)
 {
   NS_ABORT_IF_FALSE(aUnit == eCSSUnit_Integer || aUnit == eCSSUnit_Enumerated ||
                     aUnit == eCSSUnit_EnumColor, "not an int value");
@@ -364,7 +364,7 @@ void nsCSSValue::SetArrayValue(nsCSSValue::Array* aValue, nsCSSUnit aUnit)
   mValue.mArray->AddRef();
 }
 
-void nsCSSValue::SetURLValue(nsCSSValue::URL* aValue)
+void nsCSSValue::SetURLValue(mozilla::css::URLValue* aValue)
 {
   Reset();
   mUnit = eCSSUnit_URL;
@@ -372,7 +372,7 @@ void nsCSSValue::SetURLValue(nsCSSValue::URL* aValue)
   mValue.mURL->AddRef();
 }
 
-void nsCSSValue::SetImageValue(nsCSSValue::Image* aValue)
+void nsCSSValue::SetImageValue(mozilla::css::ImageValue* aValue)
 {
   Reset();
   mUnit = eCSSUnit_Image;
@@ -563,12 +563,12 @@ void nsCSSValue::SetDummyInheritValue()
 void nsCSSValue::StartImageLoad(nsIDocument* aDocument) const
 {
   NS_ABORT_IF_FALSE(eCSSUnit_URL == mUnit, "Not a URL value!");
-  nsCSSValue::Image* image =
-    new nsCSSValue::Image(mValue.mURL->GetURI(),
-                          mValue.mURL->mString,
-                          mValue.mURL->mReferrer,
-                          mValue.mURL->mOriginPrincipal,
-                          aDocument);
+  mozilla::css::ImageValue* image =
+    new mozilla::css::ImageValue(mValue.mURL->GetURI(),
+                                 mValue.mURL->mString,
+                                 mValue.mURL->mReferrer,
+                                 mValue.mURL->mOriginPrincipal,
+                                 aDocument);
   if (image) {
     nsCSSValue* writable = const_cast<nsCSSValue*>(this);
     writable->SetImageValue(image);
@@ -589,7 +589,7 @@ bool nsCSSValue::IsNonTransparentColor() const
 }
 
 nsCSSValue::Array*
-nsCSSValue::InitFunction(nsCSSKeyword aFunctionId, PRUint32 aNumArgs)
+nsCSSValue::InitFunction(nsCSSKeyword aFunctionId, uint32_t aNumArgs)
 {
   nsRefPtr<nsCSSValue::Array> func = Array::Create(aNumArgs + 1);
   func->Item(0).SetIntValue(aFunctionId, eCSSUnit_Enumerated);
@@ -802,7 +802,7 @@ nsCSSValue::AppendToString(nsCSSProperty aProperty, nsAString& aResult) const
   }
   else if (eCSSUnit_Enumerated == unit) {
     if (eCSSProperty_text_decoration_line == aProperty) {
-      PRInt32 intValue = GetIntValue();
+      int32_t intValue = GetIntValue();
       if (NS_STYLE_TEXT_DECORATION_LINE_NONE == intValue) {
         AppendASCIItoUTF16(nsCSSProps::LookupPropertyValue(aProperty, intValue),
                            aResult);
@@ -818,7 +818,7 @@ nsCSSValue::AppendToString(nsCSSProperty aProperty, nsAString& aResult) const
       }
     }
     else if (eCSSProperty_marks == aProperty) {
-      PRInt32 intValue = GetIntValue();
+      int32_t intValue = GetIntValue();
       if (intValue == NS_STYLE_PAGE_MARKS_NONE) {
         AppendASCIItoUTF16(nsCSSProps::LookupPropertyValue(aProperty, intValue),
                            aResult);
@@ -851,7 +851,7 @@ nsCSSValue::AppendToString(nsCSSProperty aProperty, nsAString& aResult) const
       // round-tripping of all other rgba() values.
       aResult.AppendLiteral("transparent");
     } else {
-      PRUint8 a = NS_GET_A(color);
+      uint8_t a = NS_GET_A(color);
       if (a < 255) {
         aResult.AppendLiteral("rgba(");
       } else {
@@ -913,7 +913,7 @@ nsCSSValue::AppendToString(nsCSSProperty aProperty, nsAString& aResult) const
           NS_ABORT_IF_FALSE(gradient->GetRadialShape().GetUnit() ==
                             eCSSUnit_Enumerated,
                             "bad unit for radial gradient shape");
-          PRInt32 intValue = gradient->GetRadialShape().GetIntValue();
+          int32_t intValue = gradient->GetRadialShape().GetIntValue();
           NS_ABORT_IF_FALSE(intValue != NS_STYLE_GRADIENT_SHAPE_LINEAR,
                             "radial gradient with linear shape?!");
           AppendASCIItoUTF16(nsCSSProps::ValueToKeyword(intValue,
@@ -929,7 +929,7 @@ nsCSSValue::AppendToString(nsCSSProperty aProperty, nsAString& aResult) const
           NS_ABORT_IF_FALSE(gradient->GetRadialSize().GetUnit() ==
                             eCSSUnit_Enumerated,
                             "bad unit for radial gradient size");
-          PRInt32 intValue = gradient->GetRadialSize().GetIntValue();
+          int32_t intValue = gradient->GetRadialSize().GetIntValue();
           AppendASCIItoUTF16(nsCSSProps::ValueToKeyword(intValue,
                                  nsCSSProps::kRadialGradientSizeKTable),
                              aResult);
@@ -1007,7 +1007,7 @@ nsCSSValue::AppendToString(nsCSSProperty aProperty, nsAString& aResult) const
         NS_ABORT_IF_FALSE(gradient->GetRadialShape().GetUnit() ==
                           eCSSUnit_Enumerated,
                           "bad unit for radial gradient shape");
-        PRInt32 intValue = gradient->GetRadialShape().GetIntValue();
+        int32_t intValue = gradient->GetRadialShape().GetIntValue();
         NS_ABORT_IF_FALSE(intValue != NS_STYLE_GRADIENT_SHAPE_LINEAR,
                           "radial gradient with linear shape?!");
         AppendASCIItoUTF16(nsCSSProps::ValueToKeyword(intValue,
@@ -1020,7 +1020,7 @@ nsCSSValue::AppendToString(nsCSSProperty aProperty, nsAString& aResult) const
         NS_ABORT_IF_FALSE(gradient->GetRadialSize().GetUnit() ==
                           eCSSUnit_Enumerated,
                           "bad unit for radial gradient size");
-        PRInt32 intValue = gradient->GetRadialSize().GetIntValue();
+        int32_t intValue = gradient->GetRadialSize().GetIntValue();
         AppendASCIItoUTF16(nsCSSProps::ValueToKeyword(intValue,
                                nsCSSProps::kRadialGradientSizeKTable),
                            aResult);
@@ -1031,7 +1031,7 @@ nsCSSValue::AppendToString(nsCSSProperty aProperty, nsAString& aResult) const
       aResult.AppendLiteral(", ");
     }
 
-    for (PRUint32 i = 0 ;;) {
+    for (uint32_t i = 0 ;;) {
       gradient->mStops[i].mColor.AppendToString(aProperty, aResult);
       if (gradient->mStops[i].mLocation.GetUnit() != eCSSUnit_None) {
         aResult.AppendLiteral(" ");
@@ -1600,8 +1600,8 @@ nsCSSValue::Array::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const
   return n;
 }
 
-nsCSSValue::URL::URL(nsIURI* aURI, nsStringBuffer* aString,
-                     nsIURI* aReferrer, nsIPrincipal* aOriginPrincipal)
+css::URLValue::URLValue(nsIURI* aURI, nsStringBuffer* aString,
+                        nsIURI* aReferrer, nsIPrincipal* aOriginPrincipal)
   : mURI(aURI),
     mString(aString),
     mReferrer(aReferrer),
@@ -1612,8 +1612,8 @@ nsCSSValue::URL::URL(nsIURI* aURI, nsStringBuffer* aString,
   mString->AddRef();
 }
 
-nsCSSValue::URL::URL(nsStringBuffer* aString, nsIURI* aBaseURI,
-                     nsIURI* aReferrer, nsIPrincipal* aOriginPrincipal)
+css::URLValue::URLValue(nsStringBuffer* aString, nsIURI* aBaseURI,
+                        nsIURI* aReferrer, nsIPrincipal* aOriginPrincipal)
   : mURI(aBaseURI),
     mString(aString),
     mReferrer(aReferrer),
@@ -1624,17 +1624,17 @@ nsCSSValue::URL::URL(nsStringBuffer* aString, nsIURI* aBaseURI,
   mString->AddRef();
 }
 
-nsCSSValue::URL::~URL()
+css::URLValue::~URLValue()
 {
   mString->Release();
 }
 
 bool
-nsCSSValue::URL::operator==(const URL& aOther) const
+css::URLValue::operator==(const URLValue& aOther) const
 {
   bool eq;
-  return NS_strcmp(GetBufferValue(mString),
-                   GetBufferValue(aOther.mString)) == 0 &&
+  return NS_strcmp(nsCSSValue::GetBufferValue(mString),
+                   nsCSSValue::GetBufferValue(aOther.mString)) == 0 &&
           (GetURI() == aOther.GetURI() || // handles null == null
            (mURI && aOther.mURI &&
             NS_SUCCEEDED(mURI->Equals(aOther.mURI, &eq)) &&
@@ -1645,7 +1645,7 @@ nsCSSValue::URL::operator==(const URL& aOther) const
 }
 
 bool
-nsCSSValue::URL::URIEquals(const URL& aOther) const
+css::URLValue::URIEquals(const URLValue& aOther) const
 {
   NS_ABORT_IF_FALSE(mURIResolved && aOther.mURIResolved,
                     "How do you know the URIs aren't null?");
@@ -1662,14 +1662,15 @@ nsCSSValue::URL::URIEquals(const URL& aOther) const
 }
 
 nsIURI*
-nsCSSValue::URL::GetURI() const
+css::URLValue::GetURI() const
 {
   if (!mURIResolved) {
     mURIResolved = true;
     // Be careful to not null out mURI before we've passed it as the base URI
     nsCOMPtr<nsIURI> newURI;
     NS_NewURI(getter_AddRefs(newURI),
-              NS_ConvertUTF16toUTF8(GetBufferValue(mString)), nullptr, mURI);
+              NS_ConvertUTF16toUTF8(nsCSSValue::GetBufferValue(mString)),
+              nullptr, mURI);
     newURI.swap(mURI);
   }
 
@@ -1677,7 +1678,7 @@ nsCSSValue::URL::GetURI() const
 }
 
 size_t
-nsCSSValue::URL::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const
+css::URLValue::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const
 {
   size_t n = aMallocSizeOf(this);
 
@@ -1694,10 +1695,10 @@ nsCSSValue::URL::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const
 }
 
 
-nsCSSValue::Image::Image(nsIURI* aURI, nsStringBuffer* aString,
-                         nsIURI* aReferrer, nsIPrincipal* aOriginPrincipal,
-                         nsIDocument* aDocument)
-  : URL(aURI, aString, aReferrer, aOriginPrincipal)
+css::ImageValue::ImageValue(nsIURI* aURI, nsStringBuffer* aString,
+                            nsIURI* aReferrer, nsIPrincipal* aOriginPrincipal,
+                            nsIDocument* aDocument)
+  : URLValue(aURI, aString, aReferrer, aOriginPrincipal)
 {
   if (aDocument->GetOriginalDocument()) {
     aDocument = aDocument->GetOriginalDocument();
@@ -1713,7 +1714,8 @@ static PLDHashOperator
 ClearRequestHashtable(nsISupports* aKey, nsCOMPtr<imgIRequest>& aValue,
                       void* aClosure)
 {
-  nsCSSValue::Image* image = static_cast<nsCSSValue::Image*>(aClosure);
+  mozilla::css::ImageValue* image =
+    static_cast<mozilla::css::ImageValue*>(aClosure);
   nsIDocument* doc = static_cast<nsIDocument*>(aKey);
 
 #ifdef DEBUG
@@ -1734,7 +1736,7 @@ ClearRequestHashtable(nsISupports* aKey, nsCOMPtr<imgIRequest>& aValue,
   return PL_DHASH_REMOVE;
 }
 
-nsCSSValue::Image::~Image()
+css::ImageValue::~ImageValue()
 {
   mRequests.Enumerate(&ClearRequestHashtable, this);
 }
@@ -1789,7 +1791,7 @@ nsCSSValueGradient::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const
   n += mRadialValues[0].SizeOfExcludingThis(aMallocSizeOf);
   n += mRadialValues[1].SizeOfExcludingThis(aMallocSizeOf);
   n += mStops.SizeOfExcludingThis(aMallocSizeOf);
-  for (PRUint32 i = 0; i < mStops.Length(); i++) {
+  for (uint32_t i = 0; i < mStops.Length(); i++) {
     n += mStops[i].SizeOfExcludingThis(aMallocSizeOf);
   }
   return n;

@@ -98,7 +98,7 @@ nsresult
 nsWebSocket::PrintErrorOnConsole(const char *aBundleURI,
                                  const PRUnichar *aError,
                                  const PRUnichar **aFormatStrings,
-                                 PRUint32 aFormatStringsLen)
+                                 uint32_t aFormatStringsLen)
 {
   NS_ABORT_IF_FALSE(NS_IsMainThread(), "Not running on main thread");
   nsresult rv;
@@ -145,7 +145,7 @@ nsWebSocket::PrintErrorOnConsole(const char *aBundleURI,
 }
 
 nsresult
-nsWebSocket::CloseConnection(PRUint16 aReasonCode,
+nsWebSocket::CloseConnection(uint16_t aReasonCode,
                              const nsACString& aReasonString)
 {
   NS_ABORT_IF_FALSE(NS_IsMainThread(), "Not running on main thread");
@@ -213,7 +213,7 @@ nsWebSocket::ConsoleError()
 
 
 nsresult
-nsWebSocket::FailConnection(PRUint16 aReasonCode,
+nsWebSocket::FailConnection(uint16_t aReasonCode,
                             const nsACString& aReasonString)
 {
   NS_ABORT_IF_FALSE(NS_IsMainThread(), "Not running on main thread");
@@ -387,7 +387,7 @@ nsWebSocket::ScheduleConnectionCloseEvents(nsISupports *aContext,
 }
 
 NS_IMETHODIMP
-nsWebSocket::OnAcknowledge(nsISupports *aContext, PRUint32 aSize)
+nsWebSocket::OnAcknowledge(nsISupports *aContext, uint32_t aSize)
 {
   NS_ABORT_IF_FALSE(NS_IsMainThread(), "Not running on main thread");
 
@@ -399,7 +399,7 @@ nsWebSocket::OnAcknowledge(nsISupports *aContext, PRUint32 aSize)
 }
 
 NS_IMETHODIMP
-nsWebSocket::OnServerClose(nsISupports *aContext, PRUint16 aCode,
+nsWebSocket::OnServerClose(nsISupports *aContext, uint16_t aCode,
                            const nsACString &aReason)
 {
   NS_ABORT_IF_FALSE(NS_IsMainThread(), "Not running on main thread");
@@ -503,10 +503,6 @@ NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_BEGIN(nsWebSocket)
   if (isBlack|| tmp->mKeepingAlive) {
     if (tmp->mListenerManager) {
       tmp->mListenerManager->UnmarkGrayJSListeners();
-      NS_UNMARK_LISTENER_WRAPPER(Open)
-      NS_UNMARK_LISTENER_WRAPPER(Error)
-      NS_UNMARK_LISTENER_WRAPPER(Message)
-      NS_UNMARK_LISTENER_WRAPPER(Close)
     }
     if (!isBlack && tmp->PreservingWrapper()) {
       xpc_UnmarkGrayObject(tmp->GetWrapperPreserveColor());
@@ -529,10 +525,6 @@ NS_IMPL_CYCLE_COLLECTION_TRACE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsWebSocket,
                                                   nsDOMEventTargetHelper)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mOnOpenListener)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mOnMessageListener)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mOnCloseListener)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mOnErrorListener)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mPrincipal)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mURI)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mChannel)
@@ -541,10 +533,6 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(nsWebSocket,
                                                 nsDOMEventTargetHelper)
   tmp->Disconnect();
-  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mOnOpenListener)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mOnMessageListener)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mOnCloseListener)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mOnErrorListener)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mPrincipal)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mURI)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mChannel)
@@ -566,14 +554,15 @@ NS_INTERFACE_MAP_END_INHERITING(nsDOMEventTargetHelper)
 NS_IMPL_ADDREF_INHERITED(nsWebSocket, nsDOMEventTargetHelper)
 NS_IMPL_RELEASE_INHERITED(nsWebSocket, nsDOMEventTargetHelper)
 
+NS_IMPL_EVENT_HANDLER(nsWebSocket, open)
+NS_IMPL_EVENT_HANDLER(nsWebSocket, error)
+NS_IMPL_EVENT_HANDLER(nsWebSocket, message)
+NS_IMPL_EVENT_HANDLER(nsWebSocket, close)
+
 void
 nsWebSocket::DisconnectFromOwner()
 {
   nsDOMEventTargetHelper::DisconnectFromOwner();
-  NS_DISCONNECT_EVENT_HANDLER(Open)
-  NS_DISCONNECT_EVENT_HANDLER(Message)
-  NS_DISCONNECT_EVENT_HANDLER(Close)
-  NS_DISCONNECT_EVENT_HANDLER(Error)
   CloseConnection(nsIWebSocketChannel::CLOSE_GOING_AWAY);
   DontKeepAliveAnyMore();
 }
@@ -593,7 +582,7 @@ NS_IMETHODIMP
 nsWebSocket::Initialize(nsISupports* aOwner,
                         JSContext* aContext,
                         JSObject* aObject,
-                        PRUint32 aArgc,
+                        uint32_t aArgc,
                         JS::Value* aArgv)
 {
   NS_ABORT_IF_FALSE(NS_IsMainThread(), "Not running on main thread");
@@ -647,7 +636,7 @@ nsWebSocket::Initialize(nsISupports* aOwner,
       uint32_t len;
       JS_GetArrayLength(aContext, jsobj, &len);
       
-      for (PRUint32 index = 0; index < len; ++index) {
+      for (uint32_t index = 0; index < len; ++index) {
         jsval value;
 
         if (!JS_GetElement(aContext, jsobj, index, &value))
@@ -894,7 +883,7 @@ nsresult
 nsWebSocket::CreateResponseBlob(const nsACString& aData, JSContext *aCx,
                                 jsval &jsData)
 {
-  PRUint32 blobLen = aData.Length();
+  uint32_t blobLen = aData.Length();
   void *blobData = PR_Malloc(blobLen);
   nsCOMPtr<nsIDOMBlob> blob;
   if (blobData) {
@@ -909,7 +898,7 @@ nsWebSocket::CreateResponseBlob(const nsACString& aData, JSContext *aCx,
 
 nsresult
 nsWebSocket::CreateAndDispatchCloseEvent(bool aWasClean,
-                                         PRUint16 aCode,
+                                         uint16_t aCode,
                                          const nsString &aReason)
 {
   NS_ABORT_IF_FALSE(NS_IsMainThread(), "Not running on main thread");
@@ -973,7 +962,7 @@ nsWebSocket::ParseURL(const nsString& aURL)
   rv = parsedURL->GetAsciiHost(host);
   NS_ENSURE_TRUE(NS_SUCCEEDED(rv) && !host.IsEmpty(), NS_ERROR_DOM_SYNTAX_ERR);
 
-  PRInt32 port;
+  int32_t port;
   rv = parsedURL->GetPort(&port);
   NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_SYNTAX_ERR);
 
@@ -1012,8 +1001,8 @@ nsWebSocket::ParseURL(const nsString& aURL)
     mResource.AppendLiteral("?");
     mResource.Append(query);
   }
-  PRUint32 length = mResource.Length();
-  PRUint32 i;
+  uint32_t length = mResource.Length();
+  uint32_t i;
   for (i = 0; i < length; ++i) {
     if (mResource[i] < static_cast<PRUnichar>(0x0021) ||
         mResource[i] > static_cast<PRUnichar>(0x007E)) {
@@ -1137,7 +1126,7 @@ nsWebSocket::AddEventListener(const nsAString& aType,
                               nsIDOMEventListener *aListener,
                               bool aUseCapture,
                               bool aWantsUntrusted,
-                              PRUint8 optional_argc)
+                              uint8_t optional_argc)
 {
   NS_ABORT_IF_FALSE(NS_IsMainThread(), "Not running on main thread");
   nsresult rv = nsDOMEventTargetHelper::AddEventListener(aType,
@@ -1181,14 +1170,14 @@ nsWebSocket::GetProtocol(nsAString& aProtocol)
 }
 
 NS_IMETHODIMP
-nsWebSocket::GetReadyState(PRUint16 *aReadyState)
+nsWebSocket::GetReadyState(uint16_t *aReadyState)
 {
   *aReadyState = mReadyState;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsWebSocket::GetBufferedAmount(PRUint32 *aBufferedAmount)
+nsWebSocket::GetBufferedAmount(uint32_t *aBufferedAmount)
 {
   *aBufferedAmount = mOutgoingBufferedAmount;
   return NS_OK;
@@ -1224,25 +1213,6 @@ nsWebSocket::SetBinaryType(const nsAString& aBinaryType)
   return NS_OK;
 }
 
-#define NS_WEBSOCKET_IMPL_DOMEVENTLISTENER(_eventlistenername, _eventlistener) \
-  NS_IMETHODIMP                                                                \
-  nsWebSocket::GetOn##_eventlistenername(nsIDOMEventListener * *aEventListener)\
-  {                                                                            \
-    return GetInnerEventListener(_eventlistener, aEventListener);              \
-  }                                                                            \
-                                                                               \
-  NS_IMETHODIMP                                                                \
-  nsWebSocket::SetOn##_eventlistenername(nsIDOMEventListener * aEventListener) \
-  {                                                                            \
-    return RemoveAddEventListener(NS_LITERAL_STRING(#_eventlistenername),      \
-                                  _eventlistener, aEventListener);             \
-  }
-
-NS_WEBSOCKET_IMPL_DOMEVENTLISTENER(open, mOnOpenListener)
-NS_WEBSOCKET_IMPL_DOMEVENTLISTENER(error, mOnErrorListener)
-NS_WEBSOCKET_IMPL_DOMEVENTLISTENER(message, mOnMessageListener)
-NS_WEBSOCKET_IMPL_DOMEVENTLISTENER(close, mOnCloseListener)
-
 NS_IMETHODIMP
 nsWebSocket::Send(nsIVariant *aData, JSContext *aCx)
 {
@@ -1255,7 +1225,7 @@ nsWebSocket::Send(nsIVariant *aData, JSContext *aCx)
   nsCString msgString;
   nsCOMPtr<nsIInputStream> msgStream;
   bool isBinary;
-  PRUint32 msgLen;
+  uint32_t msgLen;
   nsresult rv = GetSendParams(aData, msgString, msgStream, isBinary, msgLen, aCx);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -1289,11 +1259,11 @@ nsWebSocket::Send(nsIVariant *aData, JSContext *aCx)
 nsresult
 nsWebSocket::GetSendParams(nsIVariant *aData, nsCString &aStringOut,
                            nsCOMPtr<nsIInputStream> &aStreamOut,
-                           bool &aIsBinary, PRUint32 &aOutgoingLength,
+                           bool &aIsBinary, uint32_t &aOutgoingLength,
                            JSContext *aCx)
 {
   // Get type of data (arraybuffer, blob, or string)
-  PRUint16 dataType;
+  uint16_t dataType;
   nsresult rv = aData->GetDataType(&dataType);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -1313,7 +1283,7 @@ nsWebSocket::GetSendParams(nsIVariant *aData, nsCString &aStringOut,
     if (NS_SUCCEEDED(rv) && !JSVAL_IS_PRIMITIVE(realVal) &&
         (obj = JSVAL_TO_OBJECT(realVal)) &&
         (JS_IsArrayBufferObject(obj, aCx))) {
-      PRInt32 len = JS_GetArrayBufferByteLength(obj, aCx);
+      int32_t len = JS_GetArrayBufferByteLength(obj, aCx);
       char* data = reinterpret_cast<char*>(JS_GetArrayBufferData(obj, aCx));
 
       aStringOut.Assign(data, len);
@@ -1329,13 +1299,13 @@ nsWebSocket::GetSendParams(nsIVariant *aData, nsCString &aStringOut,
       NS_ENSURE_SUCCESS(rv, rv);
 
       // GetSize() should not perform blocking I/O (unlike Available())
-      PRUint64 blobLen;
+      uint64_t blobLen;
       rv = blob->GetSize(&blobLen);
       NS_ENSURE_SUCCESS(rv, rv);
       if (blobLen > PR_UINT32_MAX) {
         return NS_ERROR_FILE_TOO_BIG;
       }
-      aOutgoingLength = static_cast<PRUint32>(blobLen);
+      aOutgoingLength = static_cast<uint32_t>(blobLen);
 
       aIsBinary = true;
       return NS_OK;
@@ -1346,7 +1316,7 @@ nsWebSocket::GetSendParams(nsIVariant *aData, nsCString &aStringOut,
   // TODO: bug 704444: Correctly coerce any JS type to string
   //
   PRUnichar* data = nullptr;
-  PRUint32 len = 0;
+  uint32_t len = 0;
   rv = aData->GetAsWStringWithSize(&len, &data);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -1361,12 +1331,12 @@ nsWebSocket::GetSendParams(nsIVariant *aData, nsCString &aStringOut,
 }
 
 NS_IMETHODIMP
-nsWebSocket::Close(PRUint16 code, const nsAString & reason, PRUint8 argc)
+nsWebSocket::Close(uint16_t code, const nsAString & reason, uint8_t argc)
 {
   NS_ABORT_IF_FALSE(NS_IsMainThread(), "Not running on main thread");
 
   // the reason code is optional, but if provided it must be in a specific range
-  PRUint16 closeCode = 0;
+  uint16_t closeCode = 0;
   if (argc >= 1) {
     if (code != 1000 && (code < 3000 || code > 4999)) {
       return NS_ERROR_DOM_INVALID_ACCESS_ERR;
@@ -1475,8 +1445,8 @@ nsWebSocket::Init(nsIPrincipal* aPrincipal,
   }
 
   // Assign the sub protocol list and scan it for illegal values
-  for (PRUint32 index = 0; index < protocolArray.Length(); ++index) {
-    for (PRUint32 i = 0; i < protocolArray[index].Length(); ++i) {
+  for (uint32_t index = 0; index < protocolArray.Length(); ++index) {
+    for (uint32_t i = 0; i < protocolArray[index].Length(); ++i) {
       if (protocolArray[index][i] < static_cast<PRUnichar>(0x0021) ||
           protocolArray[index][i] > static_cast<PRUnichar>(0x007E))
         return NS_ERROR_DOM_SYNTAX_ERR;
@@ -1488,7 +1458,7 @@ nsWebSocket::Init(nsIPrincipal* aPrincipal,
   }
 
   // Check content policy.
-  PRInt16 shouldLoad = nsIContentPolicy::ACCEPT;
+  int16_t shouldLoad = nsIContentPolicy::ACCEPT;
   rv = NS_CheckContentLoadPolicy(nsIContentPolicy::TYPE_WEBSOCKET,
                                  mURI,
                                  mPrincipal,

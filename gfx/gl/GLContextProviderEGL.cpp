@@ -19,6 +19,7 @@
 #define GET_NATIVE_WINDOW(aWidget) (EGLNativeWindowType)static_cast<QWidget*>(aWidget->GetNativeData(NS_NATIVE_SHELLWIDGET))->winId()
 #elif defined(MOZ_WIDGET_GONK)
 #define GET_NATIVE_WINDOW(aWidget) ((EGLNativeWindowType)aWidget->GetNativeData(NS_NATIVE_WINDOW))
+#include "HWComposer.h"
 #endif
 
 #if defined(MOZ_X11)
@@ -268,6 +269,15 @@ public:
 #ifdef DEBUG
         printf_stderr("Initializing context %p surface %p on display %p\n", mContext, mSurface, EGL_DISPLAY());
 #endif
+#ifdef MOZ_WIDGET_GONK
+        if (!aIsOffscreen)
+            mHwc = new HWComposer();
+
+        if (mHwc && mHwc->init()) {
+            NS_WARNING("HWComposer initialization failed!");
+            mHwc = nullptr;
+        }
+#endif
     }
 
     ~GLContextEGL()
@@ -424,8 +434,8 @@ public:
                                                   EGL_NO_CONTEXT,
                                                   EGL_NATIVE_BUFFER_ANDROID,
                                                   buffer, attrs);
-        fEGLImageTargetTexture2D(LOCAL_GL_TEXTURE_EXTERNAL, image);
         fBindTexture(LOCAL_GL_TEXTURE_EXTERNAL, texture);
+        fEGLImageTargetTexture2D(LOCAL_GL_TEXTURE_EXTERNAL, image);
         sEGLLibrary.fDestroyImage(EGL_DISPLAY(), image);
         return true;
 #else
@@ -507,6 +517,10 @@ public:
         return succeeded;
     }
 
+    virtual bool IsCurrent() {
+        return sEGLLibrary.fGetCurrentContext() == mContext;
+    }
+
 #ifdef MOZ_WIDGET_QT
     virtual bool
     RenewSurface() {
@@ -563,7 +577,13 @@ public:
     bool SwapBuffers()
     {
         if (mSurface && !mPlatformContext) {
-            return sEGLLibrary.fSwapBuffers(EGL_DISPLAY(), mSurface);
+#ifdef MOZ_WIDGET_GONK
+            if (mHwc)
+                return !mHwc->swapBuffers((hwc_display_t)EGL_DISPLAY(),
+                                          (hwc_surface_t)mSurface);
+            else
+#endif
+                return sEGLLibrary.fSwapBuffers(EGL_DISPLAY(), mSurface);
         } else {
             return false;
         }
@@ -675,6 +695,9 @@ protected:
     bool mIsDoubleBuffered;
     bool mCanBindToTexture;
     bool mShareWithEGLImage;
+#ifdef MOZ_WIDGET_GONK
+    nsAutoPtr<HWComposer> mHwc;
+#endif
 
     // A dummy texture ID that can be used when we need a texture object whose
     // images we're going to define with EGLImageTargetTexture2D.
@@ -2026,7 +2049,7 @@ static const EGLint kEGLConfigAttribsRGBA32[] = {
 };
 
 static bool
-CreateConfig(EGLConfig* aConfig, PRInt32 depth)
+CreateConfig(EGLConfig* aConfig, int32_t depth)
 {
     EGLConfig configs[64];
     const EGLint* attribs;
@@ -2084,7 +2107,7 @@ CreateConfig(EGLConfig* aConfig, PRInt32 depth)
 static bool
 CreateConfig(EGLConfig* aConfig)
 {
-    PRInt32 depth = gfxPlatform::GetPlatform()->GetScreenDepth();
+    int32_t depth = gfxPlatform::GetPlatform()->GetScreenDepth();
     if (!CreateConfig(aConfig, depth)) {
 #ifdef MOZ_WIDGET_ANDROID
         // Bug 736005
@@ -2154,7 +2177,7 @@ GLContextProviderEGL::CreateForWindow(nsIWidget *aWidget)
 
     void* currentContext = sEGLLibrary.fGetCurrentContext();
     if (aWidget->HasGLContext() && currentContext) {
-        PRInt32 depth = gfxPlatform::GetPlatform()->GetScreenDepth();
+        int32_t depth = gfxPlatform::GetPlatform()->GetScreenDepth();
         void* platformContext = currentContext;
 #ifdef MOZ_WIDGET_QT
         QGLContext* context = const_cast<QGLContext*>(QGLContext::currentContext());

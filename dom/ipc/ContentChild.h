@@ -22,9 +22,14 @@ struct OverrideMapping;
 
 namespace mozilla {
 
+namespace ipc {
+class OptionalURIParams;
+class URIParams;
+}// namespace ipc
+
 namespace layers {
 class PCompositorChild;
-}
+} // namespace layers
 
 namespace dom {
 
@@ -36,8 +41,9 @@ class ClonedMessageData;
 
 class ContentChild : public PContentChild
 {
-    typedef layers::PCompositorChild PCompositorChild;
     typedef mozilla::dom::ClonedMessageData ClonedMessageData;
+    typedef mozilla::ipc::OptionalURIParams OptionalURIParams;
+    typedef mozilla::ipc::URIParams URIParams;
 
 public:
     ContentChild();
@@ -63,10 +69,14 @@ public:
         return mAppInfo;
     }
 
-    PCompositorChild* AllocPCompositor(mozilla::ipc::Transport* aTransport,
-                                       base::ProcessId aOtherProcess) MOZ_OVERRIDE;
+    PCompositorChild*
+    AllocPCompositor(mozilla::ipc::Transport* aTransport,
+                     base::ProcessId aOtherProcess) MOZ_OVERRIDE;
+    PImageBridgeChild*
+    AllocPImageBridge(mozilla::ipc::Transport* aTransport,
+                      base::ProcessId aOtherProcess) MOZ_OVERRIDE;
 
-    virtual PBrowserChild* AllocPBrowser(const PRUint32& aChromeFlags,
+    virtual PBrowserChild* AllocPBrowser(const uint32_t& aChromeFlags,
                                          const bool& aIsBrowserElement,
                                          const AppId& aAppId);
     virtual bool DeallocPBrowser(PBrowserChild*);
@@ -79,7 +89,7 @@ public:
 
     virtual PCrashReporterChild*
     AllocPCrashReporter(const mozilla::dom::NativeThreadId& id,
-                        const PRUint32& processType);
+                        const uint32_t& processType);
     virtual bool
     DeallocPCrashReporter(PCrashReporterChild*);
 
@@ -102,21 +112,21 @@ public:
     virtual bool DeallocPTestShell(PTestShellChild*);
     virtual bool RecvPTestShellConstructor(PTestShellChild*);
 
-    virtual PAudioChild* AllocPAudio(const PRInt32&,
-                                     const PRInt32&,
-                                     const PRInt32&);
+    virtual PAudioChild* AllocPAudio(const int32_t&,
+                                     const int32_t&,
+                                     const int32_t&);
     virtual bool DeallocPAudio(PAudioChild*);
 
     virtual PNeckoChild* AllocPNecko();
     virtual bool DeallocPNecko(PNeckoChild*);
 
     virtual PExternalHelperAppChild *AllocPExternalHelperApp(
-            const IPC::URI& uri,
+            const OptionalURIParams& uri,
             const nsCString& aMimeContentType,
             const nsCString& aContentDisposition,
             const bool& aForceSave,
-            const PRInt64& aContentLength,
-            const IPC::URI& aReferrer);
+            const int64_t& aContentLength,
+            const OptionalURIParams& aReferrer);
     virtual bool DeallocPExternalHelperApp(PExternalHelperAppChild *aService);
 
     virtual PSmsChild* AllocPSms();
@@ -132,12 +142,11 @@ public:
 
     virtual bool RecvSetOffline(const bool& offline);
 
-    virtual bool RecvNotifyVisited(const IPC::URI& aURI);
+    virtual bool RecvNotifyVisited(const URIParams& aURI);
     // auto remove when alertfinished is received.
     nsresult AddRemoteAlertObserver(const nsString& aData, nsIObserver* aObserver);
 
-    virtual bool RecvPreferenceUpdate(const PrefTuple& aPref);
-    virtual bool RecvClearUserPreference(const nsCString& aPrefName);
+    virtual bool RecvPreferenceUpdate(const PrefSetting& aPref);
 
     virtual bool RecvNotifyAlertsObserver(const nsCString& aType, const nsString& aData);
 
@@ -158,12 +167,14 @@ public:
     virtual bool RecvCycleCollect();
 
     virtual bool RecvAppInfo(const nsCString& version, const nsCString& buildID);
-    virtual bool RecvSetID(const PRUint64 &id);
+    virtual bool RecvSetProcessAttributes(const uint64_t& id,
+                                          const bool& aIsForApp,
+                                          const bool& aIsForBrowser);
 
     virtual bool RecvLastPrivateDocShellDestroyed();
 
     virtual bool RecvFilePathUpdate(const nsString& path, const nsCString& reason);
-    virtual bool RecvFileSystemUpdate(const nsString& aFsName, const nsString& aName, const PRInt32& aState);
+    virtual bool RecvFileSystemUpdate(const nsString& aFsName, const nsString& aName, const int32_t& aState);
 
 #ifdef ANDROID
     gfxIntSize GetScreenSize() { return mScreenSize; }
@@ -173,7 +184,10 @@ public:
     // cache the value
     nsString &GetIndexedDBPath();
 
-    PRUint64 GetID() { return mID; }
+    uint64_t GetID() { return mID; }
+
+    bool IsForApp() { return mIsForApp; }
+    bool IsForBrowser() { return mIsForBrowser; }
 
     BlobChild* GetOrCreateActorForBlob(nsIDOMBlob* aBlob);
 
@@ -198,13 +212,16 @@ private:
      * We expect our content parent to set this ID immediately after opening a
      * channel to us.
      */
-    PRUint64 mID;
+    uint64_t mID;
 
     AppInfo mAppInfo;
 
 #ifdef ANDROID
     gfxIntSize mScreenSize;
 #endif
+
+    bool mIsForApp;
+    bool mIsForBrowser;
 
     static ContentChild* sSingleton;
 

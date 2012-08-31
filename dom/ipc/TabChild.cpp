@@ -12,6 +12,7 @@
 #include "Blob.h"
 #include "ContentChild.h"
 #include "IndexedDBChild.h"
+#include "mozilla/ClearOnShutdown.h"
 #include "mozilla/IntentionalCrash.h"
 #include "mozilla/docshell/OfflineCacheUpdateChild.h"
 #include "mozilla/dom/PContentChild.h"
@@ -20,6 +21,7 @@
 #include "mozilla/layers/CompositorChild.h"
 #include "mozilla/layers/PLayersChild.h"
 #include "mozilla/layout/RenderFrameChild.h"
+#include "mozilla/StaticPtr.h"
 #include "mozilla/unused.h"
 #include "nsComponentManagerUtils.h"
 #include "nsComponentManagerUtils.h"
@@ -62,8 +64,12 @@
 #include "nsThreadUtils.h"
 #include "nsWeakReference.h"
 #include "PCOMContentPermissionRequestChild.h"
+#include "PuppetWidget.h"
 #include "StructuredCloneUtils.h"
 #include "xpcpublic.h"
+
+#define BROWSER_ELEMENT_CHILD_SCRIPT \
+    NS_LITERAL_STRING("chrome://global/content/BrowserElementChild.js")
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -93,18 +99,61 @@ public:
                               const InfallibleTArray<nsString>& aStringParams);
 };
 
+StaticRefPtr<TabChild> sPreallocatedTab;
 
-TabChild::TabChild(PRUint32 aChromeFlags, bool aIsBrowserElement,
-                   PRUint32 aAppId)
+/*static*/ void
+TabChild::PreloadSlowThings()
+{
+    MOZ_ASSERT(!sPreallocatedTab);
+
+    nsRefPtr<TabChild> tab(new TabChild(0, false,
+                                        nsIScriptSecurityManager::NO_APP_ID));
+    if (!NS_SUCCEEDED(tab->Init()) ||
+        !tab->InitTabChildGlobal(DONT_LOAD_SCRIPTS)) {
+        return;
+    }
+    tab->TryCacheLoadAndCompileScript(BROWSER_ELEMENT_CHILD_SCRIPT);
+
+    sPreallocatedTab = tab;
+    ClearOnShutdown(&sPreallocatedTab);
+}
+
+/*static*/ already_AddRefed<TabChild>
+TabChild::Create(uint32_t aChromeFlags,
+                 bool aIsBrowserElement, uint32_t aAppId)
+{
+    if (sPreallocatedTab &&
+        sPreallocatedTab->mChromeFlags == aChromeFlags &&
+        (aIsBrowserElement || 
+         aAppId != nsIScriptSecurityManager::NO_APP_ID)) {
+        nsRefPtr<TabChild> child = sPreallocatedTab.get();
+        sPreallocatedTab = nullptr;
+
+        MOZ_ASSERT(!child->mTriedBrowserInit);
+
+        child->SetAppBrowserConfig(aIsBrowserElement, aAppId);
+
+        return child.forget();
+    }
+
+    nsRefPtr<TabChild> iframe = new TabChild(aChromeFlags, aIsBrowserElement,
+                                             aAppId);
+    return NS_SUCCEEDED(iframe->Init()) ? iframe.forget() : nullptr;
+}
+
+
+TabChild::TabChild(uint32_t aChromeFlags, bool aIsBrowserElement,
+                   uint32_t aAppId)
   : mRemoteFrame(nullptr)
   , mTabChildGlobal(nullptr)
   , mChromeFlags(aChromeFlags)
   , mOuterRect(0, 0, 0, 0)
   , mLastBackgroundColor(NS_RGB(255, 255, 255))
+  , mAppId(aAppId)
   , mDidFakeShow(false)
   , mIsBrowserElement(aIsBrowserElement)
   , mNotified(false)
-  , mAppId(aAppId)
+  , mTriedBrowserInit(false)
 {
     printf("creating %d!\n", NS_IsMainThread());
 }
@@ -114,15 +163,7 @@ TabChild::Observe(nsISupports *aSubject,
                   const char *aTopic,
                   const PRUnichar *aData)
 {
-  if (!strcmp(aTopic, "dom-touch-listener-added")) {
-    nsCOMPtr<nsIDOMWindow> subject(do_QueryInterface(aSubject));
-    nsCOMPtr<nsIDOMWindow> win(do_GetInterface(mWebNav));
-    nsCOMPtr<nsIDOMWindow> topSubject;
-    subject->GetTop(getter_AddRefs(topSubject));
-    if (win == topSubject) {
-      SendNotifyDOMTouchListenerAdded();
-    }
-  } else if (!strcmp(aTopic, "cancel-default-pan-zoom")) {
+  if (!strcmp(aTopic, "cancel-default-pan-zoom")) {
     nsCOMPtr<nsIDocShell> docShell(do_QueryInterface(aSubject));
     nsCOMPtr<nsITabChild> tabChild(GetTabChildFrom(docShell));
     if (tabChild == this) {
@@ -158,23 +199,60 @@ TabChild::Init()
 
   nsCOMPtr<nsIDocShellTreeItem> docShellItem(do_QueryInterface(mWebNav));
   docShellItem->SetItemType(nsIDocShellTreeItem::typeContentWrapper);
+  
+  nsCOMPtr<nsIBaseWindow> baseWindow = do_QueryInterface(mWebNav);
+  if (!baseWindow) {
+    NS_ERROR("mWebNav doesn't QI to nsIBaseWindow");
+    return false;
+  }
 
-  nsCOMPtr<nsIObserverService> observerService =
-    do_GetService(NS_OBSERVERSERVICE_CONTRACTID);
+  mWidget = nsIWidget::CreatePuppetWidget(this);
+  if (!mWidget) {
+    NS_ERROR("couldn't create fake widget");
+    return false;
+  }
+  mWidget->Create(
+    nullptr, 0,              // no parents
+    nsIntRect(nsIntPoint(0, 0), nsIntSize(0, 0)),
+    nullptr,                 // HandleWidgetEvent
+    nullptr                  // nsDeviceContext
+  );
 
-  if (observerService) {
-    observerService->AddObserver(this,
-                                 "dom-touch-listener-added",
-                                 false);
-    observerService->AddObserver(this,
-                                 "cancel-default-pan-zoom",
-                                 false);
-    observerService->AddObserver(this,
-                                 "browser-zoom-to-rect",
-                                 false);
+  baseWindow->InitWindow(0, mWidget, 0, 0, 0, 0);
+  baseWindow->Create();
+
+  SetAppBrowserConfig(mIsBrowserElement, mAppId);
+
+  // IPC uses a WebBrowser object for which DNS prefetching is turned off
+  // by default. But here we really want it, so enable it explicitly
+  nsCOMPtr<nsIWebBrowserSetup> webBrowserSetup =
+    do_QueryInterface(baseWindow);
+  if (webBrowserSetup) {
+    webBrowserSetup->SetProperty(nsIWebBrowserSetup::SETUP_ALLOW_DNS_PREFETCH,
+                                 true);
+  } else {
+    NS_WARNING("baseWindow doesn't QI to nsIWebBrowserSetup, skipping "
+               "DNS prefetching enable step.");
   }
 
   return NS_OK;
+}
+
+void
+TabChild::SetAppBrowserConfig(bool aIsBrowserElement, uint32_t aAppId)
+{
+    mIsBrowserElement = aIsBrowserElement;
+    mAppId = aAppId;
+
+    nsCOMPtr<nsIDocShell> docShell = do_GetInterface(mWebNav);
+    MOZ_ASSERT(docShell);
+
+    if (docShell) {
+        docShell->SetAppId(mAppId);
+        if (mIsBrowserElement) {
+            docShell->SetIsBrowserElement();
+        }
+    }
 }
 
 NS_INTERFACE_MAP_BEGIN(TabChild)
@@ -194,7 +272,7 @@ NS_IMPL_ADDREF(TabChild)
 NS_IMPL_RELEASE(TabChild)
 
 NS_IMETHODIMP
-TabChild::SetStatus(PRUint32 aStatusType, const PRUnichar* aStatus)
+TabChild::SetStatus(uint32_t aStatusType, const PRUnichar* aStatus)
 {
   // FIXME/bug 617804: should the platform support this?
   return NS_OK;
@@ -217,14 +295,14 @@ TabChild::SetWebBrowser(nsIWebBrowser* aWebBrowser)
 }
 
 NS_IMETHODIMP
-TabChild::GetChromeFlags(PRUint32* aChromeFlags)
+TabChild::GetChromeFlags(uint32_t* aChromeFlags)
 {
   *aChromeFlags = mChromeFlags;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-TabChild::SetChromeFlags(PRUint32 aChromeFlags)
+TabChild::SetChromeFlags(uint32_t aChromeFlags)
 {
   NS_NOTREACHED("trying to SetChromeFlags from content process?");
 
@@ -240,7 +318,7 @@ TabChild::DestroyBrowserWindow()
 }
 
 NS_IMETHODIMP
-TabChild::SizeBrowserTo(PRInt32 aCX, PRInt32 aCY)
+TabChild::SizeBrowserTo(int32_t aCX, int32_t aCY)
 {
   NS_NOTREACHED("TabChild::SizeBrowserTo not supported in TabChild");
 
@@ -271,7 +349,7 @@ TabChild::ExitModalEventLoop(nsresult aStatus)
 }
 
 NS_IMETHODIMP
-TabChild::SetStatusWithContext(PRUint32 aStatusType,
+TabChild::SetStatusWithContext(uint32_t aStatusType,
                                     const nsAString& aStatusText,
                                     nsISupports* aStatusContext)
 {
@@ -280,8 +358,8 @@ TabChild::SetStatusWithContext(PRUint32 aStatusType,
 }
 
 NS_IMETHODIMP
-TabChild::SetDimensions(PRUint32 aFlags, PRInt32 aX, PRInt32 aY,
-                             PRInt32 aCx, PRInt32 aCy)
+TabChild::SetDimensions(uint32_t aFlags, int32_t aX, int32_t aY,
+                             int32_t aCx, int32_t aCy)
 {
   NS_NOTREACHED("TabChild::SetDimensions not supported in TabChild");
 
@@ -289,8 +367,8 @@ TabChild::SetDimensions(PRUint32 aFlags, PRInt32 aX, PRInt32 aY,
 }
 
 NS_IMETHODIMP
-TabChild::GetDimensions(PRUint32 aFlags, PRInt32* aX,
-                             PRInt32* aY, PRInt32* aCx, PRInt32* aCy)
+TabChild::GetDimensions(uint32_t aFlags, int32_t* aX,
+                             int32_t* aY, int32_t* aCx, int32_t* aCy)
 {
   if (aX) {
     *aX = mOuterRect.x;
@@ -384,7 +462,7 @@ TabChild::GetInterface(const nsIID & aIID, void **aSink)
 }
 
 NS_IMETHODIMP
-TabChild::ProvideWindow(nsIDOMWindow* aParent, PRUint32 aChromeFlags,
+TabChild::ProvideWindow(nsIDOMWindow* aParent, uint32_t aChromeFlags,
                         bool aCalledFromJS,
                         bool aPositionSpecified, bool aSizeSpecified,
                         nsIURI* aURI, const nsAString& aName,
@@ -397,12 +475,7 @@ TabChild::ProvideWindow(nsIDOMWindow* aParent, PRUint32 aChromeFlags,
     // open a modal-type window, we're going to create a new <iframe mozbrowser>
     // and return its window here.
     nsCOMPtr<nsIDocShell> docshell = do_GetInterface(aParent);
-    bool isInContentBoundary = false;
-    if (docshell) {
-      docshell->GetIsBelowContentBoundary(&isInContentBoundary);
-    }
-
-    if (isInContentBoundary &&
+    if (docshell && docshell->GetIsBelowContentBoundary() &&
         !(aChromeFlags & (nsIWebBrowserChrome::CHROME_MODAL |
                           nsIWebBrowserChrome::CHROME_OPENAS_DIALOG |
                           nsIWebBrowserChrome::CHROME_OPENAS_CHROME))) {
@@ -437,7 +510,7 @@ TabChild::BrowserFrameProvideWindow(nsIDOMWindow* aOpener,
 {
   *aReturn = nullptr;
 
-  PRUint32 chromeFlags = 0;
+  uint32_t chromeFlags = 0;
   nsRefPtr<TabChild> newChild = new TabChild(chromeFlags,
                                              mIsBrowserElement, mAppId);
   if (!NS_SUCCEEDED(newChild->Init())) {
@@ -474,7 +547,7 @@ TabChild::BrowserFrameProvideWindow(nsIDOMWindow* aOpener,
 static nsInterfaceHashtable<nsPtrHashKey<PContentDialogChild>, nsIDialogParamBlock> gActiveDialogs;
 
 NS_IMETHODIMP
-TabChild::OpenDialog(PRUint32 aType, const nsACString& aName,
+TabChild::OpenDialog(uint32_t aType, const nsACString& aName,
                      const nsACString& aFeatures,
                      nsIDialogParamBlock* aArguments,
                      nsIDOMElement* aFrameElement)
@@ -482,7 +555,7 @@ TabChild::OpenDialog(PRUint32 aType, const nsACString& aName,
   if (!gActiveDialogs.IsInitialized()) {
     gActiveDialogs.Init();
   }
-  InfallibleTArray<PRInt32> intParams;
+  InfallibleTArray<int32_t> intParams;
   InfallibleTArray<nsString> stringParams;
   ParamsToArrays(aArguments, intParams, stringParams);
   PContentDialogChild* dialog =
@@ -516,12 +589,12 @@ TabChild::ParamsToArrays(nsIDialogParamBlock* aParams,
                          InfallibleTArray<nsString>& aStringParams)
 {
   if (aParams) {
-    for (PRInt32 i = 0; i < 8; ++i) {
-      PRInt32 val = 0;
+    for (int32_t i = 0; i < 8; ++i) {
+      int32_t val = 0;
       aParams->GetInt(i, &val);
       aIntParams.AppendElement(val);
     }
-    PRInt32 j = 0;
+    int32_t j = 0;
     nsXPIDLString strVal;
     while (NS_SUCCEEDED(aParams->GetString(j, getter_Copies(strVal)))) {
       aStringParams.AppendElement(strVal);
@@ -536,10 +609,10 @@ TabChild::ArraysToParams(const InfallibleTArray<int>& aIntParams,
                          nsIDialogParamBlock* aParams)
 {
   if (aParams) {
-    for (PRInt32 i = 0; PRUint32(i) < aIntParams.Length(); ++i) {
+    for (int32_t i = 0; uint32_t(i) < aIntParams.Length(); ++i) {
       aParams->SetInt(i, aIntParams[i]);
     }
-    for (PRInt32 j = 0; PRUint32(j) < aStringParams.Length(); ++j) {
+    for (int32_t j = 0; uint32_t(j) < aStringParams.Length(); ++j) {
       aParams->SetString(j, aStringParams[j].get());
     }
   }
@@ -585,6 +658,8 @@ TabChild::ActorDestroy(ActorDestroyReason why)
 
 TabChild::~TabChild()
 {
+    DestroyWindow();
+
     nsCOMPtr<nsIWebBrowser> webBrowser = do_QueryInterface(mWebNav);
     if (webBrowser) {
       webBrowser->SetContainerWindow(nullptr);
@@ -627,6 +702,7 @@ TabChild::DoFakeShow()
 bool
 TabChild::RecvShow(const nsIntSize& size)
 {
+
     if (mDidFakeShow) {
         return true;
     }
@@ -639,7 +715,7 @@ TabChild::RecvShow(const nsIntSize& size)
         return false;
     }
 
-    if (!InitWidget(size)) {
+    if (!InitRenderingState()) {
         // We can fail to initialize our widget if the <browser
         // remote> has already been destroyed, and we couldn't hook
         // into the parent-process's layer system.  That's not a fatal
@@ -647,32 +723,7 @@ TabChild::RecvShow(const nsIntSize& size)
         return true;
     }
 
-    baseWindow->InitWindow(0, mWidget,
-                           0, 0, size.width, size.height);
-    baseWindow->Create();
-
-    nsCOMPtr<nsIDocShell> docShell = do_GetInterface(mWebNav);
-    MOZ_ASSERT(docShell);
-
-    if (docShell) {
-      docShell->SetAppId(mAppId);
-      if (mIsBrowserElement) {
-        docShell->SetIsBrowserElement();
-      }
-    }
-
     baseWindow->SetVisibility(true);
-
-    // IPC uses a WebBrowser object for which DNS prefetching is turned off
-    // by default. But here we really want it, so enable it explicitly
-    nsCOMPtr<nsIWebBrowserSetup> webBrowserSetup = do_QueryInterface(baseWindow);
-    if (webBrowserSetup) {
-      webBrowserSetup->SetProperty(nsIWebBrowserSetup::SETUP_ALLOW_DNS_PREFETCH,
-                                   true);
-    } else {
-        NS_WARNING("baseWindow doesn't QI to nsIWebBrowserSetup, skipping "
-                   "DNS prefetching enable step.");
-    }
 
     return InitTabChildGlobal();
 }
@@ -737,8 +788,8 @@ TabChild::RecvUpdateFrame(const FrameMetrics& aFrameMetrics)
     }
 
     nsCString data;
-    data += nsPrintfCString("{ \"x\" : %d", aFrameMetrics.mViewportScrollOffset.x);
-    data += nsPrintfCString(", \"y\" : %d", aFrameMetrics.mViewportScrollOffset.y);
+    data += nsPrintfCString("{ \"x\" : %d", NS_lround(aFrameMetrics.mViewportScrollOffset.x));
+    data += nsPrintfCString(", \"y\" : %d", NS_lround(aFrameMetrics.mViewportScrollOffset.y));
     // We don't treat the x and y scales any differently for this
     // semi-platform-specific code.
     data += nsPrintfCString(", \"zoom\" : %f", aFrameMetrics.mResolution.width);
@@ -802,9 +853,9 @@ bool
 TabChild::RecvMouseEvent(const nsString& aType,
                          const float&    aX,
                          const float&    aY,
-                         const PRInt32&  aButton,
-                         const PRInt32&  aClickCount,
-                         const PRInt32&  aModifiers,
+                         const int32_t&  aButton,
+                         const int32_t&  aClickCount,
+                         const int32_t&  aModifiers,
                          const bool&     aIgnoreRootScrollFrame)
 {
   nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
@@ -836,12 +887,19 @@ TabChild::RecvRealTouchEvent(const nsTouchEvent& aEvent)
 {
     nsTouchEvent localEvent(aEvent);
     nsEventStatus status = DispatchWidgetEvent(localEvent);
+
+    nsCOMPtr<nsPIDOMWindow> outerWindow = do_GetInterface(mWebNav);
+    nsCOMPtr<nsPIDOMWindow> innerWindow = outerWindow->GetCurrentInnerWindow();
+    if (innerWindow && innerWindow->HasTouchEventListeners()) {
+      SendContentReceivedTouch(nsIPresShell::gPreventMouseEvents);
+    }
+
     if (status == nsEventStatus_eConsumeNoDefault) {
         return true;
     }
 
     // Synthesize a phony mouse event.
-    PRUint32 msg;
+    uint32_t msg;
     switch (aEvent.message) {
     case NS_TOUCH_START:
         msg = NS_MOUSE_BUTTON_DOWN;
@@ -876,6 +934,12 @@ TabChild::RecvRealTouchEvent(const nsTouchEvent& aEvent)
 }
 
 bool
+TabChild::RecvRealTouchMoveEvent(const nsTouchEvent& aEvent)
+{
+    return RecvRealTouchEvent(aEvent);
+}
+
+bool
 TabChild::RecvRealKeyEvent(const nsKeyEvent& event)
 {
   nsKeyEvent localEvent(event);
@@ -885,9 +949,9 @@ TabChild::RecvRealKeyEvent(const nsKeyEvent& event)
 
 bool
 TabChild::RecvKeyEvent(const nsString& aType,
-                       const PRInt32& aKeyCode,
-                       const PRInt32& aCharCode,
-                       const PRInt32& aModifiers,
+                       const int32_t& aKeyCode,
+                       const int32_t& aCharCode,
+                       const int32_t& aModifiers,
                        const bool& aPreventDefault)
 {
   nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
@@ -941,7 +1005,7 @@ PDocumentRendererChild*
 TabChild::AllocPDocumentRenderer(const nsRect& documentRect,
                                  const gfxMatrix& transform,
                                  const nsString& bgcolor,
-                                 const PRUint32& renderFlags,
+                                 const uint32_t& renderFlags,
                                  const bool& flushLayout,
                                  const nsIntSize& renderSize)
 {
@@ -960,7 +1024,7 @@ TabChild::RecvPDocumentRendererConstructor(PDocumentRendererChild* actor,
                                            const nsRect& documentRect,
                                            const gfxMatrix& transform,
                                            const nsString& bgcolor,
-                                           const PRUint32& renderFlags,
+                                           const uint32_t& renderFlags,
                                            const bool& flushLayout,
                                            const nsIntSize& renderSize)
 {
@@ -989,7 +1053,7 @@ TabChild::RecvPDocumentRendererConstructor(PDocumentRendererChild* actor,
 }
 
 PContentDialogChild*
-TabChild::AllocPContentDialog(const PRUint32&,
+TabChild::AllocPContentDialog(const uint32_t&,
                               const nsCString&,
                               const nsCString&,
                               const InfallibleTArray<int>&,
@@ -1039,8 +1103,8 @@ TabChild::RecvActivateFrameEvent(const nsString& aType, const bool& capture)
 }
 
 POfflineCacheUpdateChild*
-TabChild::AllocPOfflineCacheUpdate(const URI& manifestURI,
-            const URI& documentURI,
+TabChild::AllocPOfflineCacheUpdate(const URIParams& manifestURI,
+            const URIParams& documentURI,
             const nsCString& clientID,
             const bool& stickDocument)
 {
@@ -1083,9 +1147,9 @@ TabChild::RecvAsyncMessage(const nsString& aMessage,
     cloneData.mDataLength = buffer.dataLength;
 
     if (!blobChildList.IsEmpty()) {
-      PRUint32 length = blobChildList.Length();
+      uint32_t length = blobChildList.Length();
       cloneData.mClosure.mBlobs.SetCapacity(length);
-      for (PRUint32 i = 0; i < length; ++i) {
+      for (uint32_t i = 0; i < length; ++i) {
         BlobChild* blobChild = static_cast<BlobChild*>(blobChildList[i]);
         MOZ_ASSERT(blobChild);
 
@@ -1163,58 +1227,47 @@ TabChild::DeallocPRenderFrame(PRenderFrameChild* aFrame)
 }
 
 bool
-TabChild::InitTabChildGlobal()
+TabChild::InitTabChildGlobal(FrameScriptLoading aScriptLoading)
 {
-  if (mCx && mTabChildGlobal)
-    return true;
+  if (!mCx && !mTabChildGlobal) {
+    nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
+    NS_ENSURE_TRUE(window, false);
+    nsCOMPtr<nsIDOMEventTarget> chromeHandler =
+      do_QueryInterface(window->GetChromeEventHandler());
+    NS_ENSURE_TRUE(chromeHandler, false);
 
-  nsCOMPtr<nsPIDOMWindow> window = do_GetInterface(mWebNav);
-  NS_ENSURE_TRUE(window, false);
-  nsCOMPtr<nsIDOMEventTarget> chromeHandler =
-    do_QueryInterface(window->GetChromeEventHandler());
-  NS_ENSURE_TRUE(chromeHandler, false);
+    nsRefPtr<TabChildGlobal> scope = new TabChildGlobal(this);
+    NS_ENSURE_TRUE(scope, false);
 
-  nsRefPtr<TabChildGlobal> scope = new TabChildGlobal(this);
-  NS_ENSURE_TRUE(scope, false);
+    mTabChildGlobal = scope;
 
-  mTabChildGlobal = scope;
-
-  nsISupports* scopeSupports =
-    NS_ISUPPORTS_CAST(nsIDOMEventTarget*, scope);
+    nsISupports* scopeSupports = NS_ISUPPORTS_CAST(nsIDOMEventTarget*, scope);
   
-  NS_ENSURE_TRUE(InitTabChildGlobalInternal(scopeSupports), false); 
+    NS_ENSURE_TRUE(InitTabChildGlobalInternal(scopeSupports), false); 
 
-  scope->Init();
+    scope->Init();
 
-  nsCOMPtr<nsPIWindowRoot> root = do_QueryInterface(chromeHandler);
-  NS_ENSURE_TRUE(root, false);
-  root->SetParentTarget(scope);
+    nsCOMPtr<nsPIWindowRoot> root = do_QueryInterface(chromeHandler);
+    NS_ENSURE_TRUE(root, false);
+    root->SetParentTarget(scope);
+  }
 
-  // Initialize the child side of the browser element machinery, if appropriate.
-  if (mIsBrowserElement || mAppId != nsIScriptSecurityManager::NO_APP_ID) {
-    RecvLoadRemoteScript(
-      NS_LITERAL_STRING("chrome://global/content/BrowserElementChild.js"));
+  if (aScriptLoading != DONT_LOAD_SCRIPTS && !mTriedBrowserInit) {
+    mTriedBrowserInit = true;
+    // Initialize the child side of the browser element machinery,
+    // if appropriate.
+    if (mIsBrowserElement || mAppId != nsIScriptSecurityManager::NO_APP_ID) {
+      RecvLoadRemoteScript(BROWSER_ELEMENT_CHILD_SCRIPT);
+    }
   }
 
   return true;
 }
 
 bool
-TabChild::InitWidget(const nsIntSize& size)
+TabChild::InitRenderingState()
 {
-    NS_ABORT_IF_FALSE(!mWidget && !mRemoteFrame, "CreateWidget twice?");
-
-    mWidget = nsIWidget::CreatePuppetWidget(this);
-    if (!mWidget) {
-        NS_ERROR("couldn't create fake widget");
-        return false;
-    }
-    mWidget->Create(
-        nullptr, 0,              // no parents
-        nsIntRect(nsIntPoint(0, 0), size),
-        nullptr,                 // HandleWidgetEvent
-        nullptr                  // nsDeviceContext
-        );
+    static_cast<PuppetWidget*>(mWidget.get())->InitIMEState();
 
     LayersBackend be;
     uint64_t id;
@@ -1255,6 +1308,19 @@ TabChild::InitWidget(const nsIntSize& size)
     lf->SetMaxTextureSize(maxTextureSize);
 
     mRemoteFrame = remoteFrame;
+
+    nsCOMPtr<nsIObserverService> observerService =
+        do_GetService(NS_OBSERVERSERVICE_CONTRACTID);
+
+    if (observerService) {
+        observerService->AddObserver(this,
+                                     "cancel-default-pan-zoom",
+                                     false);
+        observerService->AddObserver(this,
+                                     "browser-zoom-to-rect",
+                                     false);
+    }
+
     return true;
 }
 
@@ -1265,6 +1331,17 @@ TabChild::SetBackgroundColor(const nscolor& aColor)
     mLastBackgroundColor = aColor;
     SendSetBackgroundColor(mLastBackgroundColor);
   }
+}
+
+void
+TabChild::GetDPI(float* aDPI)
+{
+    *aDPI = -1.0;
+    if (!mRemoteFrame) {
+        return;
+    }
+
+    SendGetDPI(aDPI);
 }
 
 void
@@ -1323,9 +1400,9 @@ SendSyncMessageToParent(void* aCallbackData,
   const nsTArray<nsCOMPtr<nsIDOMBlob> >& blobs = aData.mClosure.mBlobs;
   if (!blobs.IsEmpty()) {
     InfallibleTArray<PBlobChild*>& blobChildList = data.blobsChild();
-    PRUint32 length = blobs.Length();
+    uint32_t length = blobs.Length();
     blobChildList.SetCapacity(length);
-    for (PRUint32 i = 0; i < length; ++i) {
+    for (uint32_t i = 0; i < length; ++i) {
       BlobChild* blobChild = cc->GetOrCreateActorForBlob(blobs[i]);
       if (!blobChild) {
         return false;
@@ -1351,9 +1428,9 @@ SendAsyncMessageToParent(void* aCallbackData,
   const nsTArray<nsCOMPtr<nsIDOMBlob> >& blobs = aData.mClosure.mBlobs;
   if (!blobs.IsEmpty()) {
     InfallibleTArray<PBlobChild*>& blobChildList = data.blobsChild();
-    PRUint32 length = blobs.Length();
+    uint32_t length = blobs.Length();
     blobChildList.SetCapacity(length);
-    for (PRUint32 i = 0; i < length; ++i) {
+    for (uint32_t i = 0; i < length; ++i) {
       BlobChild* blobChild = cc->GetOrCreateActorForBlob(blobs[i]);
       if (!blobChild) {
         return false;
@@ -1375,7 +1452,7 @@ void
 TabChildGlobal::Init()
 {
   NS_ASSERTION(!mMessageManager, "Re-initializing?!?");
-  mMessageManager = new nsFrameMessageManager(false,
+  mMessageManager = new nsFrameMessageManager(false, /* aChrome */
                                               SendSyncMessageToParent,
                                               SendAsyncMessageToParent,
                                               nullptr,
@@ -1397,7 +1474,8 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(TabChildGlobal,
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(TabChildGlobal)
-  NS_INTERFACE_MAP_ENTRY(nsIFrameMessageManager)
+  NS_INTERFACE_MAP_ENTRY(nsIMessageListenerManager)
+  NS_INTERFACE_MAP_ENTRY(nsIMessageSender)
   NS_INTERFACE_MAP_ENTRY(nsISyncMessageSender)
   NS_INTERFACE_MAP_ENTRY(nsIContentFrameMessageManager)
   NS_INTERFACE_MAP_ENTRY(nsIScriptContextPrincipal)

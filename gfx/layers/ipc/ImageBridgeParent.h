@@ -23,6 +23,8 @@ public:
   ImageBridgeParent(MessageLoop* aLoop);
   ~ImageBridgeParent();
 
+  static PImageBridgeParent*
+  Create(Transport* aTransport, ProcessId aOtherProcess);
 
   virtual PGrallocBufferParent*
   AllocPGrallocBuffer(const gfxIntSize&, const uint32_t&, const uint32_t&,
@@ -32,7 +34,7 @@ public:
   DeallocPGrallocBuffer(PGrallocBufferParent* actor) MOZ_OVERRIDE;
 
   // Overriden from PImageBridgeParent.
-  PImageContainerParent* AllocPImageContainer(PRUint64* aID) MOZ_OVERRIDE;
+  PImageContainerParent* AllocPImageContainer(uint64_t* aID) MOZ_OVERRIDE;
   // Overriden from PImageBridgeParent.
   bool DeallocPImageContainer(PImageContainerParent* toDealloc) MOZ_OVERRIDE;
   // Overriden from PImageBridgeParent.

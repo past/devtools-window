@@ -18,7 +18,7 @@
 class nsEventStates
 {
 public:
-  typedef PRUint64 InternalType;
+  typedef uint64_t InternalType;
 
   nsEventStates()
     : mStates(0)
@@ -252,6 +252,8 @@ private:
 #define NS_EVENT_STATE_LTR NS_DEFINE_EVENT_STATE_MACRO(43)
 // Element is rtl (for :dir pseudo-class)
 #define NS_EVENT_STATE_RTL NS_DEFINE_EVENT_STATE_MACRO(44)
+// Handler for play preview plugin
+#define NS_EVENT_STATE_TYPE_PLAY_PREVIEW NS_DEFINE_EVENT_STATE_MACRO(45)
 
 /**
  * NOTE: do not go over 63 without updating nsEventStates::InternalType!

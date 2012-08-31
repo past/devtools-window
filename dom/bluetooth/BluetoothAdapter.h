@@ -74,23 +74,14 @@ private:
   bool mDiscovering;
   bool mPairable;
   bool mPowered;
-  PRUint32 mPairableTimeout;
-  PRUint32 mDiscoverableTimeout;
-  PRUint32 mClass;
+  uint32_t mPairableTimeout;
+  uint32_t mDiscoverableTimeout;
+  uint32_t mClass;
   nsTArray<nsString> mDeviceAddresses;
   nsTArray<nsString> mUuids;
   JSObject* mJsUuids;
   JSObject* mJsDeviceAddresses;
   bool mIsRooted;
-  
-  NS_DECL_EVENT_HANDLER(propertychanged)
-  NS_DECL_EVENT_HANDLER(devicefound)
-  NS_DECL_EVENT_HANDLER(devicedisappeared)
-  NS_DECL_EVENT_HANDLER(requestconfirmation)
-  NS_DECL_EVENT_HANDLER(requestpincode)
-  NS_DECL_EVENT_HANDLER(requestpasskey)
-  NS_DECL_EVENT_HANDLER(authorize)
-  NS_DECL_EVENT_HANDLER(cancel)
 };
 
 END_BLUETOOTH_NAMESPACE

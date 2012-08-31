@@ -243,46 +243,6 @@ nsNPAPIPlugin::PluginCrashed(const nsAString& pluginDumpID,
   host->PluginCrashed(this, pluginDumpID, browserDumpID);
 }
 
-#if defined(XP_MACOSX) && defined(__i386__)
-static PRInt32 OSXVersion()
-{
-  static PRInt32 gOSXVersion = 0x0;
-  if (gOSXVersion == 0x0) {
-    OSErr err = ::Gestalt(gestaltSystemVersion, (SInt32*)&gOSXVersion);
-    if (err != noErr) {
-      // This should probably be changed when our minimum version changes
-      NS_ERROR("Couldn't determine OS X version, assuming 10.5");
-      gOSXVersion = 0x00001050;
-    }
-  }
-  return gOSXVersion;
-}
-
-// Detects machines with Intel GMA9xx GPUs.
-// kCGLRendererIDMatchingMask and kCGLRendererIntel900ID are only defined in the 10.6 SDK.
-#define CGLRendererIDMatchingMask 0x00FE7F00
-#define CGLRendererIntel900ID 0x00024000
-static bool GMA9XXGraphics()
-{
-  bool hasIntelGMA9XX = false;
-  CGLRendererInfoObj renderer = 0;
-  GLint rendererCount = 0;
-  if (::CGLQueryRendererInfo(0xffffffff, &renderer, &rendererCount) == kCGLNoError) {
-    for (GLint c = 0; c < rendererCount; c++) {
-      GLint rendProp = 0;
-      if (::CGLDescribeRenderer(renderer, c, kCGLRPRendererID, &rendProp) == kCGLNoError) {
-        if ((rendProp & CGLRendererIDMatchingMask) == CGLRendererIntel900ID) {
-          hasIntelGMA9XX = true;
-          break;
-        }
-      }
-    }
-    ::CGLDestroyRendererInfo(renderer);
-  }
-  return hasIntelGMA9XX;
-}
-#endif
-
 bool
 nsNPAPIPlugin::RunPluginOOP(const nsPluginTag *aPluginTag)
 {
@@ -302,34 +262,6 @@ nsNPAPIPlugin::RunPluginOOP(const nsPluginTag *aPluginTag)
   }
 #endif
 
-#if defined(XP_MACOSX) && defined(__i386__)
-  // Only allow on Mac OS X 10.6 or higher.
-  if (OSXVersion() < 0x00001060) {
-    return false;
-  }
-  // Blacklist Flash 10.0 or lower since it may try to negotiate Carbon/Quickdraw
-  // which are not supported out of process. Also blacklist Flash 10.1 if this
-  // machine has an Intel GMA9XX GPU because Flash will negotiate Quickdraw graphics.
-  // Never blacklist Flash >= 10.2.
-  if (aPluginTag->mFileName.EqualsIgnoreCase("flash player.plugin")) {
-    // If the first '.' is before position 2 or the version 
-    // starts with 10.0 then we are dealing with Flash 10 or less.
-    if (aPluginTag->mVersion.FindChar('.') < 2) {
-      return false;
-    }
-    if (aPluginTag->mVersion.Length() >= 4) {
-      nsCString versionPrefix;
-      aPluginTag->mVersion.Left(versionPrefix, 4);
-      if (versionPrefix.EqualsASCII("10.0")) {
-        return false;
-      }
-      if (versionPrefix.EqualsASCII("10.1") && GMA9XXGraphics()) {
-        return false;
-      }
-    }
-  }
-#endif
-
   nsIPrefBranch* prefs = Preferences::GetRootBranch();
   if (!prefs) {
     return false;
@@ -341,7 +273,7 @@ nsNPAPIPlugin::RunPluginOOP(const nsPluginTag *aPluginTag)
   // The "filename.dll" part can contain shell wildcard pattern
 
   nsCAutoString prefFile(aPluginTag->mFullPath.get());
-  PRInt32 slashPos = prefFile.RFindCharInSet("/\\");
+  int32_t slashPos = prefFile.RFindCharInSet("/\\");
   if (kNotFound == slashPos)
     return false;
   prefFile.Cut(0, slashPos + 1);
@@ -366,7 +298,7 @@ nsNPAPIPlugin::RunPluginOOP(const nsPluginTag *aPluginTag)
     return false;
   }
 
-  PRUint32 prefCount;
+  uint32_t prefCount;
   char** prefNames;
   nsresult rv = prefs->GetChildList(prefGroupKey.get(),
                                     &prefCount, &prefNames);
@@ -375,8 +307,8 @@ nsNPAPIPlugin::RunPluginOOP(const nsPluginTag *aPluginTag)
   bool prefSet = false;
 
   if (NS_SUCCEEDED(rv) && prefCount > 0) {
-    PRUint32 prefixLength = prefGroupKey.Length();
-    for (PRUint32 currentPref = 0; currentPref < prefCount; currentPref++) {
+    uint32_t prefixLength = prefGroupKey.Length();
+    for (uint32_t currentPref = 0; currentPref < prefCount; currentPref++) {
       // Get the mask
       const char* maskStart = prefNames[currentPref] + prefixLength;
       bool match = false;
@@ -1044,7 +976,7 @@ _write(NPP npp, NPStream *pstream, int32_t len, void *buffer)
     return -1;
   }
 
-  PRUint32 count = 0;
+  uint32_t count = 0;
   nsresult rv = stream->Write((char *)buffer, len, &count);
 
   if (NS_FAILED(rv)) {
@@ -1432,7 +1364,7 @@ _retainobject(NPObject* npobj)
 #ifdef NS_BUILD_REFCNT_LOGGING
     int32_t refCnt =
 #endif
-      PR_ATOMIC_INCREMENT((PRInt32*)&npobj->referenceCount);
+      PR_ATOMIC_INCREMENT((int32_t*)&npobj->referenceCount);
     NS_LOG_ADDREF(npobj, refCnt, "BrowserNPObject", sizeof(NPObject));
   }
 
@@ -1448,7 +1380,7 @@ _releaseobject(NPObject* npobj)
   if (!npobj)
     return;
 
-  int32_t refCnt = PR_ATOMIC_DECREMENT((PRInt32*)&npobj->referenceCount);
+  int32_t refCnt = PR_ATOMIC_DECREMENT((int32_t*)&npobj->referenceCount);
   NS_LOG_RELEASE(npobj, refCnt, "BrowserNPObject");
 
   if (refCnt == 0) {
@@ -2133,7 +2065,7 @@ _getvalue(NPP npp, NPNVariable variable, void *result)
       nsNPAPIPluginInstance *inst = (nsNPAPIPluginInstance*)npp->ndata;
       if (inst) {
         NPDrawingModel drawingModel;
-        inst->GetDrawingModel((PRInt32*)&drawingModel);
+        inst->GetDrawingModel((int32_t*)&drawingModel);
         *(NPDrawingModel*)result = drawingModel;
         return NPERR_NO_ERROR;
       }
@@ -2145,7 +2077,7 @@ _getvalue(NPP npp, NPNVariable variable, void *result)
 
 #ifndef NP_NO_QUICKDRAW
   case NPNVsupportsQuickDrawBool: {
-    *(NPBool*)result = true;
+    *(NPBool*)result = false;
     
     return NPERR_NO_ERROR;
   }
@@ -2517,7 +2449,7 @@ _requestread(NPStream *pstream, NPByteRange *rangeList)
     return NPERR_GENERIC_ERROR;
   }
 
-  PRInt32 streamtype = NP_NORMAL;
+  int32_t streamtype = NP_NORMAL;
 
   streamlistener->GetStreamType(&streamtype);
 

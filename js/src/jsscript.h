@@ -176,10 +176,6 @@ class Bindings
     /* Return the initial shape of call objects created for this scope. */
     Shape *callObjShape() const { return callObjShape_; }
 
-    /* See Scope::extensibleParents (TODO: remove with bug 774915). */
-    inline bool extensibleParents();
-    bool setExtensibleParents(JSContext *cx);
-
     /* Convenience method to get the var index of 'arguments'. */
     unsigned argumentsVarIndex(JSContext *cx) const;
 
@@ -473,6 +469,9 @@ struct JSScript : public js::gc::Cell
                                          JSCompartment::scriptCountsMap */
     bool            hasDebugScript:1; /* script has an entry in
                                          JSCompartment::debugScriptMap */
+    bool            hasFreezeConstraints:1; /* freeze constraints for stack
+                                             * type sets have been generated */
+
   private:
     /* See comments below. */
     bool            argsHasVarBinding_:1;
@@ -579,8 +578,7 @@ struct JSScript : public js::gc::Cell
     inline void clearAnalysis();
     inline js::analyze::ScriptAnalysis *analysis();
 
-    inline bool hasGlobal() const;
-    inline bool hasClearedGlobal() const;
+    inline void clearPropertyReadTypes();
 
     inline js::GlobalObject &global() const;
 
@@ -1179,10 +1177,11 @@ js_GetScriptLineExtent(JSScript *script);
 namespace js {
 
 extern unsigned
-PCToLineNumber(JSScript *script, jsbytecode *pc);
+PCToLineNumber(JSScript *script, jsbytecode *pc, unsigned *columnp = NULL);
 
 extern unsigned
-PCToLineNumber(unsigned startLine, jssrcnote *notes, jsbytecode *code, jsbytecode *pc);
+PCToLineNumber(unsigned startLine, jssrcnote *notes, jsbytecode *code, jsbytecode *pc,
+               unsigned *columnp = NULL);
 
 extern unsigned
 CurrentLine(JSContext *cx);

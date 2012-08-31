@@ -117,7 +117,7 @@ ToSVGViewBoxRect(const nsAString& aStr, nsSVGViewBoxRect *aViewBox)
     tokenizer(aStr, ',',
               nsCharSeparatedTokenizer::SEPARATOR_OPTIONAL);
   float vals[NUM_VIEWBOX_COMPONENTS];
-  PRUint32 i;
+  uint32_t i;
   for (i = 0; i < NUM_VIEWBOX_COMPONENTS && tokenizer.hasMoreTokens(); ++i) {
     NS_ConvertUTF16toUTF8 utf8Token(tokenizer.nextToken());
     const char *token = utf8Token.get();
@@ -148,20 +148,25 @@ ToSVGViewBoxRect(const nsAString& aStr, nsSVGViewBoxRect *aViewBox)
 
 nsresult
 nsSVGViewBox::SetBaseValueString(const nsAString& aValue,
-                                 nsSVGElement *aSVGElement)
+                                 nsSVGElement *aSVGElement,
+                                 bool aDoSetAttr)
 {
   nsSVGViewBoxRect viewBox;
   nsresult res = ToSVGViewBoxRect(aValue, &viewBox);
   if (NS_SUCCEEDED(res)) {
+    nsAttrValue emptyOrOldValue;
+    if (aDoSetAttr) {
+      emptyOrOldValue = aSVGElement->WillChangeViewBox();
+    }
     mBaseVal = nsSVGViewBoxRect(viewBox.x, viewBox.y, viewBox.width, viewBox.height);
     mHasBaseVal = true;
 
+    if (aDoSetAttr) {
+      aSVGElement->DidChangeViewBox(emptyOrOldValue);
+    }
     if (mAnimVal) {
       aSVGElement->AnimationNeedsResample();
     }
-    // We don't need to call Will/DidChange* here - we're only called by
-    // nsSVGElement::ParseAttribute under nsGenericElement::SetAttr,
-    // which takes care of notifying.
   }
   return res;
 }

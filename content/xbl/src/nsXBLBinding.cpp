@@ -169,10 +169,7 @@ InstallXBLField(JSContext* cx,
   nsXBLPrototypeBinding* protoBinding;
   nsDependentJSString fieldName;
   {
-    JSAutoEnterCompartment ac;
-    if (!ac.enter(cx, callee)) {
-      return false;
-    }
+    JSAutoCompartment ac(cx, callee);
 
     JS::Rooted<JSObject*> xblProto(cx);
     xblProto = &js::GetFunctionNativeReserved(callee, XBLPROTO_SLOT).toObject();
@@ -579,7 +576,7 @@ BuildContentLists(nsISupports* aKey,
 
   nsIContent *boundElement = binding->GetBoundElement();
 
-  PRInt32 count = aData->Length();
+  int32_t count = aData->Length();
   
   if (count == 0)
     return PL_DHASH_NEXT;
@@ -591,7 +588,7 @@ BuildContentLists(nsISupports* aKey,
     data->mRv = NS_ERROR_FAILURE;
     return PL_DHASH_STOP;
   }
-  PRInt32 currIndex = currPoint->GetInsertionIndex();
+  int32_t currIndex = currPoint->GetInsertionIndex();
 
   // XXX Could this array just be altered in place and passed directly to
   // SetContentListFor?  We'd save space if we could pull this off.
@@ -613,15 +610,15 @@ BuildContentLists(nsISupports* aKey,
   }
 
   nsXBLInsertionPoint* pseudoPoint = nullptr;
-  PRUint32 childCount;
+  uint32_t childCount;
   nodeList->GetLength(&childCount);
-  PRInt32 j = 0;
+  int32_t j = 0;
 
-  for (PRUint32 i = 0; i < childCount; i++) {
+  for (uint32_t i = 0; i < childCount; i++) {
     nsCOMPtr<nsIDOMNode> node;
     nodeList->Item(i, getter_AddRefs(node));
     nsCOMPtr<nsIContent> child(do_QueryInterface(node));
-    if (((PRInt32)i) == currIndex) {
+    if (((int32_t)i) == currIndex) {
       // Add the currPoint to the insertion point list.
       contentList->AppendElement(currPoint);
 
@@ -637,7 +634,7 @@ BuildContentLists(nsISupports* aKey,
     }
     
     if (!pseudoPoint) {
-      pseudoPoint = new nsXBLInsertionPoint(parent, (PRUint32) -1, nullptr);
+      pseudoPoint = new nsXBLInsertionPoint(parent, (uint32_t) -1, nullptr);
       if (pseudoPoint) {
         contentList->AppendElement(pseudoPoint);
       }
@@ -670,11 +667,11 @@ RealizeDefaultContent(nsISupports* aKey,
   nsBindingManager* bm = data->mBindingManager;
   nsXBLBinding* binding = data->mBinding;
 
-  PRInt32 count = aData->Length();
+  int32_t count = aData->Length();
  
-  for (PRInt32 i = 0; i < count; i++) {
+  for (int32_t i = 0; i < count; i++) {
     nsXBLInsertionPoint* currPoint = aData->ElementAt(i);
-    PRInt32 insCount = currPoint->ChildCount();
+    int32_t insCount = currPoint->ChildCount();
     
     if (insCount == 0) {
       nsCOMPtr<nsIContent> defContent = currPoint->GetDefaultContentTemplate();
@@ -722,8 +719,8 @@ ChangeDocumentForDefaultContent(nsISupports* aKey,
                                 nsAutoPtr<nsInsertionPointList>& aData,
                                 void* aClosure)
 {
-  PRInt32 count = aData->Length();
-  for (PRInt32 i = 0; i < count; i++) {
+  int32_t count = aData->Length();
+  for (int32_t i = 0; i < count; i++) {
     aData->ElementAt(i)->UnbindDefaultContent();
   }
 
@@ -750,7 +747,7 @@ nsXBLBinding::GenerateAnonymousContent()
      
   // Find out if we're really building kids or if we're just
   // using the attribute-setting shorthand hack.
-  PRUint32 contentCount = content->GetChildCount();
+  uint32_t contentCount = content->GetChildCount();
 
   // Plan to build the content by default.
   bool hasContent = (contentCount > 0);
@@ -779,14 +776,14 @@ nsXBLBinding::GenerateAnonymousContent()
  
     nsCOMPtr<nsIDOMNode> node;
     nsCOMPtr<nsIContent> childContent;
-    PRUint32 length;
+    uint32_t length;
     children->GetLength(&length);
     if (length > 0 && !hasInsertionPoints) {
       // There are children being placed underneath us, but we have no specified
       // insertion points, and therefore no place to put the kids.  Don't generate
       // anonymous content.
       // Special case template and observes.
-      for (PRUint32 i = 0; i < length; i++) {
+      for (uint32_t i = 0; i < length; i++) {
         children->Item(i, getter_AddRefs(node));
         childContent = do_QueryInterface(node);
 
@@ -832,7 +829,7 @@ nsXBLBinding::GenerateAnonymousContent()
 
         // We need to place the children
         // at their respective insertion points.
-        PRUint32 index = 0;
+        uint32_t index = 0;
         bool multiplePoints = false;
         nsIContent *singlePoint = GetSingleInsertionPoint(&index,
                                                           &multiplePoints);
@@ -842,12 +839,12 @@ nsXBLBinding::GenerateAnonymousContent()
             // We must walk the entire content list in order to determine where
             // each child belongs.
             children->GetLength(&length);
-            for (PRUint32 i = 0; i < length; i++) {
+            for (uint32_t i = 0; i < length; i++) {
               children->Item(i, getter_AddRefs(node));
               childContent = do_QueryInterface(node);
 
               // Now determine the insertion point in the prototype table.
-              PRUint32 index;
+              uint32_t index;
               nsIContent *point = GetInsertionPoint(childContent, &index);
               bindingManager->SetInsertionParent(childContent, point);
 
@@ -855,8 +852,8 @@ nsXBLBinding::GenerateAnonymousContent()
               nsInsertionPointList* arr = nullptr;
               GetInsertionPointsFor(point, &arr);
               nsXBLInsertionPoint* insertionPoint = nullptr;
-              PRInt32 arrCount = arr->Length();
-              for (PRInt32 j = 0; j < arrCount; j++) {
+              int32_t arrCount = arr->Length();
+              for (int32_t j = 0; j < arrCount; j++) {
                 insertionPoint = arr->ElementAt(j);
                 if (insertionPoint->Matches(point, index))
                   break;
@@ -894,10 +891,10 @@ nsXBLBinding::GenerateAnonymousContent()
         
             nsCOMPtr<nsIDOMNode> node;
             nsCOMPtr<nsIContent> content;
-            PRUint32 length;
+            uint32_t length;
             children->GetLength(&length);
           
-            for (PRUint32 i = 0; i < length; i++) {
+            for (uint32_t i = 0; i < length; i++) {
               children->Item(i, getter_AddRefs(node));
               content = do_QueryInterface(node);
               bindingManager->SetInsertionParent(content, singlePoint);
@@ -923,8 +920,8 @@ nsXBLBinding::GenerateAnonymousContent()
   // This shorthand hack always happens, even when we didn't
   // build anonymous content.
   const nsAttrName* attrName;
-  for (PRUint32 i = 0; (attrName = content->GetAttrNameAt(i)); ++i) {
-    PRInt32 namespaceID = attrName->NamespaceID();
+  for (uint32_t i = 0; (attrName = content->GetAttrNameAt(i)); ++i) {
+    int32_t namespaceID = attrName->NamespaceID();
     // Hold a strong reference here so that the atom doesn't go away during
     // UnsetAttr.
     nsCOMPtr<nsIAtom> name = attrName->LocalName();
@@ -974,7 +971,7 @@ nsXBLBinding::InstallEventHandlers()
         nsXBLEventHandler* handler = curr->GetEventHandler();
         if (handler) {
           // Figure out if we're using capturing or not.
-          PRInt32 flags = (curr->GetPhase() == NS_PHASE_CAPTURING) ?
+          int32_t flags = (curr->GetPhase() == NS_PHASE_CAPTURING) ?
             NS_EVENT_FLAG_CAPTURE : NS_EVENT_FLAG_BUBBLE;
 
           // If this is a command, add it in the system event group
@@ -998,7 +995,7 @@ nsXBLBinding::InstallEventHandlers()
 
       const nsCOMArray<nsXBLKeyEventHandler>* keyHandlers =
         mPrototypeBinding->GetKeyEventHandlers();
-      PRInt32 i;
+      int32_t i;
       for (i = 0; i < keyHandlers->Count(); ++i) {
         nsXBLKeyEventHandler* handler = keyHandlers->ObjectAt(i);
         handler->SetIsBoundToChrome(isChromeDoc);
@@ -1010,7 +1007,7 @@ nsXBLBinding::InstallEventHandlers()
         // add it to the standard event group.
 
         // Figure out if we're using capturing or not.
-        PRInt32 flags = (handler->GetPhase() == NS_PHASE_CAPTURING) ?
+        int32_t flags = (handler->GetPhase() == NS_PHASE_CAPTURING) ?
           NS_EVENT_FLAG_CAPTURE : NS_EVENT_FLAG_BUBBLE;
 
         if ((handler->GetType() & (NS_HANDLER_TYPE_XBL_COMMAND |
@@ -1052,7 +1049,7 @@ nsXBLBinding::InstallImplementation()
 }
 
 nsIAtom*
-nsXBLBinding::GetBaseTag(PRInt32* aNameSpaceID)
+nsXBLBinding::GetBaseTag(int32_t* aNameSpaceID)
 {
   nsIAtom *tag = mPrototypeBinding->GetBaseTag(aNameSpaceID);
   if (!tag && mNextBinding)
@@ -1062,7 +1059,7 @@ nsXBLBinding::GetBaseTag(PRInt32* aNameSpaceID)
 }
 
 void
-nsXBLBinding::AttributeChanged(nsIAtom* aAttribute, PRInt32 aNameSpaceID,
+nsXBLBinding::AttributeChanged(nsIAtom* aAttribute, int32_t aNameSpaceID,
                                bool aRemoveFlag, bool aNotify)
 {
   // XXX Change if we ever allow multiple bindings in a chain to contribute anonymous content
@@ -1124,7 +1121,7 @@ nsXBLBinding::UnhookEventHandlers()
         continue;
 
       // Figure out if we're using capturing or not.
-      PRInt32 flags = (curr->GetPhase() == NS_PHASE_CAPTURING) ?
+      int32_t flags = (curr->GetPhase() == NS_PHASE_CAPTURING) ?
         NS_EVENT_FLAG_CAPTURE : NS_EVENT_FLAG_BUBBLE;
 
       // If this is a command, remove it from the system event group,
@@ -1143,7 +1140,7 @@ nsXBLBinding::UnhookEventHandlers()
 
     const nsCOMArray<nsXBLKeyEventHandler>* keyHandlers =
       mPrototypeBinding->GetKeyEventHandlers();
-    PRInt32 i;
+    int32_t i;
     for (i = 0; i < keyHandlers->Count(); ++i) {
       nsXBLKeyEventHandler* handler = keyHandlers->ObjectAt(i);
 
@@ -1151,7 +1148,7 @@ nsXBLBinding::UnhookEventHandlers()
       handler->GetEventName(type);
 
       // Figure out if we're using capturing or not.
-      PRInt32 flags = (handler->GetPhase() == NS_PHASE_CAPTURING) ?
+      int32_t flags = (handler->GetPhase() == NS_PHASE_CAPTURING) ?
         NS_EVENT_FLAG_CAPTURE : NS_EVENT_FLAG_BUBBLE;
 
       // If this is a command, remove it from the system event group, otherwise 
@@ -1217,10 +1214,7 @@ nsXBLBinding::ChangeDocument(nsIDocument* aOldDocument, nsIDocument* aNewDocumen
               JSObject* base = scriptObject;
               JSObject* proto;
               JSAutoRequest ar(cx);
-              JSAutoEnterCompartment ac;
-              if (!ac.enter(cx, scriptObject)) {
-                return;
-              }
+              JSAutoCompartment ac(cx, scriptObject);
 
               for ( ; true; base = proto) { // Will break out on null proto
                 proto = ::JS_GetPrototype(base);
@@ -1348,10 +1342,7 @@ nsXBLBinding::DoInitJSClass(JSContext *cx, JSObject *global, JSObject *obj,
   JSObject* parent_proto = nullptr;  // If we have an "obj" we can set this
   JSAutoRequest ar(cx);
 
-  JSAutoEnterCompartment ac;
-  if (!ac.enter(cx, global)) {
-    return NS_ERROR_FAILURE;
-  }
+  JSAutoCompartment ac(cx, global);
 
   if (obj) {
     // Retrieve the current prototype of obj.
@@ -1540,8 +1531,8 @@ nsXBLBinding::RemoveInsertionParent(nsIContent* aParent)
     nsInsertionPointList* list = nullptr;
     mInsertionPointTable->Get(aParent, &list);
     if (list) {
-      PRInt32 count = list->Length();
-      for (PRInt32 i = 0; i < count; ++i) {
+      int32_t count = list->Length();
+      for (int32_t i = 0; i < count; ++i) {
         nsRefPtr<nsXBLInsertionPoint> currPoint = list->ElementAt(i);
         currPoint->UnbindDefaultContent();
 #ifdef DEBUG
@@ -1602,7 +1593,7 @@ nsXBLBinding::GetExistingInsertionPointsFor(nsIContent* aParent)
 }
 
 nsIContent*
-nsXBLBinding::GetInsertionPoint(const nsIContent* aChild, PRUint32* aIndex)
+nsXBLBinding::GetInsertionPoint(const nsIContent* aChild, uint32_t* aIndex)
 {
   if (mContent) {
     return mPrototypeBinding->GetInsertionPoint(mBoundElement, mContent,
@@ -1616,7 +1607,7 @@ nsXBLBinding::GetInsertionPoint(const nsIContent* aChild, PRUint32* aIndex)
 }
 
 nsIContent*
-nsXBLBinding::GetSingleInsertionPoint(PRUint32* aIndex,
+nsXBLBinding::GetSingleInsertionPoint(uint32_t* aIndex,
                                       bool* aMultipleInsertionPoints)
 {
   *aMultipleInsertionPoints = false;

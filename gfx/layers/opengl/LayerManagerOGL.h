@@ -103,6 +103,7 @@ public:
   void EndConstruction();
 
   virtual bool EndEmptyTransaction(EndTransactionFlags aFlags = END_DEFAULT);
+  virtual void NotifyShadowTreeTransaction();
   virtual void EndTransaction(DrawThebesLayerCallback aCallback,
                               void* aCallbackData,
                               EndTransactionFlags aFlags = END_DEFAULT);
@@ -113,11 +114,11 @@ public:
   {
       if (!mGLContext)
           return false;
-      PRInt32 maxSize = mGLContext->GetMaxTextureSize();
+      int32_t maxSize = mGLContext->GetMaxTextureSize();
       return aSize <= gfxIntSize(maxSize, maxSize);
   }
 
-  virtual PRInt32 GetMaxTextureSize() const
+  virtual int32_t GetMaxTextureSize() const
   {
     return mGLContext->GetMaxTextureSize();
   }
@@ -446,15 +447,22 @@ private:
       int fcount;
       TimeStamp last;
 
+      int contentFps;
+      int contentFCount;
+      TimeStamp contentLast;
+
       FPSState()
         : texture(0)
         , fps(0)
         , initialized(false)
         , fcount(0)
+        , contentFps(0)
+        , contentFCount(0)
       {
-        last = TimeStamp::Now();
+        contentLast = last = TimeStamp::Now();
       }
       void DrawFPS(GLContext*, ShaderProgramOGL*);
+      void NotifyShadowTreeTransaction();
   } mFPS;
 
   static bool sDrawFPS;

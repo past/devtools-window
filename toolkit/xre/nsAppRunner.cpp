@@ -190,7 +190,7 @@ using mozilla::unused;
 #include "AndroidBridge.h"
 #endif
 
-extern PRUint32 gRestartMode;
+extern uint32_t gRestartMode;
 extern void InstallSignalHandlers(const char *ProgramName);
 #include "nsX11ErrorHandler.h"
 
@@ -536,7 +536,7 @@ ProcessDDE(nsINativeAppSupport* aNative, bool aWait)
       nsIThread *thread = NS_GetCurrentThread();
       // This is just a guesstimate based on testing different values.
       // If count is 8 or less windows will display an error dialog.
-      PRInt32 count = 20;
+      int32_t count = 20;
       while(--count >= 0) {
         NS_ProcessNextEvent(thread);
         PR_Sleep(PR_MillisecondsToInterval(1));
@@ -754,7 +754,7 @@ MOZ_STATIC_ASSERT(GeckoProcessType_IPDLUnitTest + 1 == GeckoProcessType_End,
                   "Did not find the final GeckoProcessType");
 
 NS_IMETHODIMP
-nsXULAppInfo::GetProcessType(PRUint32* aResult)
+nsXULAppInfo::GetProcessType(uint32_t* aResult)
 {
   NS_ENSURE_ARG_POINTER(aResult);
   *aResult = XRE_GetProcessType();
@@ -810,7 +810,7 @@ nsXULAppInfo::InvalidateCachesOnRestart()
 }
 
 NS_IMETHODIMP
-nsXULAppInfo::GetReplacedLockTime(PRInt64 *aReplacedLockTime)
+nsXULAppInfo::GetReplacedLockTime(PRTime *aReplacedLockTime)
 {
   if (!gProfileLock)
     return NS_ERROR_NOT_AVAILABLE;
@@ -999,8 +999,8 @@ nsXULAppInfo::AppendAppNotesToCrashReport(const nsACString& data)
 }
 
 NS_IMETHODIMP
-nsXULAppInfo::RegisterAppMemory(PRUint64 pointer,
-                                PRUint64 len)
+nsXULAppInfo::RegisterAppMemory(uint64_t pointer,
+                                uint64_t len)
 {
   return CrashReporter::RegisterAppMemory((void *)pointer, len);
 }
@@ -1346,11 +1346,46 @@ DumpHelp()
   DumpArbitraryHelp();
 }
 
+#if defined(DEBUG) && defined(XP_WIN)
 #ifdef DEBUG_warren
-#ifdef XP_WIN
 #define _CRTDBG_MAP_ALLOC
-#include <crtdbg.h>
 #endif
+// Set a CRT ReportHook function to capture and format MSCRT
+// warnings, errors and assertions.
+// See http://msdn.microsoft.com/en-US/library/74kabxyx(v=VS.80).aspx
+#include <stdio.h>
+#include <crtdbg.h>
+#include "mozilla/mozalloc_abort.h"
+static int MSCRTReportHook( int aReportType, char *aMessage, int *oReturnValue)
+{
+  *oReturnValue = 0; // continue execution
+
+  // Do not use fprintf or other functions which may allocate
+  // memory from the heap which may be corrupted. Instead,
+  // use fputs to output the leading portion of the message
+  // and use mozalloc_abort to emit the remainder of the
+  // message.
+
+  switch(aReportType) {
+  case 0:
+    fputs("\nWARNING: CRT WARNING", stderr);
+    fputs(aMessage, stderr);
+    fputs("\n", stderr);
+    break;
+  case 1:
+    fputs("\n###!!! ABORT: CRT ERROR ", stderr);
+    mozalloc_abort(aMessage);
+    break;
+  case 2:
+    fputs("\n###!!! ABORT: CRT ASSERT ", stderr);
+    mozalloc_abort(aMessage);
+    break;
+  }
+
+  // do not invoke the debugger
+  return 1;
+}
+
 #endif
 
 #if defined(FREEBSD)
@@ -1611,7 +1646,7 @@ static nsresult LaunchChild(nsINativeAppSupport* aNative,
 #else
 #if defined(XP_MACOSX)
   CommandLineServiceMac::SetupMacCommandLine(gRestartArgc, gRestartArgv, true);
-  PRUint32 restartMode = 0;
+  uint32_t restartMode = 0;
   restartMode = gRestartMode;
   LaunchChildMac(gRestartArgc, gRestartArgv, restartMode);
 #else
@@ -1650,7 +1685,7 @@ static nsresult LaunchChild(nsINativeAppSupport* aNative,
                                         nullptr, nullptr);
   if (!process) return NS_ERROR_FAILURE;
 
-  PRInt32 exitCode;
+  int32_t exitCode;
   PRStatus failed = PR_WaitProcess(process, &exitCode);
   if (failed || exitCode)
     return NS_ERROR_FAILURE;
@@ -1715,14 +1750,14 @@ ProfileLockedDialog(nsIFile* aProfileDir, nsIFile* aProfileLocalDir,
     NS_ENSURE_TRUE(ps, NS_ERROR_FAILURE);
 
     if (aUnlocker) {
-      const PRUint32 flags =
+      const uint32_t flags =
         (nsIPromptService::BUTTON_TITLE_CANCEL * 
          nsIPromptService::BUTTON_POS_0) +
         (nsIPromptService::BUTTON_TITLE_IS_STRING * 
          nsIPromptService::BUTTON_POS_1) +
         nsIPromptService::BUTTON_POS_1_DEFAULT;
 
-      PRInt32 button;
+      int32_t button;
       // The actual value is irrelevant but we shouldn't be handing out
       // malformed JSBools to XPConnect.
       bool checkState = false;
@@ -1874,7 +1909,7 @@ ShowProfileManager(nsIToolkitProfileService* aProfileSvc,
 
       aProfileSvc->Flush();
 
-      PRInt32 dialogConfirmed;
+      int32_t dialogConfirmed;
       rv = ioParamBlock->GetInt(0, &dialogConfirmed);
       if (NS_FAILED(rv) || dialogConfirmed == 0) return NS_ERROR_ABORT;
 
@@ -2161,7 +2196,7 @@ SelectProfile(nsIProfileLock* *aResult, nsIToolkitProfileService* aProfileSvc, n
     return rv;
   }
 
-  PRUint32 count;
+  uint32_t count;
   rv = aProfileSvc->GetProfileCount(&count);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -3355,7 +3390,7 @@ XREMain::XRE_mainStartup(bool* aExitFlag)
   }
 #endif
 
-#if defined(MOZ_UPDATER) && !defined(MOZ_WIDGET_ANDROID)
+#if defined(USE_MOZ_UPDATER)
   // Check for and process any available updates
   nsCOMPtr<nsIFile> updRoot;
   bool persistent;
@@ -3947,7 +3982,7 @@ XREMain::XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
 }
 
 int
-XRE_main(int argc, char* argv[], const nsXREAppData* aAppData, PRUint32 aFlags)
+XRE_main(int argc, char* argv[], const nsXREAppData* aAppData, uint32_t aFlags)
 {
   XREMain main;
   int result = main.XRE_main(argc, argv, aAppData);
@@ -4078,6 +4113,21 @@ SetupErrorHandling(const char* progname)
 
   SetErrorMode(realMode);
 
+#endif
+
+#if defined (DEBUG) && defined(XP_WIN)
+  // Send MSCRT Warnings, Errors and Assertions to stderr.
+  // See http://msdn.microsoft.com/en-us/library/1y71x448(v=VS.80).aspx
+  // and http://msdn.microsoft.com/en-us/library/a68f826y(v=VS.80).aspx.
+
+  _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
+  _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
+  _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+  _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+  _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+  _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+
+  _CrtSetReportHook(MSCRTReportHook);
 #endif
 
 #ifndef XP_OS2

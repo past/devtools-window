@@ -20,6 +20,10 @@
 #include "nsError.h"
 #include "nsIProgrammingLanguage.h"
 #include "mozilla/Util.h" // for DebugOnly
+#include "nsIIPCSerializableURI.h"
+#include "mozilla/ipc/URIUtils.h"
+
+using namespace mozilla::ipc;
 
 static NS_DEFINE_CID(kThisSimpleURIImplementationCID,
                      NS_THIS_SIMPLEURI_IMPLEMENTATION_CID);
@@ -41,8 +45,8 @@ nsSimpleURI::~nsSimpleURI()
 NS_IMPL_ADDREF(nsSimpleURI)
 NS_IMPL_RELEASE(nsSimpleURI)
 NS_INTERFACE_TABLE_HEAD(nsSimpleURI)
-NS_INTERFACE_TABLE5(nsSimpleURI, nsIURI, nsISerializable,
-                    nsIIPCSerializableObsolete, nsIClassInfo, nsIMutable)
+NS_INTERFACE_TABLE5(nsSimpleURI, nsIURI, nsISerializable, nsIClassInfo,
+                    nsIMutable, nsIIPCSerializableURI)
 NS_INTERFACE_TABLE_TO_MAP_SEGUE
   if (aIID.Equals(kThisSimpleURIImplementationCID))
     foundInterface = static_cast<nsIURI*>(this);
@@ -118,39 +122,49 @@ nsSimpleURI::Write(nsIObjectOutputStream* aStream)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// nsIIPCSerializableObsolete methods:
-
-bool
-nsSimpleURI::Read(const IPC::Message *aMsg, void **aIter)
-{
-    bool isMutable, isRefValid;
-    if (!ReadParam(aMsg, aIter, &isMutable) ||
-        !ReadParam(aMsg, aIter, &mScheme) ||
-        !ReadParam(aMsg, aIter, &mPath) ||
-        !ReadParam(aMsg, aIter, &isRefValid))
-        return false;
-
-    mMutable = isMutable;
-    mIsRefValid = isRefValid;
-
-    if (mIsRefValid) {
-        return ReadParam(aMsg, aIter, &mRef);
-    }
-    mRef.Truncate(); // invariant: mRef should be empty when it's not valid
-
-    return true;
-}
+// nsIIPCSerializableURI methods:
 
 void
-nsSimpleURI::Write(IPC::Message *aMsg)
+nsSimpleURI::Serialize(URIParams& aParams)
 {
-    WriteParam(aMsg, bool(mMutable));
-    WriteParam(aMsg, mScheme);
-    WriteParam(aMsg, mPath);
-    WriteParam(aMsg, mIsRefValid);
+    SimpleURIParams params;
+
+    params.scheme() = mScheme;
+    params.path() = mPath;
     if (mIsRefValid) {
-        WriteParam(aMsg, mRef);
+      params.ref() = mRef;
     }
+    else {
+      params.ref().SetIsVoid(true);
+    }
+    params.isMutable() = mMutable;
+
+    aParams = params;
+}
+
+bool
+nsSimpleURI::Deserialize(const URIParams& aParams)
+{
+    if (aParams.type() != URIParams::TSimpleURIParams) {
+        NS_ERROR("Received unknown parameters from the other process!");
+        return false;
+    }
+
+    const SimpleURIParams& params = aParams.get_SimpleURIParams();
+
+    mScheme = params.scheme();
+    mPath = params.path();
+    if (params.ref().IsVoid()) {
+        mRef.Truncate();
+        mIsRefValid = false;
+    }
+    else {
+        mRef = params.ref();
+        mIsRefValid = true;
+    }
+    mMutable = params.isMutable();
+
+    return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -193,7 +207,7 @@ nsSimpleURI::SetSpec(const nsACString &aSpec)
 
     // filter out unexpected chars "\r\n\t" if necessary
     nsCAutoString filteredSpec;
-    PRInt32 specLen;
+    int32_t specLen;
     if (net_FilterURIString(specPtr, filteredSpec)) {
         specPtr = filteredSpec.get();
         specLen = filteredSpec.Length();
@@ -204,12 +218,12 @@ nsSimpleURI::SetSpec(const nsACString &aSpec)
     nsCAutoString spec;
     NS_EscapeURL(specPtr, specLen, esc_OnlyNonASCII|esc_AlwaysCopy, spec);
 
-    PRInt32 colonPos = spec.FindChar(':');
+    int32_t colonPos = spec.FindChar(':');
     if (colonPos < 0 || !net_IsValidScheme(spec.get(), colonPos))
         return NS_ERROR_MALFORMED_URI;
 
     mScheme.Truncate();
-    mozilla::DebugOnly<PRInt32> n = spec.Left(mScheme, colonPos);
+    mozilla::DebugOnly<int32_t> n = spec.Left(mScheme, colonPos);
     NS_ASSERTION(n == colonPos, "Left failed");
     ToLowerCase(mScheme);
 
@@ -322,7 +336,7 @@ nsSimpleURI::SetHost(const nsACString &host)
 }
 
 NS_IMETHODIMP
-nsSimpleURI::GetPort(PRInt32 *result)
+nsSimpleURI::GetPort(int32_t *result)
 {
     // Note: Audit all callers before changing this to return an empty
     // string -- CAPS and UI code may depend on this throwing.
@@ -330,7 +344,7 @@ nsSimpleURI::GetPort(PRInt32 *result)
 }
 
 NS_IMETHODIMP
-nsSimpleURI::SetPort(PRInt32 port)
+nsSimpleURI::SetPort(int32_t port)
 {
     NS_ENSURE_STATE(mMutable);
     
@@ -353,7 +367,7 @@ nsSimpleURI::SetPath(const nsACString &path)
 {
     NS_ENSURE_STATE(mMutable);
     
-    PRInt32 hashPos = path.FindChar('#');
+    int32_t hashPos = path.FindChar('#');
     if (hashPos < 0) {
         mIsRefValid = false;
         mRef.Truncate(); // invariant: mRef should be empty when it's not valid
@@ -362,7 +376,7 @@ nsSimpleURI::SetPath(const nsACString &path)
     }
 
     mPath = StringHead(path, hashPos);
-    return SetRef(Substring(path, PRUint32(hashPos)));
+    return SetRef(Substring(path, uint32_t(hashPos)));
 }
 
 NS_IMETHODIMP
@@ -543,7 +557,7 @@ nsSimpleURI::GetOriginCharset(nsACString &result)
 //----------------------------------------------------------------------------
 
 NS_IMETHODIMP 
-nsSimpleURI::GetInterfaces(PRUint32 *count, nsIID * **array)
+nsSimpleURI::GetInterfaces(uint32_t *count, nsIID * **array)
 {
     *count = 0;
     *array = nullptr;
@@ -551,7 +565,7 @@ nsSimpleURI::GetInterfaces(PRUint32 *count, nsIID * **array)
 }
 
 NS_IMETHODIMP 
-nsSimpleURI::GetHelperForLanguage(PRUint32 language, nsISupports **_retval)
+nsSimpleURI::GetHelperForLanguage(uint32_t language, nsISupports **_retval)
 {
     *_retval = nullptr;
     return NS_OK;
@@ -585,14 +599,14 @@ nsSimpleURI::GetClassID(nsCID * *aClassID)
 }
 
 NS_IMETHODIMP 
-nsSimpleURI::GetImplementationLanguage(PRUint32 *aImplementationLanguage)
+nsSimpleURI::GetImplementationLanguage(uint32_t *aImplementationLanguage)
 {
     *aImplementationLanguage = nsIProgrammingLanguage::CPLUSPLUS;
     return NS_OK;
 }
 
 NS_IMETHODIMP 
-nsSimpleURI::GetFlags(PRUint32 *aFlags)
+nsSimpleURI::GetFlags(uint32_t *aFlags)
 {
     *aFlags = nsIClassInfo::MAIN_THREAD_ONLY;
     return NS_OK;

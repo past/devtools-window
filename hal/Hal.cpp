@@ -159,7 +159,7 @@ CancelVibrate(const WindowIdentifier &id)
   if (InSandbox()) {
     hal_sandbox::CancelVibrate(id);
   }
-  else if (*gLastIDToVibrate == id.AsArray()) {
+  else if (gLastIDToVibrate && *gLastIDToVibrate == id.AsArray()) {
     // Don't forward our ID to hal_impl. It doesn't need it, and we
     // don't want it to be tempted to read it.  The empty identifier
     // will assert if it's used.
@@ -726,7 +726,7 @@ NotifyAlarmFired()
 }
 
 bool
-SetAlarm(PRInt32 aSeconds, PRInt32 aNanoseconds)
+SetAlarm(int32_t aSeconds, int32_t aNanoseconds)
 {
   // It's pointless to program an alarm nothing is going to observe ...
   MOZ_ASSERT(sAlarmObserver);

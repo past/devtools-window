@@ -121,7 +121,7 @@ struct UserInputData {
 };
 
 static void
-sendMouseEvent(PRUint32 msg, uint64_t timeMs, int x, int y, bool forwardToChildren)
+sendMouseEvent(uint32_t msg, uint64_t timeMs, int x, int y, bool forwardToChildren)
 {
     nsMouseEvent event(true, msg, NULL,
                        nsMouseEvent::eReal, nsMouseEvent::eNormal);
@@ -156,7 +156,7 @@ addDOMTouch(UserInputData& data, nsTouchEvent& event, int i)
 static nsEventStatus
 sendTouchEvent(UserInputData& data)
 {
-    PRUint32 msg;
+    uint32_t msg;
     int32_t action = data.action & AMOTION_EVENT_ACTION_MASK;
     switch (action) {
     case AMOTION_EVENT_ACTION_DOWN:
@@ -194,10 +194,10 @@ sendTouchEvent(UserInputData& data)
 }
 
 static nsEventStatus
-sendKeyEventWithMsg(PRUint32 keyCode,
-                    PRUint32 msg,
+sendKeyEventWithMsg(uint32_t keyCode,
+                    uint32_t msg,
                     uint64_t timeMs,
-                    PRUint32 flags)
+                    uint32_t flags)
 {
     nsKeyEvent event(true, msg, NULL);
     event.keyCode = keyCode;
@@ -208,7 +208,7 @@ sendKeyEventWithMsg(PRUint32 keyCode,
 }
 
 static void
-sendKeyEvent(PRUint32 keyCode, bool down, uint64_t timeMs)
+sendKeyEvent(uint32_t keyCode, bool down, uint64_t timeMs)
 {
     nsEventStatus status =
         sendKeyEventWithMsg(keyCode, down ? NS_KEY_DOWN : NS_KEY_UP, timeMs, 0);
@@ -232,6 +232,92 @@ maybeSendKeyEvent(int keyCode, bool pressed, uint64_t timeMs)
                     keyCode, pressed);
 }
 
+class GeckoPointerController : public PointerControllerInterface {
+    float mX;
+    float mY;
+    int32_t mButtonState;
+    InputReaderConfiguration* mConfig;
+public:
+    GeckoPointerController(InputReaderConfiguration* config)
+        : mX(0)
+        , mY(0)
+        , mButtonState(0)
+        , mConfig(config)
+    {}
+
+    virtual bool getBounds(float* outMinX, float* outMinY,
+            float* outMaxX, float* outMaxY) const;
+    virtual void move(float deltaX, float deltaY);
+    virtual void setButtonState(int32_t buttonState);
+    virtual int32_t getButtonState() const;
+    virtual void setPosition(float x, float y);
+    virtual void getPosition(float* outX, float* outY) const;
+    virtual void fade(Transition transition) {}
+    virtual void unfade(Transition transition) {}
+    virtual void setPresentation(Presentation presentation) {}
+    virtual void setSpots(const PointerCoords* spotCoords, const uint32_t* spotIdToIndex,
+            BitSet32 spotIdBits) {}
+    virtual void clearSpots() {}
+};
+
+bool
+GeckoPointerController::getBounds(float* outMinX,
+                                  float* outMinY,
+                                  float* outMaxX,
+                                  float* outMaxY) const
+{
+    int32_t width, height, orientation;
+
+    mConfig->getDisplayInfo(0, false, &width, &height, &orientation);
+
+    *outMinX = *outMinY = 0;
+    if (orientation == DISPLAY_ORIENTATION_90 ||
+        orientation == DISPLAY_ORIENTATION_270) {
+        *outMaxX = height;
+        *outMaxY = width;
+    } else {
+        *outMaxX = width;
+        *outMaxY = height;
+    }
+    return true;
+}
+
+void
+GeckoPointerController::move(float deltaX, float deltaY)
+{
+    float minX, minY, maxX, maxY;
+    getBounds(&minX, &minY, &maxX, &maxY);
+
+    mX = clamped(mX + deltaX, minX, maxX);
+    mY = clamped(mY + deltaY, minY, maxY);
+}
+
+void
+GeckoPointerController::setButtonState(int32_t buttonState)
+{
+    mButtonState = buttonState;
+}
+
+int32_t
+GeckoPointerController::getButtonState() const
+{
+    return mButtonState;
+}
+
+void
+GeckoPointerController::setPosition(float x, float y)
+{
+    mX = x;
+    mY = y;
+}
+
+void
+GeckoPointerController::getPosition(float* outX, float* outY) const
+{
+    *outX = mX;
+    *outY = mY;
+}
+
 class GeckoInputReaderPolicy : public InputReaderPolicyInterface {
     InputReaderConfiguration mConfig;
 public:
@@ -241,8 +327,7 @@ public:
     virtual sp<PointerControllerInterface> obtainPointerController(int32_t
 deviceId)
     {
-        MOZ_NOT_REACHED("Input device configuration failed.");
-        return NULL;
+        return new GeckoPointerController(&mConfig);
     };
     void setDisplayInfo();
 
@@ -347,9 +432,13 @@ GeckoInputDispatcher::dispatchOnce()
 
     switch (data.type) {
     case UserInputData::MOTION_DATA: {
-        nsEventStatus status = sendTouchEvent(data);
+        nsEventStatus status = nsEventStatus_eIgnore;
+        if ((data.action & AMOTION_EVENT_ACTION_MASK) !=
+            AMOTION_EVENT_ACTION_HOVER_MOVE) {
+            status = sendTouchEvent(data);
+        }
 
-        PRUint32 msg;
+        uint32_t msg;
         switch (data.action & AMOTION_EVENT_ACTION_MASK) {
         case AMOTION_EVENT_ACTION_DOWN:
             msg = NS_MOUSE_BUTTON_DOWN;
@@ -357,6 +446,7 @@ GeckoInputDispatcher::dispatchOnce()
         case AMOTION_EVENT_ACTION_POINTER_DOWN:
         case AMOTION_EVENT_ACTION_POINTER_UP:
         case AMOTION_EVENT_ACTION_MOVE:
+        case AMOTION_EVENT_ACTION_HOVER_MOVE:
             msg = NS_MOUSE_MOVE;
             break;
         case AMOTION_EVENT_ACTION_OUTSIDE:
@@ -431,8 +521,10 @@ GeckoInputDispatcher::notifyMotion(const NotifyMotionArgs* args)
         MutexAutoLock lock(mQueueLock);
         if (!mEventQueue.empty() &&
              mEventQueue.back().type == UserInputData::MOTION_DATA &&
+           ((mEventQueue.back().action & AMOTION_EVENT_ACTION_MASK) ==
+             AMOTION_EVENT_ACTION_MOVE ||
             (mEventQueue.back().action & AMOTION_EVENT_ACTION_MASK) ==
-             AMOTION_EVENT_ACTION_MOVE)
+             AMOTION_EVENT_ACTION_HOVER_MOVE))
             mEventQueue.back() = data;
         else
             mEventQueue.push(data);

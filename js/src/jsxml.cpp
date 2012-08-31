@@ -460,8 +460,7 @@ NewXMLAttributeName(JSContext *cx, JSLinearString *uri, JSLinearString *prefix,
      * AttributeName is an internal anonymous class which instances are not
      * exposed to scripts.
      */
-    JSObject *parent = GetGlobalForScopeChain(cx);
-    RootedObject obj(cx, NewObjectWithGivenProto(cx, &AttributeNameClass, NULL, parent));
+    RootedObject obj(cx, NewObjectWithGivenProto(cx, &AttributeNameClass, NULL, cx->global()));
     if (!obj)
         return NULL;
     JS_ASSERT(obj->isQName());
@@ -483,7 +482,7 @@ ConstructObjectWithArguments(JSContext *cx, Class *clasp,
     /* Protect constructor in case a crazy getter for .prototype uproots it. */
     RootedValue value(cx);
     RootedObject null(cx);
-    if (!js_FindClassObject(cx, null, protoKey, &value, clasp))
+    if (!js_FindClassObject(cx, protoKey, &value, clasp))
         return NULL;
 
     Value rval;
@@ -1636,7 +1635,7 @@ static JSBool
 GetXMLSetting(JSContext *cx, const char *name, jsval *vp)
 {
     RootedValue v(cx);
-    if (!js_FindClassObject(cx, NullPtr(), JSProto_XML, &v))
+    if (!js_FindClassObject(cx, JSProto_XML, &v))
         return JS_FALSE;
     if (v.get().isPrimitive() || !v.get().toObject().isFunction()) {
         *vp = JSVAL_VOID;
@@ -1684,10 +1683,9 @@ GetXMLSettingFlags(JSContext *cx, unsigned *flagsp)
 static JSObject *
 GetCurrentScopeChain(JSContext *cx)
 {
-    if (cx->hasfp())
+    if (cx->hasfp() && cx->fp()->scopeChain()->compartment() == cx->compartment)
         return cx->fp()->scopeChain();
-    RootedObject global(cx, cx->globalObject);
-    return JS_ObjectToInnerObject(cx, global);
+    return cx->global();
 }
 
 static JSXML *
@@ -3038,7 +3036,7 @@ DeepCopy(JSContext *cx, JSXML *xml, JSObject *obj, unsigned flags)
     if (copy) {
         if (obj) {
             /* Caller provided the object for this copy, hook 'em up. */
-            obj->setPrivate(copy);
+            obj->setPrivateGCThing(copy);
             copy->object = obj;
         } else if (!js_GetXMLObject(cx, copy)) {
             copy = NULL;
@@ -5138,11 +5136,6 @@ xml_trace(JSTracer *trc, JSObject *obj)
     }
 }
 
-static void
-xml_clear(JSContext *cx, HandleObject obj)
-{
-}
-
 static JSBool
 HasSimpleContent(JSXML *xml)
 {
@@ -5362,7 +5355,6 @@ JS_FRIEND_DATA(Class) js::XMLClass = {
         xml_enumerate,
         xml_typeOf,
         NULL,       /* thisObject     */
-        xml_clear
     }
 };
 
@@ -6024,7 +6016,7 @@ NamespacesToJSArray(JSContext *cx, JSXMLArray<JSObject> *array, jsval *rval)
         if (!ns)
             continue;
         v.setObject(*ns);
-        if (!arrayobj->setElement(cx, arrayobj, i, &v, false))
+        if (!JSObject::setElement(cx, arrayobj, arrayobj, i, &v, false))
             return false;
     }
     return true;
@@ -7307,11 +7299,10 @@ NewXMLObject(JSContext *cx, JSXML *xml)
 {
     JSObject *obj;
 
-    JSObject *parent = GetGlobalForScopeChain(cx);
-    obj = NewObjectWithClassProto(cx, &XMLClass, NULL, parent);
+    obj = NewObjectWithClassProto(cx, &XMLClass, NULL, cx->global());
     if (!obj)
         return NULL;
-    obj->setPrivate(xml);
+    obj->setPrivateGCThing(xml);
     return obj;
 }
 
@@ -7413,7 +7404,7 @@ js_InitXMLClass(JSContext *cx, JSObject *obj)
     Rooted<JSXML*> xml(cx, js_NewXML(cx, JSXML_CLASS_TEXT));
     if (!xml)
         return NULL;
-    xmlProto->setPrivate(xml);
+    xmlProto->setPrivateGCThing(xml);
     xml->object = xmlProto;
 
     /* Don't count this as a real content-created XML object. */
@@ -7444,9 +7435,9 @@ js_InitXMLClass(JSContext *cx, JSObject *obj)
     if (!xmllist)
         return NULL;
     RootedValue value(cx, ObjectValue(*xmlProto));
-    if (!xmllist->defineProperty(cx, cx->runtime->atomState.classPrototypeAtom,
-                                 value, JS_PropertyStub, JS_StrictPropertyStub,
-                                 JSPROP_PERMANENT | JSPROP_READONLY))
+    if (!JSObject::defineProperty(cx, xmllist, cx->runtime->atomState.classPrototypeAtom,
+                                  value, JS_PropertyStub, JS_StrictPropertyStub,
+                                  JSPROP_PERMANENT | JSPROP_READONLY))
     {
         return NULL;
     }
@@ -7523,7 +7514,8 @@ GlobalObject::getFunctionNamespace(JSContext *cx, Value *vp)
 JSBool
 js_GetDefaultXMLNamespace(JSContext *cx, jsval *vp)
 {
-    JSObject *ns, *obj;
+    JSObject *ns;
+    RootedObject obj(cx);
     RootedValue v(cx);
 
     RootedObject tmp(cx);
@@ -7536,7 +7528,7 @@ js_GetDefaultXMLNamespace(JSContext *cx, jsval *vp)
     for (tmp = scopeChain; tmp; tmp = tmp->enclosingScope()) {
         if (tmp->isBlock() || tmp->isWith())
             continue;
-        if (!tmp->getSpecial(cx, tmp, SpecialId::defaultXMLNamespace(), &v))
+        if (!JSObject::getSpecial(cx, tmp, tmp, SpecialId::defaultXMLNamespace(), &v))
             return JS_FALSE;
         if (!JSVAL_IS_PRIMITIVE(v)) {
             *vp = v;
@@ -7549,8 +7541,8 @@ js_GetDefaultXMLNamespace(JSContext *cx, jsval *vp)
     if (!ns)
         return JS_FALSE;
     v = OBJECT_TO_JSVAL(ns);
-    if (!obj->defineSpecial(cx, SpecialId::defaultXMLNamespace(), v,
-                            JS_PropertyStub, JS_StrictPropertyStub, JSPROP_PERMANENT)) {
+    if (!JSObject::defineSpecial(cx, obj, SpecialId::defaultXMLNamespace(), v,
+                                 JS_PropertyStub, JS_StrictPropertyStub, JSPROP_PERMANENT)) {
         return JS_FALSE;
     }
     *vp = v;
@@ -7567,10 +7559,10 @@ js_SetDefaultXMLNamespace(JSContext *cx, const Value &v)
     if (!ns)
         return JS_FALSE;
 
-    JSObject &varobj = cx->fp()->varObj();
+    RootedObject varobj(cx, &cx->fp()->varObj());
     RootedValue value(cx, ObjectValue(*ns));
-    if (!varobj.defineSpecial(cx, SpecialId::defaultXMLNamespace(), value,
-                              JS_PropertyStub, JS_StrictPropertyStub, JSPROP_PERMANENT)) {
+    if (!JSObject::defineSpecial(cx, varobj, SpecialId::defaultXMLNamespace(), value,
+                                 JS_PropertyStub, JS_StrictPropertyStub, JSPROP_PERMANENT)) {
         return JS_FALSE;
     }
     return JS_TRUE;
@@ -7646,7 +7638,7 @@ js_ValueToXMLString(JSContext *cx, const Value &v)
 JSBool
 js_GetAnyName(JSContext *cx, jsid *idp)
 {
-    JSObject *global = cx->hasfp() ? &cx->fp()->global() : cx->globalObject;
+    JSObject *global = cx->global();
     Value v = global->getReservedSlot(JSProto_AnyName);
     if (v.isUndefined()) {
         RootedObject obj(cx, NewObjectWithGivenProto(cx, &AnyNameClass, NULL, global));
@@ -7673,7 +7665,8 @@ js_FindXMLProperty(JSContext *cx, const Value &nameval, MutableHandleObject objp
     jsval v;
     JSObject *qn;
     RootedId funid(cx);
-    JSObject *obj, *target, *proto;
+    RootedObject target(cx);
+    JSObject *obj, *proto;
     JSXML *xml;
     JSBool found;
 
@@ -7723,7 +7716,7 @@ js_FindXMLProperty(JSContext *cx, const Value &nameval, MutableHandleObject objp
         } else if (!JSID_IS_VOID(funid)) {
             RootedObject pobj(cx);
             RootedShape prop(cx);
-            if (!target->lookupGeneric(cx, funid, &pobj, &prop))
+            if (!JSObject::lookupGeneric(cx, target, funid, &pobj, &prop))
                 return JS_FALSE;
             if (prop) {
                 *idp = funid;
@@ -7767,11 +7760,11 @@ GetXMLFunction(JSContext *cx, HandleObject obj, HandleId id, MutableHandleValue 
         return true;
 
     /* Search in String.prototype to implement 11.2.2.1 Step 3(f). */
-    JSObject *proto = obj->global().getOrCreateStringPrototype(cx);
+    RootedObject proto(cx, obj->global().getOrCreateStringPrototype(cx));
     if (!proto)
         return false;
 
-    return proto->getGeneric(cx, id, vp);
+    return JSObject::getGeneric(cx, proto, proto, id, vp);
 }
 
 static JSXML *
@@ -7915,8 +7908,7 @@ js_StepXMLListFilter(JSContext *cx, JSBool initialized)
                 return JS_FALSE;
         }
 
-        JSObject *parent = GetGlobalForScopeChain(cx);
-        filterobj = NewObjectWithGivenProto(cx, &js_XMLFilterClass, NULL, parent);
+        filterobj = NewObjectWithGivenProto(cx, &js_XMLFilterClass, NULL, cx->global());
         if (!filterobj)
             return JS_FALSE;
 

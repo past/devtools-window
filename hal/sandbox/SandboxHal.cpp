@@ -275,7 +275,7 @@ DisableAlarm()
 }
 
 bool
-SetAlarm(PRInt32 aSeconds, PRInt32 aNanoseconds)
+SetAlarm(int32_t aSeconds, int32_t aNanoseconds)
 {
   NS_RUNTIMEABORT("Alarms can't be programmed from sandboxed contexts.  Yet.");
   return false;
@@ -574,9 +574,7 @@ public:
                      const WakeLockControl &aLockAdjust,
                      const WakeLockControl &aHiddenAdjust) MOZ_OVERRIDE
   {
-    if (!AppProcessHasPermission(this, "power")) {
-      return false;
-    }
+    // We allow arbitrary content to use wake locks.
     hal::ModifyWakeLock(aTopic, aLockAdjust, aHiddenAdjust);
     return true;
   }
@@ -584,9 +582,7 @@ public:
   virtual bool
   RecvEnableWakeLockNotifications() MOZ_OVERRIDE
   {
-    if (!AppProcessHasPermission(this, "power")) {
-      return false;
-    }
+    // We allow arbitrary content to use wake locks.
     hal::RegisterWakeLockObserver(this);
     return true;
   }

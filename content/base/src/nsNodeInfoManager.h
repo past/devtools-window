@@ -27,14 +27,15 @@ struct PLHashEntry;
 struct PLHashTable;
 template<class T> struct already_AddRefed;
 
-class nsNodeInfoManager MOZ_FINAL : public nsISupports
+class nsNodeInfoManager MOZ_FINAL
 {
 public:
   nsNodeInfoManager();
   ~nsNodeInfoManager();
 
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-  NS_DECL_CYCLE_COLLECTION_CLASS(nsNodeInfoManager)
+  NS_DECL_CYCLE_COLLECTION_NATIVE_CLASS(nsNodeInfoManager)
+
+  NS_INLINE_DECL_CYCLE_COLLECTING_NATIVE_REFCOUNTING(nsNodeInfoManager)
 
   /**
    * Initialize the nodeinfo manager with a document.
@@ -51,14 +52,14 @@ public:
    * Methods for creating nodeinfo's from atoms and/or strings.
    */
   already_AddRefed<nsINodeInfo> GetNodeInfo(nsIAtom *aName, nsIAtom *aPrefix,
-                                            PRInt32 aNamespaceID,
-                                            PRUint16 aNodeType,
+                                            int32_t aNamespaceID,
+                                            uint16_t aNodeType,
                                             nsIAtom* aExtraName = nullptr);
   nsresult GetNodeInfo(const nsAString& aName, nsIAtom *aPrefix,
-                       PRInt32 aNamespaceID, PRUint16 aNodeType,
+                       int32_t aNamespaceID, uint16_t aNodeType,
                        nsINodeInfo** aNodeInfo);
   nsresult GetNodeInfo(const nsAString& aName, nsIAtom *aPrefix,
-                       const nsAString& aNamespaceURI, PRUint16 aNodeType,
+                       const nsAString& aNamespaceURI, uint16_t aNodeType,
                        nsINodeInfo** aNodeInfo);
 
   /**
@@ -123,7 +124,7 @@ private:
 
   PLHashTable *mNodeInfoHash;
   nsIDocument *mDocument; // WEAK
-  PRUint32 mNonDocumentNodeInfos;
+  uint32_t mNonDocumentNodeInfos;
   nsIPrincipal *mPrincipal; // STRONG, but not nsCOMPtr to avoid include hell
                             // while inlining DocumentPrincipal().  Never null
                             // after Init() succeeds.

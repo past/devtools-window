@@ -18,7 +18,6 @@
 #include "nsIFileStreams.h"
 #include "nsIInputStream.h"
 #include "nsIIPCSerializableInputStream.h"
-#include "nsIIPCSerializableObsolete.h"
 #include "nsIMIMEService.h"
 #include "nsIPlatformCharset.h"
 #include "nsISeekableStream.h"
@@ -48,15 +47,13 @@ using namespace mozilla::dom;
 // stream is.  We do that by passing back this class instead.
 class DataOwnerAdapter MOZ_FINAL : public nsIInputStream,
                                    public nsISeekableStream,
-                                   public nsIIPCSerializableObsolete,
-                                   public nsIClassInfo,
                                    public nsIIPCSerializableInputStream
 {
   typedef nsDOMMemoryFile::DataOwner DataOwner;
 public:
   static nsresult Create(DataOwner* aDataOwner,
-                         PRUint32 aStart,
-                         PRUint32 aLength,
+                         uint32_t aStart,
+                         uint32_t aLength,
                          nsIInputStream** _retval);
 
   NS_DECL_ISUPPORTS
@@ -65,10 +62,8 @@ public:
   NS_FORWARD_NSIINPUTSTREAM(mStream->)
   NS_FORWARD_NSISEEKABLESTREAM(mSeekableStream->)
 
-  // These are optional. We use a conditional QI to keep them from being called
-  // if the underlying stream doesn't QI to either interface.
-  NS_FORWARD_NSIIPCSERIALIZABLEOBSOLETE(mSerializableObsolete->)
-  NS_FORWARD_NSICLASSINFO(mClassInfo->)
+  // This is optional. We use a conditional QI to keep it from being called
+  // if the underlying stream doesn't support it.
   NS_FORWARD_NSIIPCSERIALIZABLEINPUTSTREAM(mSerializableInputStream->)
 
 private:
@@ -76,8 +71,6 @@ private:
                    nsIInputStream* aStream)
     : mDataOwner(aDataOwner), mStream(aStream),
       mSeekableStream(do_QueryInterface(aStream)),
-      mSerializableObsolete(do_QueryInterface(aStream)),
-      mClassInfo(do_QueryInterface(aStream)),
       mSerializableInputStream(do_QueryInterface(aStream))
   {
     NS_ASSERTION(mSeekableStream, "Somebody gave us the wrong stream!");
@@ -86,8 +79,6 @@ private:
   nsRefPtr<DataOwner> mDataOwner;
   nsCOMPtr<nsIInputStream> mStream;
   nsCOMPtr<nsISeekableStream> mSeekableStream;
-  nsCOMPtr<nsIIPCSerializableObsolete> mSerializableObsolete;
-  nsCOMPtr<nsIClassInfo> mClassInfo;
   nsCOMPtr<nsIIPCSerializableInputStream> mSerializableInputStream;
 };
 
@@ -97,17 +88,14 @@ NS_IMPL_THREADSAFE_RELEASE(DataOwnerAdapter)
 NS_INTERFACE_MAP_BEGIN(DataOwnerAdapter)
   NS_INTERFACE_MAP_ENTRY(nsIInputStream)
   NS_INTERFACE_MAP_ENTRY(nsISeekableStream)
-  NS_INTERFACE_MAP_ENTRY_CONDITIONAL(nsIIPCSerializableObsolete,
-                                     mSerializableObsolete)
-  NS_INTERFACE_MAP_ENTRY_CONDITIONAL(nsIClassInfo, mClassInfo)
   NS_INTERFACE_MAP_ENTRY_CONDITIONAL(nsIIPCSerializableInputStream,
                                      mSerializableInputStream)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIInputStream)
 NS_INTERFACE_MAP_END
 
 nsresult DataOwnerAdapter::Create(DataOwner* aDataOwner,
-                                  PRUint32 aStart,
-                                  PRUint32 aLength,
+                                  uint32_t aStart,
+                                  uint32_t aLength,
                                   nsIInputStream** _retval)
 {
   nsresult rv;
@@ -118,7 +106,7 @@ nsresult DataOwnerAdapter::Create(DataOwner* aDataOwner,
   rv = NS_NewByteInputStream(getter_AddRefs(stream),
                              static_cast<const char*>(aDataOwner->mData) +
                              aStart,
-                             (PRInt32)aLength,
+                             (int32_t)aLength,
                              NS_ASSIGNMENT_DEPEND);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -171,7 +159,7 @@ nsDOMFileBase::GetMozFullPathInternal(nsAString &aFileName)
 }
 
 NS_IMETHODIMP
-nsDOMFileBase::GetSize(PRUint64 *aSize)
+nsDOMFileBase::GetSize(uint64_t *aSize)
 {
   *aSize = mLength;
   return NS_OK;
@@ -187,7 +175,7 @@ nsDOMFileBase::GetType(nsAString &aType)
 // Makes sure that aStart and aEnd is less then or equal to aSize and greater
 // than 0
 static void
-ParseSize(PRInt64 aSize, PRInt64& aStart, PRInt64& aEnd)
+ParseSize(int64_t aSize, int64_t& aStart, int64_t& aEnd)
 {
   CheckedInt64 newStartOffset = aStart;
   if (aStart < -aSize) {
@@ -222,35 +210,35 @@ ParseSize(PRInt64 aSize, PRInt64& aStart, PRInt64& aEnd)
 }
 
 NS_IMETHODIMP
-nsDOMFileBase::Slice(PRInt64 aStart, PRInt64 aEnd,
-                     const nsAString& aContentType, PRUint8 optional_argc,
+nsDOMFileBase::Slice(int64_t aStart, int64_t aEnd,
+                     const nsAString& aContentType, uint8_t optional_argc,
                      nsIDOMBlob **aBlob)
 {
   *aBlob = nullptr;
 
   // Truncate aStart and aEnd so that we stay within this file.
-  PRUint64 thisLength;
+  uint64_t thisLength;
   nsresult rv = GetSize(&thisLength);
   NS_ENSURE_SUCCESS(rv, rv);
 
   if (optional_argc < 2) {
-    aEnd = (PRInt64)thisLength;
+    aEnd = (int64_t)thisLength;
   }
 
-  ParseSize((PRInt64)thisLength, aStart, aEnd);
+  ParseSize((int64_t)thisLength, aStart, aEnd);
   
   // Create the new file
-  *aBlob = CreateSlice((PRUint64)aStart, (PRUint64)(aEnd - aStart),
+  *aBlob = CreateSlice((uint64_t)aStart, (uint64_t)(aEnd - aStart),
                        aContentType).get();
 
   return *aBlob ? NS_OK : NS_ERROR_UNEXPECTED;
 }
 
 NS_IMETHODIMP
-nsDOMFileBase::MozSlice(PRInt64 aStart, PRInt64 aEnd,
+nsDOMFileBase::MozSlice(int64_t aStart, int64_t aEnd,
                         const nsAString& aContentType, 
                         JSContext* aCx,
-                        PRUint8 optional_argc,
+                        uint8_t optional_argc,
                         nsIDOMBlob **aBlob)
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -307,10 +295,10 @@ nsDOMFileBase::GetInternalUrl(nsIPrincipal* aPrincipal, nsAString& aURL)
   return NS_OK;
 }
 
-NS_IMETHODIMP_(PRInt64)
+NS_IMETHODIMP_(int64_t)
 nsDOMFileBase::GetFileId()
 {
-  PRInt64 id = -1;
+  int64_t id = -1;
 
   if (IsStoredFile() && IsWholeFile() && !IsSnapshot()) {
     if (!indexedDB::IndexedDatabaseManager::IsClosed()) {
@@ -364,7 +352,7 @@ nsDOMFileBase::GetFileInfo(indexedDB::FileManager* aFileManager)
   // However, we don't support sharing of slices yet, so the slice must be
   // copied again. That's why we have to ignore the first file info.
   // Snapshots are handled in a similar way (they have to be copied).
-  PRUint32 startIndex;
+  uint32_t startIndex;
   if (IsStoredFile() && (!IsWholeFile() || IsSnapshot())) {
     startIndex = 1;
   }
@@ -374,7 +362,7 @@ nsDOMFileBase::GetFileInfo(indexedDB::FileManager* aFileManager)
 
   MutexAutoLock lock(indexedDB::IndexedDatabaseManager::FileMutex());
 
-  for (PRUint32 i = startIndex; i < mFileInfos.Length(); i++) {
+  for (uint32_t i = startIndex; i < mFileInfos.Length(); i++) {
     nsRefPtr<indexedDB::FileInfo>& fileInfo = mFileInfos.ElementAt(i);
     if (fileInfo->Manager() == aFileManager) {
       return fileInfo;
@@ -427,7 +415,7 @@ nsDOMFileBase::SetMutable(bool aMutable)
     rv = this->GetType(dummyString);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    PRUint64 dummyInt;
+    uint64_t dummyInt;
     rv = this->GetSize(&dummyInt);
     NS_ENSURE_SUCCESS(rv, rv);
   }
@@ -481,7 +469,7 @@ NS_IMPL_ISUPPORTS_INHERITED1(nsDOMFileFile, nsDOMFile,
                              nsIJSNativeInitializer)
 
 already_AddRefed<nsIDOMBlob>
-nsDOMFileFile::CreateSlice(PRUint64 aStart, PRUint64 aLength,
+nsDOMFileFile::CreateSlice(uint64_t aStart, uint64_t aLength,
                            const nsAString& aContentType)
 {
   nsCOMPtr<nsIDOMBlob> t = new nsDOMFileFile(this, aStart, aLength, aContentType);
@@ -506,7 +494,7 @@ nsDOMFileFile::GetMozFullPathInternal(nsAString &aFilename)
 NS_IMETHODIMP
 nsDOMFileFile::GetLastModifiedDate(JSContext* cx, JS::Value *aLastModifiedDate)
 {
-  PRInt64 msecs;
+  PRTime msecs;
   mFile->GetLastModifiedTime(&msecs);
   JSObject* date = JS_NewDateObjectMsec(cx, msecs);
   if (date) {
@@ -520,12 +508,12 @@ nsDOMFileFile::GetLastModifiedDate(JSContext* cx, JS::Value *aLastModifiedDate)
 }
 
 NS_IMETHODIMP
-nsDOMFileFile::GetSize(PRUint64 *aFileSize)
+nsDOMFileFile::GetSize(uint64_t *aFileSize)
 {
   if (IsSizeUnknown()) {
     NS_ASSERTION(mWholeFile,
                  "Should only use lazy size when using the whole file");
-    PRInt64 fileSize;
+    int64_t fileSize;
     nsresult rv = mFile->GetFileSize(&fileSize);
     NS_ENSURE_SUCCESS(rv, rv);
   
@@ -567,7 +555,7 @@ nsDOMFileFile::GetType(nsAString &aType)
   return NS_OK;
 }
 
-const PRUint32 sFileStreamFlags =
+const uint32_t sFileStreamFlags =
   nsIFileInputStream::CLOSE_ON_EOF |
   nsIFileInputStream::REOPEN_ON_REWIND |
   nsIFileInputStream::DEFER_OPEN;
@@ -585,7 +573,7 @@ NS_IMETHODIMP
 nsDOMFileFile::Initialize(nsISupports* aOwner,
                           JSContext* aCx,
                           JSObject* aObj,
-                          PRUint32 aArgc,
+                          uint32_t aArgc,
                           JS::Value* aArgv)
 {
   nsresult rv;
@@ -650,7 +638,7 @@ nsDOMFileFile::Initialize(nsISupports* aOwner,
 // nsDOMMemoryFile implementation
 
 already_AddRefed<nsIDOMBlob>
-nsDOMMemoryFile::CreateSlice(PRUint64 aStart, PRUint64 aLength,
+nsDOMMemoryFile::CreateSlice(uint64_t aStart, uint64_t aLength,
                              const nsAString& aContentType)
 {
   nsCOMPtr<nsIDOMBlob> t =
@@ -688,17 +676,17 @@ JSObject*
 nsDOMFileList::WrapObject(JSContext *cx, JSObject *scope,
                           bool *triedToWrap)
 {
-  return mozilla::dom::binding::FileList::create(cx, scope, this, triedToWrap);
+  return mozilla::dom::oldproxybindings::FileList::create(cx, scope, this, triedToWrap);
 }
 
 nsIDOMFile*
-nsDOMFileList::GetItemAt(PRUint32 aIndex)
+nsDOMFileList::GetItemAt(uint32_t aIndex)
 {
   return mFiles.SafeObjectAt(aIndex);
 }
 
 NS_IMETHODIMP
-nsDOMFileList::GetLength(PRUint32* aLength)
+nsDOMFileList::GetLength(uint32_t* aLength)
 {
   *aLength = mFiles.Count();
 
@@ -706,7 +694,7 @@ nsDOMFileList::GetLength(PRUint32* aLength)
 }
 
 NS_IMETHODIMP
-nsDOMFileList::Item(PRUint32 aIndex, nsIDOMFile **aFile)
+nsDOMFileList::Item(uint32_t aIndex, nsIDOMFile **aFile)
 {
   NS_IF_ADDREF(*aFile = nsDOMFileList::GetItemAt(aIndex));
 

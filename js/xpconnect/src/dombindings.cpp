@@ -26,7 +26,7 @@ using namespace mozilla::dom;
 
 namespace mozilla {
 namespace dom {
-namespace binding {
+namespace oldproxybindings {
 
 enum {
     JSPROXYSLOT_EXPANDO = 0
@@ -64,15 +64,6 @@ DefineStaticJSVals(JSContext *cx)
            DefinePropertyStaticJSVals(cx);
 }
 
-
-int HandlerFamily;
-
-struct SetListBaseInformation
-{
-    SetListBaseInformation() {
-        js::SetListBaseInformation((void*) &HandlerFamily, js::JSSLOT_PROXY_EXTRA + JSPROXYSLOT_EXPANDO);
-    }
-} gSetListBaseInformation;
 
 JSBool
 Throw(JSContext *cx, nsresult rv)
@@ -224,7 +215,7 @@ ListBase<LC>::length_getter(JSContext *cx, JSHandleObject obj, JSHandleId id, JS
 {
     if (!instanceIsListObject(cx, obj, NULL))
         return false;
-    PRUint32 length;
+    uint32_t length;
     getListObject(obj)->GetLength(&length);
     JS_ASSERT(int32_t(length) >= 0);
     vp.set(UINT_TO_JSVAL(length));
@@ -420,12 +411,7 @@ ListBase<LC>::create(JSContext *cx, JSObject *scope, ListType *aList,
         return NULL;
 
     JSObject *global = js::GetGlobalForObjectCrossCompartment(parent);
-
-    JSAutoEnterCompartment ac;
-    if (global != scope) {
-        if (!ac.enter(cx, global))
-            return NULL;
-    }
+    JSAutoCompartment ac(cx, global);
 
     JSObject *proto = getPrototype(cx, global, triedToWrap);
     if (!proto && !*triedToWrap)
@@ -523,7 +509,7 @@ ListBase<LC>::getOwnPropertyDescriptor(JSContext *cx, JSObject *proxy, jsid id, 
             int32_t index = GetArrayIndexFromId(cx, id);
             if (index >= 0) {
                 IndexGetterType result;
-                if (!getItemAt(getListObject(proxy), PRUint32(index), result))
+                if (!getItemAt(getListObject(proxy), uint32_t(index), result))
                     return true;
 
                 jsval v;
@@ -670,7 +656,7 @@ template<class LC>
 bool
 ListBase<LC>::getOwnPropertyNames(JSContext *cx, JSObject *proxy, AutoIdVector &props)
 {
-    PRUint32 length;
+    uint32_t length;
     getListObject(proxy)->GetLength(&length);
     JS_ASSERT(int32_t(length) >= 0);
     for (int32_t i = 0; i < int32_t(length); ++i) {
@@ -723,7 +709,7 @@ ListBase<LC>::hasOwn(JSContext *cx, JSObject *proxy, jsid id, bool *bp)
         int32_t index = GetArrayIndexFromId(cx, id);
         if (index >= 0) {
             IndexGetterType result;
-            *bp = getItemAt(getListObject(proxy), PRUint32(index), result);
+            *bp = getItemAt(getListObject(proxy), uint32_t(index), result);
             return true;
         }
     }
@@ -831,11 +817,10 @@ template<class LC>
 bool
 ListBase<LC>::hasPropertyOnPrototype(JSContext *cx, JSObject *proxy, jsid id)
 {
-    JSAutoEnterCompartment ac;
+    Maybe<JSAutoCompartment> ac;
     if (xpc::WrapperFactory::IsXrayWrapper(proxy)) {
         proxy = js::UnwrapObject(proxy);
-        if (!ac.enter(cx, proxy))
-            return false;
+        ac.construct(cx, proxy);
     }
     JS_ASSERT(objIsList(proxy));
 
@@ -857,7 +842,7 @@ ListBase<LC>::get(JSContext *cx, JSObject *proxy, JSObject *receiver, jsid id, V
         int32_t index = GetArrayIndexFromId(cx, id);
         if (index >= 0) {
             IndexGetterType result;
-            if (getItemAt(getListObject(proxy), PRUint32(index), result))
+            if (getItemAt(getListObject(proxy), uint32_t(index), result))
                 return Wrap(cx, proxy, result, vp);
 
             // Even if we don't have this index, we don't forward the

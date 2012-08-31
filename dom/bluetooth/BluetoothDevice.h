@@ -68,13 +68,12 @@ private:
   nsString mAdapterPath;
   nsString mAddress;
   nsString mName;
-  PRUint32 mClass;
+  nsString mIcon;
+  uint32_t mClass;
   bool mConnected;
   bool mPaired;
   bool mIsRooted;
   nsTArray<nsString> mUuids;
-
-  NS_DECL_EVENT_HANDLER(propertychanged)
 };
 
 END_BLUETOOTH_NAMESPACE

@@ -163,6 +163,7 @@ static bool setSitesWithData(NPObject* npobj, const NPVariant* args, uint32_t ar
 static bool setSitesWithDataCapabilities(NPObject* npobj, const NPVariant* args, uint32_t argCount, NPVariant* result);
 static bool getLastKeyText(NPObject* npobj, const NPVariant* args, uint32_t argCount, NPVariant* result);
 static bool getNPNVdocumentOrigin(NPObject* npobj, const NPVariant* args, uint32_t argCount, NPVariant* result);
+static bool getMouseUpEventCount(NPObject* npobj, const NPVariant* args, uint32_t argCount, NPVariant* result);
 
 static const NPUTF8* sPluginMethodIdentifierNames[] = {
   "npnEvaluateTest",
@@ -222,7 +223,8 @@ static const NPUTF8* sPluginMethodIdentifierNames[] = {
   "setSitesWithData",
   "setSitesWithDataCapabilities",
   "getLastKeyText",
-  "getNPNVdocumentOrigin"
+  "getNPNVdocumentOrigin",
+  "getMouseUpEventCount"
 };
 static NPIdentifier sPluginMethodIdentifiers[ARRAY_LENGTH(sPluginMethodIdentifierNames)];
 static const ScriptableFunction sPluginMethodFunctions[] = {
@@ -283,7 +285,8 @@ static const ScriptableFunction sPluginMethodFunctions[] = {
   setSitesWithData,
   setSitesWithDataCapabilities,
   getLastKeyText,
-  getNPNVdocumentOrigin
+  getNPNVdocumentOrigin,
+  getMouseUpEventCount
 };
 
 STATIC_ASSERT(ARRAY_LENGTH(sPluginMethodIdentifierNames) ==
@@ -540,9 +543,9 @@ drawAsyncBitmapColor(InstanceData* instanceData)
 {
   NPP npp = instanceData->npp;
 
-  PRUint32 *pixelData = (PRUint32*)instanceData->backBuffer->bitmap.data;
+  uint32_t *pixelData = (uint32_t*)instanceData->backBuffer->bitmap.data;
 
-  PRUint32 rgba = instanceData->scriptableObject->drawColor;
+  uint32_t rgba = instanceData->scriptableObject->drawColor;
 
   unsigned char subpixels[4];
   subpixels[0] = rgba & 0xFF;
@@ -550,13 +553,13 @@ drawAsyncBitmapColor(InstanceData* instanceData)
   subpixels[2] = (rgba & 0xFF0000) >> 16;
   subpixels[3] = (rgba & 0xFF000000) >> 24;
 
-  subpixels[0] = PRUint8(float(subpixels[3] * subpixels[0]) / 0xFF);
-  subpixels[1] = PRUint8(float(subpixels[3] * subpixels[1]) / 0xFF);
-  subpixels[2] = PRUint8(float(subpixels[3] * subpixels[2]) / 0xFF);
-  PRUint32 premultiplied;
+  subpixels[0] = uint8_t(float(subpixels[3] * subpixels[0]) / 0xFF);
+  subpixels[1] = uint8_t(float(subpixels[3] * subpixels[1]) / 0xFF);
+  subpixels[2] = uint8_t(float(subpixels[3] * subpixels[2]) / 0xFF);
+  uint32_t premultiplied;
   memcpy(&premultiplied, subpixels, sizeof(premultiplied));
 
-  for (PRUint32* lastPixel = pixelData + instanceData->backBuffer->size.width * instanceData->backBuffer->size.height;
+  for (uint32_t* lastPixel = pixelData + instanceData->backBuffer->size.width * instanceData->backBuffer->size.height;
 	pixelData < lastPixel;
 	++pixelData) {
     *pixelData = premultiplied;
@@ -777,6 +780,7 @@ NPP_New(NPMIMEType pluginType, NPP instance, uint16_t mode, int16_t argc, char* 
   instanceData->asyncDrawing = AD_NONE;
   instanceData->frontBuffer = NULL;
   instanceData->backBuffer = NULL;
+  instanceData->mouseUpEventCount = 0;
   instance->pdata = instanceData;
 
   TestNPObject* scriptableObject = (TestNPObject*)NPN_CreateObject(instance, &sNPClass);
@@ -3647,5 +3651,17 @@ bool getNPNVdocumentOrigin(NPObject* npobj, const NPVariant* args, uint32_t argC
   }
 
   STRINGZ_TO_NPVARIANT(origin, *result);
+  return true;
+}
+
+bool getMouseUpEventCount(NPObject* npobj, const NPVariant* args, uint32_t argCount, NPVariant* result)
+{
+  if (argCount != 0) {
+    return false;
+  }
+  
+  NPP npp = static_cast<TestNPObject*>(npobj)->npp;
+  InstanceData* id = static_cast<InstanceData*>(npp->pdata);
+  INT32_TO_NPVARIANT(id->mouseUpEventCount, *result);
   return true;
 }

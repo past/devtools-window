@@ -1320,7 +1320,8 @@ BluetoothDBusService::SetProperty(BluetoothObjectType aType,
     type = DBUS_TYPE_UINT32;
   } else if (aValue.value().type() == BluetoothValue::TnsString) {
     str = NS_ConvertUTF16toUTF8(aValue.value().get_nsString());
-    val = (void*)str.get();
+    const char* tempStr = str.get();
+    val = &tempStr;
     type = DBUS_TYPE_STRING;
   } else if (aValue.value().type() == BluetoothValue::Tbool) {
     tmp_int = aValue.value().get_bool() ? 1 : 0;
@@ -1389,7 +1390,7 @@ BluetoothDBusService::GetDeviceServiceChannelInternal(const nsAString& aObjectPa
 }
 
 static void
-ExtractHandles(DBusMessage *aReply, nsTArray<PRUint32>& aOutHandles)
+ExtractHandles(DBusMessage *aReply, nsTArray<uint32_t>& aOutHandles)
 {
   uint32_t* handles = NULL;
   int len;
@@ -1412,13 +1413,13 @@ ExtractHandles(DBusMessage *aReply, nsTArray<PRUint32>& aOutHandles)
   }
 }
 
-nsTArray<PRUint32>
+nsTArray<uint32_t>
 BluetoothDBusService::AddReservedServicesInternal(const nsAString& aAdapterPath,
-                                                  const nsTArray<PRUint32>& aServices)
+                                                  const nsTArray<uint32_t>& aServices)
 {
   MOZ_ASSERT(!NS_IsMainThread());
 
-  nsTArray<PRUint32> ret;
+  nsTArray<uint32_t> ret;
 
   int length = aServices.Length();
   if (length == 0) return ret;
@@ -1442,7 +1443,7 @@ BluetoothDBusService::AddReservedServicesInternal(const nsAString& aAdapterPath,
 
 bool
 BluetoothDBusService::RemoveReservedServicesInternal(const nsAString& aAdapterPath,
-                                                     const nsTArray<PRUint32>& aServiceHandles)
+                                                     const nsTArray<uint32_t>& aServiceHandles)
 {
   MOZ_ASSERT(!NS_IsMainThread());
 
@@ -1572,7 +1573,7 @@ BluetoothDBusService::SetPinCodeInternal(const nsAString& aDeviceAddress, const 
 }
 
 bool
-BluetoothDBusService::SetPasskeyInternal(const nsAString& aDeviceAddress, PRUint32 aPasskey)
+BluetoothDBusService::SetPasskeyInternal(const nsAString& aDeviceAddress, uint32_t aPasskey)
 {
   DBusMessage *msg;
   if (!sPairingReqTable.Get(aDeviceAddress, &msg)) {

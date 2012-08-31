@@ -35,8 +35,8 @@ bool SendSyncMessageToParent(void* aCallbackData,
   nsCOMPtr<nsIContent> owner = tabChild->mOwner;
   nsTArray<nsCOMPtr<nsIRunnable> > asyncMessages;
   asyncMessages.SwapElements(tabChild->mASyncMessages);
-  PRUint32 len = asyncMessages.Length();
-  for (PRUint32 i = 0; i < len; ++i) {
+  uint32_t len = asyncMessages.Length();
+  for (uint32_t i = 0; i < len; ++i) {
     nsCOMPtr<nsIRunnable> async = asyncMessages[i];
     async->Run();
   }
@@ -126,7 +126,7 @@ nsInProcessTabChildGlobal::Init()
   InitTabChildGlobal();
   NS_WARN_IF_FALSE(NS_SUCCEEDED(rv),
                    "Couldn't initialize nsInProcessTabChildGlobal");
-  mMessageManager = new nsFrameMessageManager(false,
+  mMessageManager = new nsFrameMessageManager(false, /* aChrome */
                                               SendSyncMessageToParent,
                                               SendAsyncMessageToParent,
                                               nullptr,
@@ -160,7 +160,8 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsInProcessTabChildGlobal,
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsInProcessTabChildGlobal)
-  NS_INTERFACE_MAP_ENTRY(nsIFrameMessageManager)
+  NS_INTERFACE_MAP_ENTRY(nsIMessageListenerManager)
+  NS_INTERFACE_MAP_ENTRY(nsIMessageSender)
   NS_INTERFACE_MAP_ENTRY(nsISyncMessageSender)
   NS_INTERFACE_MAP_ENTRY(nsIContentFrameMessageManager)
   NS_INTERFACE_MAP_ENTRY(nsIInProcessContentFrameMessageManager)

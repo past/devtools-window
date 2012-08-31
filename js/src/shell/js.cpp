@@ -98,7 +98,7 @@ size_t gMaxStackSize = DEFAULT_MAX_STACK_SIZE;
 
 
 #ifdef JS_THREADSAFE
-static PRUintn gStackBaseThreadIndex;
+static unsigned gStackBaseThreadIndex;
 #else
 static uintptr_t gStackBase;
 #endif
@@ -896,10 +896,7 @@ Evaluate(JSContext *cx, unsigned argc, jsval *vp)
     }
 
     {
-        JSAutoEnterCompartment aec;
-        if (!aec.enter(cx, global))
-            return false;
-
+        JSAutoCompartment ac(cx, global);
         uint32_t saved = JS_GetOptions(cx);
         uint32_t options = saved & ~(JSOPTION_COMPILE_N_GO | JSOPTION_NO_SCRIPT_RVAL);
         if (compileAndGo)
@@ -1279,11 +1276,11 @@ AssertJit(JSContext *cx, unsigned argc, jsval *vp)
 #ifdef JS_METHODJIT
     if (JS_GetOptions(cx) & JSOPTION_METHODJIT) {
         /*
-         * :XXX: Ignore calls to this native when inference is enabled,
-         * with METHODJIT_ALWAYS recompilation can happen and discard the
-         * script's jitcode.
+         * Ignore calls to this native when inference is enabled, with
+         * METHODJIT_ALWAYS recompilation can happen and discard the script's
+         * jitcode.
          */
-        if (!cx->typeInferenceEnabled() && !cx->fp()->jit()) {
+        if (!cx->typeInferenceEnabled() && cx->hasfp() && !cx->fp()->jit()) {
             JS_ReportErrorNumber(cx, my_GetErrorMessage, NULL, JSSMSG_ASSERT_JIT_FAILED);
             return false;
         }
@@ -1583,6 +1580,7 @@ SrcNotes(JSContext *cx, JSScript *script, Sprinter *sp)
            "ofs", "line", "pc", "delta", "desc", "args");
     Sprint(sp, "---- ---- ----- ------ -------- ------\n");
     unsigned offset = 0;
+    unsigned colspan = 0;
     unsigned lineno = script->lineno;
     jssrcnote *notes = script->notes();
     unsigned switchTableEnd = 0, switchTableStart = 0;
@@ -1598,6 +1596,12 @@ SrcNotes(JSContext *cx, JSScript *script, Sprinter *sp)
         }
         Sprint(sp, "%3u: %4u %5u [%4u] %-8s", unsigned(sn - notes), lineno, offset, delta, name);
         switch (type) {
+          case SRC_COLSPAN:
+            colspan = js_GetSrcNoteOffset(sn, 0);
+            if (colspan >= SN_COLSPAN_DOMAIN / 2)
+                colspan -= SN_COLSPAN_DOMAIN;
+            Sprint(sp, "%d", colspan);
+            break;
           case SRC_SETLINE:
             lineno = js_GetSrcNoteOffset(sn, 0);
             Sprint(sp, " lineno %u", lineno);
@@ -2300,13 +2304,12 @@ Clone(JSContext *cx, unsigned argc, jsval *vp)
 
     jsval *argv = JS_ARGV(cx, vp);
     {
-        JSAutoEnterCompartment ac;
+        Maybe<JSAutoCompartment> ac;
         RootedObject obj(cx, JSVAL_IS_PRIMITIVE(argv[0]) ? NULL : JSVAL_TO_OBJECT(argv[0]));
 
         if (obj && IsCrossCompartmentWrapper(obj)) {
             obj = UnwrapObject(obj);
-            if (!ac.enter(cx, obj))
-                return false;
+            ac.construct(cx, obj);
             argv[0] = ObjectValue(*obj);
         }
         if (obj && obj->isFunction()) {
@@ -2533,10 +2536,7 @@ NewSandbox(JSContext *cx, bool lazy)
         return NULL;
 
     {
-        JSAutoEnterCompartment ac;
-        if (!ac.enter(cx, obj))
-            return NULL;
-
+        JSAutoCompartment ac(cx, obj);
         if (!lazy && !JS_InitStandardClasses(cx, obj))
             return NULL;
 
@@ -2590,13 +2590,12 @@ EvalInContext(JSContext *cx, unsigned argc, jsval *vp)
     JS_DescribeScriptedCaller(cx, &script, &lineno);
     jsval rval;
     {
-        JSAutoEnterCompartment ac;
+        Maybe<JSAutoCompartment> ac;
         unsigned flags;
         JSObject *unwrapped = UnwrapObject(sobj, true, &flags);
         if (flags & Wrapper::CROSS_COMPARTMENT) {
             sobj = unwrapped;
-            if (!ac.enter(cx, sobj))
-                return false;
+            ac.construct(cx, sobj);
         }
 
         sobj = GetInnerObject(cx, sobj);
@@ -2647,12 +2646,6 @@ EvalInFrame(JSContext *cx, unsigned argc, jsval *vp)
             break;
     }
 
-    StackFrame *const fp = fi.fp();
-    if (!fp->isScriptFrame()) {
-        JS_ReportError(cx, "cannot eval in non-script frame");
-        return false;
-    }
-
     bool saved = false;
     if (saveCurrent)
         saved = JS_SaveFrameChain(cx);
@@ -2662,6 +2655,7 @@ EvalInFrame(JSContext *cx, unsigned argc, jsval *vp)
     if (!chars)
         return false;
 
+    StackFrame *fp = fi.fp();
     bool ok = !!JS_EvaluateUCInStackFrame(cx, Jsvalify(fp), chars, length,
                                           fp->script()->filename,
                                           JS_PCToLineNumber(cx, fp->script(),
@@ -2730,13 +2724,14 @@ CopyProperty(JSContext *cx, HandleObject obj, HandleObject referent, HandleId id
         if (!desc.obj)
             return true;
     } else {
-        if (!referent->lookupGeneric(cx, id, objp, &shape))
+        if (!JSObject::lookupGeneric(cx, referent, id, objp, &shape))
             return false;
         if (objp != referent)
             return true;
         RootedValue value(cx);
-        if (!referent->getGeneric(cx, id, &value) ||
-            !referent->getGenericAttributes(cx, id, &desc.attrs)) {
+        if (!JSObject::getGeneric(cx, referent, referent, id, &value) ||
+            !JSObject::getGenericAttributes(cx, referent, id, &desc.attrs))
+        {
             return false;
         }
         desc.value = value;
@@ -3355,8 +3350,11 @@ static JSBool
 DecompileThisScript(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    JSScript *script = js_GetCurrentScript(cx);
-    JS_ASSERT(script);
+    JSScript *script = NULL;
+    if (!JS_DescribeScriptedCaller(cx, &script, NULL)) {
+        args.rval().setString(cx->runtime->emptyString);
+        return true;
+    }
     JSString *result = JS_DecompileScript(cx, script, "test", 0);
     if (!result)
         return false;
@@ -3368,8 +3366,8 @@ static JSBool
 ThisFilename(JSContext *cx, unsigned argc, Value *vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    JSScript *script = js_GetCurrentScript(cx);
-    if (!script || !script->filename) {
+    JSScript *script = NULL;
+    if (!JS_DescribeScriptedCaller(cx, &script, NULL) || !script->filename) {
         args.rval().setString(cx->runtime->emptyString);
         return true;
     }
@@ -3476,8 +3474,11 @@ NewGlobalObject(JSContext *cx);
 static JSBool
 NewGlobal(JSContext *cx, unsigned argc, jsval *vp)
 {
-    JSObject *global = NewGlobalObject(cx);
+    RootedObject global(cx, NewGlobalObject(cx));
     if (!global)
+        return false;
+
+    if (!JS_WrapObject(cx, global.address()))
         return false;
 
     JS_SET_RVAL(cx, vp, OBJECT_TO_JSVAL(global));
@@ -4289,7 +4290,7 @@ my_ErrorReporter(JSContext *cx, const char *message, JSErrorReport *report)
         prefix = JS_smprintf("%s:", report->filename);
     if (report->lineno) {
         tmp = prefix;
-        prefix = JS_smprintf("%s%u: ", tmp ? tmp : "", report->lineno);
+        prefix = JS_smprintf("%s%u:%u ", tmp ? tmp : "", report->lineno, report->column);
         JS_free(cx, tmp);
     }
     if (JSREPORT_IS_WARNING(report->flags)) {
@@ -4673,9 +4674,7 @@ NewGlobalObject(JSContext *cx)
         return NULL;
 
     {
-        JSAutoEnterCompartment ac;
-        if (!ac.enter(cx, glob))
-            return NULL;
+        JSAutoCompartment ac(cx, glob);
 
 #ifndef LAZY_STANDARD_CLASSES
         if (!JS_InitStandardClasses(cx, glob))
@@ -4712,9 +4711,6 @@ NewGlobalObject(JSContext *cx)
                                its_setter, JSPROP_READONLY))
             return NULL;
     }
-
-    if (!JS_WrapObject(cx, glob.address()))
-        return NULL;
 
     return glob;
 }
@@ -4841,10 +4837,6 @@ Shell(JSContext *cx, OptionParser *op, char **envp)
     if (!glob)
         return 1;
 
-    JSAutoEnterCompartment ac;
-    if (!ac.enter(cx, glob))
-        return 1;
-
     JS_SetGlobalObject(cx, glob);
 
     JSObject *envobj = JS_DefineObject(cx, glob, "environment", &env_class, NULL, 0);
@@ -4882,8 +4874,6 @@ CheckObjectAccess(JSContext *cx, HandleObject obj, HandleId id, JSAccessMode mod
 
 JSSecurityCallbacks securityCallbacks = {
     CheckObjectAccess,
-    NULL,
-    NULL,
     NULL
 };
 

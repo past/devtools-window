@@ -11,7 +11,7 @@
 
 #include "frontend/BytecodeEmitter.h"
 #include "frontend/FoldConstants.h"
-#include "frontend/SemanticAnalysis.h"
+#include "frontend/NameFunctions.h"
 #include "vm/GlobalObject.h"
 
 #include "jsinferinlines.h"
@@ -128,7 +128,7 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain, StackFrame *call
         return NULL;
 
     /* If this is a direct call to eval, inherit the caller's strictness.  */
-    if (callerFrame && callerFrame->isScriptFrame() && callerFrame->script()->strictModeCode)
+    if (callerFrame && callerFrame->script()->strictModeCode)
         sc.strictModeState = StrictMode::STRICT;
 
     if (options.compileAndGo) {
@@ -192,9 +192,9 @@ frontend::CompileScript(JSContext *cx, HandleObject scopeChain, StackFrame *call
 
         if (!FoldConstants(cx, pn, &parser))
             return NULL;
-
-        if (!AnalyzeFunctions(&parser))
+        if (!NameFunctions(cx, pn))
             return NULL;
+
         pc.functionList = NULL;
 
         if (!EmitTree(cx, &bce, pn))
@@ -334,7 +334,7 @@ frontend::CompileFunctionBody(JSContext *cx, HandleFunction fun, CompileOptions 
     if (!funbce.init())
         return false;
 
-    if (!AnalyzeFunctions(&parser))
+    if (!NameFunctions(cx, pn))
         return false;
 
     if (fn->pn_body) {

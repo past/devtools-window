@@ -29,7 +29,7 @@ class nsIXPConnectWrappedJS;
 class nsScriptNameSpaceManager;
 
 #ifndef BAD_TLS_INDEX
-#define BAD_TLS_INDEX ((PRUint32) -1)
+#define BAD_TLS_INDEX ((uint32_t) -1)
 #endif
 
 namespace xpc {
@@ -131,7 +131,7 @@ xpc_FastGetCachedWrapper(nsWrapperCache *cache, JSObject *scope, jsval *vp)
                      "Should never have a slim wrapper when IsDOMBinding()");
         if (wrapper &&
             js::GetObjectCompartment(wrapper) == js::GetObjectCompartment(scope) &&
-            (IS_SLIM_WRAPPER(wrapper) ||
+            (IS_SLIM_WRAPPER(wrapper) || cache->IsDOMBinding() ||
              xpc_OkToHandOutWrapper(cache))) {
             *vp = OBJECT_TO_JSVAL(wrapper);
             return wrapper;
@@ -212,7 +212,7 @@ public:
 // If aVariant is an XPCVariant, this marks the object to be in aGeneration.
 // This also unmarks the gray JSObject.
 extern void
-xpc_MarkInCCGeneration(nsISupports* aVariant, PRUint32 aGeneration);
+xpc_MarkInCCGeneration(nsISupports* aVariant, uint32_t aGeneration);
 
 // If aWrappedJS is a JS wrapper, unmark its JSObject.
 extern void
@@ -241,8 +241,16 @@ bool Base64Decode(JSContext *cx, JS::Value val, JS::Value *out);
  * Note, the ownership of the string buffer may be moved from str to rval.
  * If that happens, str will point to an empty string after this call.
  */
-bool StringToJsval(JSContext *cx, nsAString &str, JS::Value *rval);
 bool NonVoidStringToJsval(JSContext *cx, nsAString &str, JS::Value *rval);
+inline bool StringToJsval(JSContext *cx, nsAString &str, JS::Value *rval)
+{
+    // From the T_DOMSTRING case in XPCConvert::NativeData2JS.
+    if (str.IsVoid()) {
+        *rval = JSVAL_NULL;
+        return true;
+    }
+    return NonVoidStringToJsval(cx, str, rval);
+}
 
 nsIPrincipal *GetCompartmentPrincipal(JSCompartment *compartment);
 
@@ -269,8 +277,8 @@ void SetLocationForGlobal(JSObject *global, nsIURI *locationURI);
  *     interfaceCount are like what nsIClassInfo.getInterfaces returns.
  */
 bool
-DOM_DefineQuickStubs(JSContext *cx, JSObject *proto, PRUint32 flags,
-                     PRUint32 interfaceCount, const nsIID **interfaceArray);
+DOM_DefineQuickStubs(JSContext *cx, JSObject *proto, uint32_t flags,
+                     uint32_t interfaceCount, const nsIID **interfaceArray);
 
 // This reports all the stats in |rtStats| that belong in the "explicit" tree,
 // (which isn't all of them).
@@ -306,14 +314,32 @@ xpc_JSCompartmentParticipant();
 
 namespace mozilla {
 namespace dom {
-namespace binding {
 
 extern int HandlerFamily;
 inline void* ProxyFamily() { return &HandlerFamily; }
-inline bool instanceIsProxy(JSObject *obj)
+
+class DOMBaseProxyHandler : public js::BaseProxyHandler {
+protected:
+    DOMBaseProxyHandler(bool aNewDOMProxy) : js::BaseProxyHandler(ProxyFamily()),
+                                             mNewDOMProxy(aNewDOMProxy)
+    {
+    }
+
+public:
+    bool mNewDOMProxy;
+};
+
+inline bool IsNewProxyBinding(js::BaseProxyHandler* handler)
+{
+  MOZ_ASSERT(handler->family() == ProxyFamily());
+  return static_cast<DOMBaseProxyHandler*>(handler)->mNewDOMProxy;
+}
+
+inline bool IsDOMProxy(JSObject *obj)
 {
     return js::IsProxy(obj) &&
-           js::GetProxyHandler(obj)->family() == ProxyFamily();
+           js::GetProxyHandler(obj)->family() == ProxyFamily() &&
+           IsNewProxyBinding(js::GetProxyHandler(obj));
 }
 
 typedef bool
@@ -327,7 +353,21 @@ extern bool
 DefineConstructor(JSContext *cx, JSObject *obj, DefineInterface aDefine,
                   nsresult *aResult);
 
-} // namespace binding
+namespace oldproxybindings {
+
+inline bool instanceIsProxy(JSObject *obj)
+{
+    return js::IsProxy(obj) &&
+           js::GetProxyHandler(obj)->family() == ProxyFamily() &&
+           !IsNewProxyBinding(js::GetProxyHandler(obj));
+}
+extern bool
+DefineStaticJSVals(JSContext *cx);
+void
+Register(nsScriptNameSpaceManager* aNameSpaceManager);
+
+} // namespace oldproxybindings
+
 } // namespace dom
 } // namespace mozilla
 

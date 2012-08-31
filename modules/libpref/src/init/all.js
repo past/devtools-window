@@ -24,6 +24,10 @@ pref("keyword.enabled", false);
 pref("general.useragent.locale", "chrome://global/locale/intl.properties");
 pref("general.useragent.compatMode.firefox", false);
 
+// This pref exists only for testing purposes. In order to disable all
+// overrides by default, don't initialize UserAgentOverrides.jsm.
+pref("general.useragent.site_specific_overrides", true);
+
 pref("general.config.obscure_value", 13); // for MCD .cfg files
 
 pref("general.warnOnAboutConfig", true);
@@ -170,6 +174,10 @@ pref("media.h264.enabled", true);
 #endif
 #ifdef MOZ_WEBRTC
 pref("media.navigator.enabled", false);
+#else
+#ifdef ANDROID
+pref("media.navigator.enabled", true);
+#endif
 #endif
 
 // Whether to autostart a media element with an |autoplay| attribute
@@ -698,7 +706,7 @@ pref("javascript.options.methodjit.chrome",  true);
 pref("javascript.options.pccounts.content", false);
 pref("javascript.options.pccounts.chrome",  false);
 pref("javascript.options.methodjit_always", false);
-pref("javascript.options.xml.content", true);
+pref("javascript.options.xml.content", false);
 pref("javascript.options.xml.chrome", true);
 pref("javascript.options.jit_hardening", true);
 pref("javascript.options.typeinference", true);
@@ -724,6 +732,8 @@ pref("javascript.options.mem.gc_high_frequency_heap_growth_min", 150);
 pref("javascript.options.mem.gc_low_frequency_heap_growth", 150);
 pref("javascript.options.mem.gc_dynamic_heap_growth", true);
 pref("javascript.options.mem.gc_dynamic_mark_slice", true);
+
+pref("javascript.options.mem.analysis_purge_mb", 100);
 
 // advanced prefs
 pref("advanced.mailftp",                    false);
@@ -3519,6 +3529,7 @@ pref("webgl.msaa-level", 2);
 pref("webgl.msaa-force", false);
 pref("webgl.prefer-16bpp", false);
 pref("webgl.default-no-alpha", false);
+pref("webgl.force-layers-readback", false);
 
 #ifdef XP_WIN
 // The default TCP send window on Windows is too small, and autotuning only occurs on receive
@@ -3634,7 +3645,6 @@ pref("dom.battery.enabled", true);
 
 // WebSMS
 pref("dom.sms.enabled", false);
-pref("dom.sms.whitelist", "");
 
 // WebContacts
 pref("dom.mozContacts.enabled", false);
@@ -3686,3 +3696,7 @@ pref("social.enabled", false);
 // Disable idle observer fuzz, because only privileged content can access idle
 // observers (bug 780507).
 pref("dom.idle-observers-api.fuzz_time.disabled", true);
+
+// Setting that to true grant elevated privileges to apps that ask
+// for them in their manifest.
+pref("dom.mozApps.dev_mode", false);

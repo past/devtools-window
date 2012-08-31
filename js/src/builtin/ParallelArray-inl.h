@@ -81,7 +81,6 @@ ParallelArrayObject::IndexInfo::initialize(uint32_t space)
 
     // Reserve indices.
     return indices.reserve(ndims) && indices.resize(space);
-
 }
 
 inline bool
@@ -166,19 +165,6 @@ inline bool
 ParallelArrayObject::isOneDimensional()
 {
     return dimensionArray()->getDenseArrayInitializedLength() == 1;
-}
-
-inline bool
-ParallelArrayObject::inOutermostDimensionRange(uint32_t index)
-{
-    return index < outermostDimension();
-}
-
-inline bool
-ParallelArrayObject::inOutermostDimensionRange(JSContext *cx, HandleId id)
-{
-    uint32_t i;
-    return js_IdIsIndex(id, &i) && inOutermostDimensionRange(i);
 }
 
 inline bool

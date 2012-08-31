@@ -8,7 +8,7 @@
 #define SerializedLoadContext_h
 
 #include "base/basictypes.h"
-#include "IPC/IPCMessageUtils.h"
+#include "ipc/IPCMessageUtils.h"
 #include "nsILoadContext.h"
 
 /*
@@ -46,7 +46,7 @@ public:
   bool          mIsContent;
   bool          mUsePrivateBrowsing;
   bool          mIsInBrowserElement;
-  PRUint32      mAppId;
+  uint32_t      mAppId;
 };
 
 // Function to serialize over IPDL

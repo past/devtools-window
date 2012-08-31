@@ -27,6 +27,7 @@
 #include "mozilla/ipc/XPCShellEnvironment.h"
 #include "mozilla/jsipc/PContextWrapperChild.h"
 #include "mozilla/layers/CompositorChild.h"
+#include "mozilla/layers/ImageBridgeChild.h"
 #include "mozilla/layers/PCompositorChild.h"
 #include "mozilla/net/NeckoChild.h"
 #include "mozilla/Preferences.h"
@@ -94,6 +95,10 @@
 #include "nsDOMFile.h"
 #include "nsIRemoteBlob.h"
 #include "StructuredCloneUtils.h"
+#include "URIUtils.h"
+#include "nsIScriptSecurityManager.h"
+#include "nsContentUtils.h"
+#include "nsIPrincipal.h"
 
 using namespace mozilla::docshell;
 using namespace mozilla::dom::devicestorage;
@@ -189,7 +194,7 @@ ConsoleListener::Observe(nsIConsoleMessage* aMessage)
     if (scriptError) {
         nsString msg, sourceName, sourceLine;
         nsXPIDLCString category;
-        PRUint32 lineNum, colNum, flags;
+        uint32_t lineNum, colNum, flags;
 
         nsresult rv = scriptError->GetErrorMessage(msg);
         NS_ENSURE_SUCCESS(rv, rv);
@@ -221,10 +226,12 @@ ContentChild* ContentChild::sSingleton;
 
 ContentChild::ContentChild()
  :
-   mID(PRUint64(-1))
+   mID(uint64_t(-1))
 #ifdef ANDROID
    ,mScreenSize(0, 0)
 #endif
+   , mIsForApp(false)
+   , mIsForBrowser(false)
 {
     // This process is a content process, so it's clearly running in
     // multiprocess mode!
@@ -324,7 +331,7 @@ public:
     }
 
     NS_IMETHOD Callback(const nsACString &aProcess, const nsACString &aPath,
-                        PRInt32 aKind, PRInt32 aUnits, PRInt64 aAmount,
+                        int32_t aKind, int32_t aUnits, int64_t aAmount,
                         const nsACString &aDescription,
                         nsISupports *aiWrappedReports)
     {
@@ -363,9 +370,9 @@ ContentChild::RecvPMemoryReportRequestConstructor(PMemoryReportRequestChild* chi
       e->GetNext(getter_AddRefs(r));
 
       nsCString path;
-      PRInt32 kind;
-      PRInt32 units;
-      PRInt64 amount;
+      int32_t kind;
+      int32_t units;
+      int64_t amount;
       nsCString desc;
 
       if (NS_SUCCEEDED(r->GetPath(path)) &&
@@ -410,14 +417,21 @@ ContentChild::AllocPCompositor(mozilla::ipc::Transport* aTransport,
     return CompositorChild::Create(aTransport, aOtherProcess);
 }
 
+PImageBridgeChild*
+ContentChild::AllocPImageBridge(mozilla::ipc::Transport* aTransport,
+                                base::ProcessId aOtherProcess)
+{
+    return ImageBridgeChild::StartUpInChildProcess(aTransport, aOtherProcess);
+}
+
 PBrowserChild*
-ContentChild::AllocPBrowser(const PRUint32& aChromeFlags,
+ContentChild::AllocPBrowser(const uint32_t& aChromeFlags,
                             const bool& aIsBrowserElement, const AppId& aApp)
 {
-    PRUint32 appId = aApp.get_uint32_t();
-    nsRefPtr<TabChild> iframe = new TabChild(aChromeFlags, aIsBrowserElement,
-                                             appId);
-    return NS_SUCCEEDED(iframe->Init()) ? iframe.forget().get() : NULL;
+    nsRefPtr<TabChild> child =
+        TabChild::Create(aChromeFlags, aIsBrowserElement, aApp.get_uint32_t());
+    // The ref here is released below.
+    return child.forget().get();
 }
 
 bool
@@ -473,7 +487,7 @@ ContentChild::GetOrCreateActorForBlob(nsIDOMBlob* aBlob)
     nsresult rv = aBlob->GetType(contentType);
     NS_ENSURE_SUCCESS(rv, nullptr);
 
-    PRUint64 length;
+    uint64_t length;
     rv = aBlob->GetSize(&length);
     NS_ENSURE_SUCCESS(rv, nullptr);
 
@@ -508,7 +522,7 @@ ContentChild::GetOrCreateActorForBlob(nsIDOMBlob* aBlob)
 
 PCrashReporterChild*
 ContentChild::AllocPCrashReporter(const mozilla::dom::NativeThreadId& id,
-                                  const PRUint32& processType)
+                                  const uint32_t& processType)
 {
 #ifdef MOZ_CRASHREPORTER
     return new CrashReporterChild();
@@ -572,9 +586,9 @@ ContentChild::RecvPTestShellConstructor(PTestShellChild* actor)
 }
 
 PAudioChild*
-ContentChild::AllocPAudio(const PRInt32& numChannels,
-                          const PRInt32& rate,
-                          const PRInt32& format)
+ContentChild::AllocPAudio(const int32_t& numChannels,
+                          const int32_t& rate,
+                          const int32_t& format)
 {
 #if defined(MOZ_SYDNEYAUDIO)
     AudioChild *child = new AudioChild();
@@ -622,12 +636,12 @@ ContentChild::DeallocPNecko(PNeckoChild* necko)
 }
 
 PExternalHelperAppChild*
-ContentChild::AllocPExternalHelperApp(const IPC::URI& uri,
+ContentChild::AllocPExternalHelperApp(const OptionalURIParams& uri,
                                       const nsCString& aMimeContentType,
                                       const nsCString& aContentDisposition,
                                       const bool& aForceSave,
-                                      const PRInt64& aContentLength,
-                                      const IPC::URI& aReferrer)
+                                      const int64_t& aContentLength,
+                                      const OptionalURIParams& aReferrer)
 {
     ExternalHelperAppChild *child = new ExternalHelperAppChild();
     child->AddRef();
@@ -757,23 +771,16 @@ ContentChild::AddRemoteAlertObserver(const nsString& aData,
 }
 
 bool
-ContentChild::RecvPreferenceUpdate(const PrefTuple& aPref)
+ContentChild::RecvPreferenceUpdate(const PrefSetting& aPref)
 {
-    Preferences::SetPreference(&aPref);
-    return true;
-}
-
-bool
-ContentChild::RecvClearUserPreference(const nsCString& aPrefName)
-{
-    Preferences::ClearContentPref(aPrefName.get());
+    Preferences::SetPreference(aPref);
     return true;
 }
 
 bool
 ContentChild::RecvNotifyAlertsObserver(const nsCString& aType, const nsString& aData)
 {
-    for (PRUint32 i = 0; i < mAlertObservers.Length();
+    for (uint32_t i = 0; i < mAlertObservers.Length();
          /*we mutate the array during the loop; ++i iff no mutation*/) {
         AlertObserver* observer = mAlertObservers[i];
         if (observer->Observes(aData) && observer->Notify(aType)) {
@@ -790,9 +797,12 @@ ContentChild::RecvNotifyAlertsObserver(const nsCString& aType, const nsString& a
 }
 
 bool
-ContentChild::RecvNotifyVisited(const IPC::URI& aURI)
+ContentChild::RecvNotifyVisited(const URIParams& aURI)
 {
-    nsCOMPtr<nsIURI> newURI(aURI);
+    nsCOMPtr<nsIURI> newURI = DeserializeURI(aURI);
+    if (!newURI) {
+        return false;
+    }
     History::GetService()->NotifyVisited(newURI);
     return true;
 }
@@ -809,9 +819,9 @@ ContentChild::RecvAsyncMessage(const nsString& aMsg,
     cloneData.mData = buffer.data;
     cloneData.mDataLength = buffer.dataLength;
     if (!blobChildList.IsEmpty()) {
-      PRUint32 length = blobChildList.Length();
+      uint32_t length = blobChildList.Length();
       cloneData.mClosure.mBlobs.SetCapacity(length);
-      for (PRUint32 i = 0; i < length; ++i) {
+      for (uint32_t i = 0; i < length; ++i) {
         BlobChild* blobChild = static_cast<BlobChild*>(blobChildList[i]);
         MOZ_ASSERT(blobChild);
         nsCOMPtr<nsIDOMBlob> blob = blobChild->GetBlob();
@@ -848,7 +858,20 @@ ContentChild::RecvAddPermission(const IPC::Permission& permission)
   NS_ABORT_IF_FALSE(permissionManager, 
                    "We have no permissionManager in the Content process !");
 
-  permissionManager->AddInternal(nsCString(permission.host),
+  nsCOMPtr<nsIURI> uri;
+  NS_NewURI(getter_AddRefs(uri), NS_LITERAL_CSTRING("http://") + nsCString(permission.host));
+  NS_ENSURE_TRUE(uri, true);
+
+  nsIScriptSecurityManager* secMan = nsContentUtils::GetSecurityManager();
+  MOZ_ASSERT(secMan);
+
+  nsCOMPtr<nsIPrincipal> principal;
+  nsresult rv = secMan->GetAppCodebasePrincipal(uri, permission.appId,
+                                                permission.isInBrowserElement,
+                                                getter_AddRefs(principal));
+  NS_ENSURE_SUCCESS(rv, true);
+
+  permissionManager->AddInternal(principal,
                                  nsCString(permission.type),
                                  permission.capability,
                                  0,
@@ -914,6 +937,8 @@ PreloadSlowThings()
 {
     // This fetches and creates all the built-in stylesheets.
     nsLayoutStylesheetCache::UserContentSheet();
+
+    TabChild::PreloadSlowThings();
 }
 
 bool
@@ -927,12 +952,16 @@ ContentChild::RecvAppInfo(const nsCString& version, const nsCString& buildID)
 }
 
 bool
-ContentChild::RecvSetID(const PRUint64 &id)
+ContentChild::RecvSetProcessAttributes(const uint64_t &id,
+                                       const bool& aIsForApp,
+                                       const bool& aIsForBrowser)
 {
-    if (mID != PRUint64(-1)) {
+    if (mID != uint64_t(-1)) {
         NS_WARNING("Setting content child's ID twice?");
     }
     mID = id;
+    mIsForApp = aIsForApp;
+    mIsForBrowser = aIsForBrowser;
     return true;
 }
 
@@ -958,7 +987,7 @@ ContentChild::RecvFilePathUpdate(const nsString& path, const nsCString& aReason)
 }
 
 bool
-ContentChild::RecvFileSystemUpdate(const nsString& aFsName, const nsString& aName, const PRInt32 &aState)
+ContentChild::RecvFileSystemUpdate(const nsString& aFsName, const nsString& aName, const int32_t &aState)
 {
 #ifdef MOZ_WIDGET_GONK
     nsRefPtr<nsVolume> volume = new nsVolume(aFsName, aName, aState);

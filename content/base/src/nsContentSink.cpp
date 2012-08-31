@@ -80,7 +80,8 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsContentSink)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mDocument)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mParser)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mNodeInfoManager)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NATIVE_MEMBER(mNodeInfoManager,
+                                                  nsNodeInfoManager)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mScriptLoader)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
@@ -115,17 +116,17 @@ nsContentSink::~nsContentSink()
 }
 
 bool    nsContentSink::sNotifyOnTimer;
-PRInt32 nsContentSink::sBackoffCount;
-PRInt32 nsContentSink::sNotificationInterval;
-PRInt32 nsContentSink::sInteractiveDeflectCount;
-PRInt32 nsContentSink::sPerfDeflectCount;
-PRInt32 nsContentSink::sPendingEventMode;
-PRInt32 nsContentSink::sEventProbeRate;
-PRInt32 nsContentSink::sInteractiveParseTime;
-PRInt32 nsContentSink::sPerfParseTime;
-PRInt32 nsContentSink::sInteractiveTime;
-PRInt32 nsContentSink::sInitialPerfTime;
-PRInt32 nsContentSink::sEnablePerfMode;
+int32_t nsContentSink::sBackoffCount;
+int32_t nsContentSink::sNotificationInterval;
+int32_t nsContentSink::sInteractiveDeflectCount;
+int32_t nsContentSink::sPerfDeflectCount;
+int32_t nsContentSink::sPendingEventMode;
+int32_t nsContentSink::sEventProbeRate;
+int32_t nsContentSink::sInteractiveParseTime;
+int32_t nsContentSink::sPerfParseTime;
+int32_t nsContentSink::sInteractiveTime;
+int32_t nsContentSink::sInitialPerfTime;
+int32_t nsContentSink::sEnablePerfMode;
 
 void
 nsContentSink::InitializeStatics()
@@ -185,7 +186,7 @@ nsContentSink::Init(nsIDocument* aDoc,
 
   if (!mRunsToCompletion) {
     if (mDocShell) {
-      PRUint32 loadType = 0;
+      uint32_t loadType = 0;
       mDocShell->GetLoadType(&loadType);
       mDocument->SetChangeScrollPosWhenScrollingToRef(
         (loadType & nsIDocShell::LOAD_CMD_HISTORY) == 0);
@@ -349,7 +350,7 @@ nsContentSink::DoProcessLinkHeader()
 {
   nsAutoString value;
   mDocument->GetHeaderData(nsGkAtoms::link, value);
-  ProcessLinkHeader(nullptr, value);
+  ProcessLinkHeader(value);
 }
 
 // check whether the Link header field applies to the context resource
@@ -439,8 +440,7 @@ nsContentSink::Decode5987Format(nsAString& aEncoded) {
 }
 
 nsresult
-nsContentSink::ProcessLinkHeader(nsIContent* aElement,
-                                 const nsAString& aLinkData)
+nsContentSink::ProcessLinkHeader(const nsAString& aLinkData)
 {
   nsresult rv = NS_OK;
 
@@ -639,7 +639,7 @@ nsContentSink::ProcessLinkHeader(nsIContent* aElement,
 
       href.Trim(" \t\n\r\f"); // trim HTML5 whitespace
       if (!href.IsEmpty() && !rel.IsEmpty()) {
-        rv = ProcessLink(aElement, anchor, href, rel,
+        rv = ProcessLink(anchor, href, rel,
                          // prefer RFC 5987 variant over non-I18zed version
                          titleStar.IsEmpty() ? title : titleStar,
                          type, media);
@@ -660,7 +660,7 @@ nsContentSink::ProcessLinkHeader(nsIContent* aElement,
                 
   href.Trim(" \t\n\r\f"); // trim HTML5 whitespace
   if (!href.IsEmpty() && !rel.IsEmpty()) {
-    rv = ProcessLink(aElement, anchor, href, rel,
+    rv = ProcessLink(anchor, href, rel,
                      // prefer RFC 5987 variant over non-I18zed version
                      titleStar.IsEmpty() ? title : titleStar,
                      type, media);
@@ -671,12 +671,11 @@ nsContentSink::ProcessLinkHeader(nsIContent* aElement,
 
 
 nsresult
-nsContentSink::ProcessLink(nsIContent* aElement,
-                           const nsSubstring& aAnchor, const nsSubstring& aHref,
+nsContentSink::ProcessLink(const nsSubstring& aAnchor, const nsSubstring& aHref,
                            const nsSubstring& aRel, const nsSubstring& aTitle,
                            const nsSubstring& aType, const nsSubstring& aMedia)
 {
-  PRUint32 linkTypes = nsStyleLinkElement::ParseLinkTypes(aRel);
+  uint32_t linkTypes = nsStyleLinkElement::ParseLinkTypes(aRel);
 
   // The link relation may apply to a different resource, specified
   // in the anchor parameter. For the link relations supported so far,
@@ -689,7 +688,7 @@ nsContentSink::ProcessLink(nsIContent* aElement,
   bool hasPrefetch = linkTypes & PREFETCH;
   // prefetch href if relation is "next" or "prefetch"
   if (hasPrefetch || (linkTypes & NEXT)) {
-    PrefetchHref(aHref, aElement, hasPrefetch);
+    PrefetchHref(aHref, nullptr, hasPrefetch);
   }
 
   if (!aHref.IsEmpty() && (linkTypes & DNS_PREFETCH)) {
@@ -702,7 +701,7 @@ nsContentSink::ProcessLink(nsIContent* aElement,
   }
 
   bool isAlternate = linkTypes & ALTERNATE;
-  return ProcessStyleLink(aElement, aHref, isAlternate, aTitle, aType,
+  return ProcessStyleLink(nullptr, aHref, isAlternate, aTitle, aType,
                           aMedia);
 }
 
@@ -738,9 +737,15 @@ nsContentSink::ProcessStyleLink(nsIContent* aElement,
     return NS_OK;
   }
 
+  NS_ASSERTION(!aElement ||
+               aElement->NodeType() == nsIDOMNode::PROCESSING_INSTRUCTION_NODE,
+               "We only expect processing instructions here");
+
   // If this is a fragment parser, we don't want to observe.
+  // We don't support CORS for processing instructions
   bool isAlternate;
   rv = mCSSLoader->LoadStyleLink(aElement, url, aTitle, aMedia, aAlternate,
+                                 CORS_NONE,
                                  mRunsToCompletion ? nullptr : this, &isAlternate);
   NS_ENSURE_SUCCESS(rv, rv);
   
@@ -806,7 +811,7 @@ nsContentSink::PrefetchHref(const nsAString &aHref,
 
   nsCOMPtr<nsIDocShellTreeItem> treeItem, parentItem;
   do {
-    PRUint32 appType = 0;
+    uint32_t appType = 0;
     nsresult rv = docshell->GetAppType(&appType);
     if (NS_FAILED(rv) || appType == nsIDocShell::APP_TYPE_MAIL)
       return; // do not prefetch from mailnews
@@ -1194,7 +1199,7 @@ nsContentSink::StartLayout(bool aIgnorePendingSheets)
 }
 
 void
-nsContentSink::NotifyAppend(nsIContent* aContainer, PRUint32 aStartIndex)
+nsContentSink::NotifyAppend(nsIContent* aContainer, uint32_t aStartIndex)
 {
   if (aContainer->GetCurrentDoc() != mDocument) {
     // aContainer is not actually in our document anymore.... Just bail out of
@@ -1228,8 +1233,8 @@ nsContentSink::Notify(nsITimer *timer)
 #ifdef MOZ_DEBUG
   {
     PRTime now = PR_Now();
-    PRInt64 diff, interval;
-    PRInt32 delay;
+    int64_t diff, interval;
+    int32_t delay;
 
     LL_I2L(interval, GetNotificationInterval());
     LL_SUB(diff, now, mLastNotificationTime);
@@ -1273,7 +1278,7 @@ nsContentSink::IsTimeToNotify()
   }
 
   PRTime now = PR_Now();
-  PRInt64 interval, diff;
+  int64_t interval, diff;
 
   LL_I2L(interval, GetNotificationInterval());
   LL_SUB(diff, now, mLastNotificationTime);
@@ -1298,9 +1303,9 @@ nsContentSink::WillInterruptImpl()
     mDeferredFlushTags = true;
   } else if (sNotifyOnTimer && mLayoutStarted) {
     if (mBackoffCount && !mInMonolithicContainer) {
-      PRInt64 now = PR_Now();
-      PRInt64 interval = GetNotificationInterval();
-      PRInt64 diff = now - mLastNotificationTime;
+      int64_t now = PR_Now();
+      int64_t interval = GetNotificationInterval();
+      int64_t diff = now - mLastNotificationTime;
 
       // If it's already time for us to have a notification
       if (diff > interval || mDroppedTimer) {
@@ -1315,7 +1320,7 @@ nsContentSink::WillInterruptImpl()
         }
       } else if (!mNotificationTimer) {
         interval -= diff;
-        PRInt32 delay = interval;
+        int32_t delay = interval;
 
         // Convert to milliseconds
         delay /= PR_USEC_PER_MSEC;
@@ -1394,7 +1399,7 @@ nsContentSink::DidProcessATokenImpl()
 
   // Have we processed enough tokens to check time?
   if (!mHasPendingEvent &&
-      mDeflectedCount < PRUint32(mDynamicLowerValue ? sInteractiveDeflectCount :
+      mDeflectedCount < uint32_t(mDynamicLowerValue ? sInteractiveDeflectCount :
                                                       sPerfDeflectCount)) {
     return NS_OK;
   }
@@ -1412,7 +1417,7 @@ nsContentSink::DidProcessATokenImpl()
 //----------------------------------------------------------------------
 
 void
-nsContentSink::FavorPerformanceHint(bool perfOverStarvation, PRUint32 starvationDelay)
+nsContentSink::FavorPerformanceHint(bool perfOverStarvation, uint32_t starvationDelay)
 {
   static NS_DEFINE_CID(kAppShellCID, NS_APPSHELL_CID);
   nsCOMPtr<nsIAppShell> appShell = do_GetService(kAppShellCID);
@@ -1525,18 +1530,18 @@ nsContentSink::WillParseImpl(void)
     return NS_OK;
   }
 
-  PRUint32 currentTime = PR_IntervalToMicroseconds(PR_IntervalNow());
+  uint32_t currentTime = PR_IntervalToMicroseconds(PR_IntervalNow());
 
   if (sEnablePerfMode == 0) {
     nsIViewManager* vm = shell->GetViewManager();
     NS_ENSURE_TRUE(vm, NS_ERROR_FAILURE);
-    PRUint32 lastEventTime;
+    uint32_t lastEventTime;
     vm->GetLastUserEventTime(lastEventTime);
 
     bool newDynLower =
       mDocument->IsInBackgroundWindow() ||
-      ((currentTime - mBeginLoadTime) > PRUint32(sInitialPerfTime) &&
-       (currentTime - lastEventTime) < PRUint32(sInteractiveTime));
+      ((currentTime - mBeginLoadTime) > uint32_t(sInitialPerfTime) &&
+       (currentTime - lastEventTime) < uint32_t(sInteractiveTime));
     
     if (mDynamicLowerValue != newDynLower) {
       FavorPerformanceHint(!newDynLower, 0);

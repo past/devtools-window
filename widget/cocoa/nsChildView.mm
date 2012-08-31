@@ -114,7 +114,7 @@ nsIWidget         * gRollupWidget   = nullptr;
 
 bool gUserCancelledDrag = false;
 
-PRUint32 nsChildView::sLastInputEventCount = 0;
+uint32_t nsChildView::sLastInputEventCount = 0;
 
 @interface ChildView(Private)
 
@@ -224,9 +224,6 @@ nsChildView::nsChildView() : nsBaseWidget()
   EnsureLogInitialized();
 
   memset(&mPluginCGContext, 0, sizeof(mPluginCGContext));
-#ifndef NP_NO_QUICKDRAW
-  memset(&mPluginQDPort, 0, sizeof(mPluginQDPort));
-#endif
 
   SetBackgroundColor(NS_RGB(255, 255, 255));
   SetForegroundColor(NS_RGB(0, 0, 0));
@@ -452,7 +449,7 @@ static void PrintViewHierarchy(NSView *view)
 #endif
 
 // Return native data according to aDataType
-void* nsChildView::GetNativeData(PRUint32 aDataType)
+void* nsChildView::GetNativeData(uint32_t aDataType)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSNULL;
 
@@ -483,7 +480,6 @@ void* nsChildView::GetNativeData(PRUint32 aDataType)
       break;
 
     case NS_NATIVE_PLUGIN_PORT:
-    case NS_NATIVE_PLUGIN_PORT_QD:
     case NS_NATIVE_PLUGIN_PORT_CG:
     {
       // The NP_CGContext pointer should always be NULL in the Cocoa event model.
@@ -491,12 +487,6 @@ void* nsChildView::GetNativeData(PRUint32 aDataType)
         return nullptr;
 
       UpdatePluginPort();
-#ifndef NP_NO_QUICKDRAW
-      if (aDataType != NS_NATIVE_PLUGIN_PORT_CG) {
-        retVal = (void*)&mPluginQDPort;
-        break;
-      }
-#endif
       retVal = (void*)&mPluginCGContext;
       break;
     }
@@ -553,23 +543,6 @@ void nsChildView::HidePlugin()
 {
   NS_ASSERTION(mWindowType == eWindowType_plugin,
                "HidePlugin called on non-plugin view");
-
-#ifndef NP_NO_QUICKDRAW
-  if (mPluginInstanceOwner && mView &&
-      [(ChildView*)mView pluginDrawingModel] == NPDrawingModelQuickDraw) {
-    NPWindow* window;
-    mPluginInstanceOwner->GetWindow(window);
-    nsRefPtr<nsNPAPIPluginInstance> instance;
-    mPluginInstanceOwner->GetInstance(getter_AddRefs(instance));
-    if (window && instance) {
-       window->clipRect.top = 0;
-       window->clipRect.left = 0;
-       window->clipRect.bottom = 0;
-       window->clipRect.right = 0;
-       instance->SetWindow(window);
-    }
-  }
-#endif
 }
 
 void nsChildView::UpdatePluginPort()
@@ -577,48 +550,21 @@ void nsChildView::UpdatePluginPort()
   NS_ASSERTION(mWindowType == eWindowType_plugin,
                "UpdatePluginPort called on non-plugin view");
 
-#if !defined(NP_NO_CARBON) || !defined(NP_NO_QUICKDRAW)
+  // [NSGraphicsContext currentContext] is supposed to "return the
+  // current graphics context of the current thread."  But sometimes
+  // (when called while mView isn't focused for drawing) it returns a
+  // graphics context for the wrong window.  [window graphicsContext]
+  // (which "provides the graphics context associated with the window
+  // for the current thread") seems always to return the "right"
+  // graphics context.  See bug 500130.
+  mPluginCGContext.context = NULL;
+  mPluginCGContext.window = NULL;
+#ifndef NP_NO_CARBON
   NSWindow* cocoaWindow = [mView window];
   WindowRef carbonWindow = cocoaWindow ? (WindowRef)[cocoaWindow windowRef] : NULL;
-#endif
-
-  if (!mView
-#ifndef NP_NO_QUICKDRAW
-    || [(ChildView*)mView pluginDrawingModel] != NPDrawingModelQuickDraw
-#endif
-    ) {
-    // [NSGraphicsContext currentContext] is supposed to "return the
-    // current graphics context of the current thread."  But sometimes
-    // (when called while mView isn't focused for drawing) it returns a
-    // graphics context for the wrong window.  [window graphicsContext]
-    // (which "provides the graphics context associated with the window
-    // for the current thread") seems always to return the "right"
-    // graphics context.  See bug 500130.
-    mPluginCGContext.context = NULL;
-    mPluginCGContext.window = NULL;
-#ifndef NP_NO_CARBON
-    if (carbonWindow) {
-      mPluginCGContext.context = (CGContextRef)[[cocoaWindow graphicsContext] graphicsPort];
-      mPluginCGContext.window = carbonWindow;
-    }
-#endif
-  }
-#ifndef NP_NO_QUICKDRAW
-  else {
-    if (carbonWindow) {
-      mPluginQDPort.port = ::GetWindowPort(carbonWindow);
-
-      NSPoint viewOrigin = [mView convertPoint:NSZeroPoint toView:nil];
-      NSRect frame = [[cocoaWindow contentView] frame];
-      viewOrigin.y = frame.size.height - viewOrigin.y;
-
-      // need to convert view's origin to window coordinates.
-      // then, encode as "SetOrigin" ready values.
-      mPluginQDPort.portx = (PRInt32)-viewOrigin.x;
-      mPluginQDPort.porty = (PRInt32)-viewOrigin.y;
-    } else {
-      mPluginQDPort.port = NULL;
-    }
+  if (carbonWindow) {
+    mPluginCGContext.context = (CGContextRef)[[cocoaWindow graphicsContext] graphicsPort];
+    mPluginCGContext.window = carbonWindow;
   }
 #endif
 }
@@ -788,7 +734,7 @@ NS_IMETHODIMP nsChildView::SetCursor(nsCursor aCursor)
 
 // implement to fix "hidden virtual function" warning
 NS_IMETHODIMP nsChildView::SetCursor(imgIContainer* aCursor,
-                                      PRUint32 aHotspotX, PRUint32 aHotspotY)
+                                      uint32_t aHotspotX, uint32_t aHotspotY)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
 
@@ -813,13 +759,13 @@ NS_IMETHODIMP nsChildView::GetBounds(nsIntRect &aRect)
 }
 
 NS_IMETHODIMP nsChildView::ConstrainPosition(bool aAllowSlop,
-                                             PRInt32 *aX, PRInt32 *aY)
+                                             int32_t *aX, int32_t *aY)
 {
   return NS_OK;
 }
 
 // Move this component, aX and aY are in the parent widget coordinate system
-NS_IMETHODIMP nsChildView::Move(PRInt32 aX, PRInt32 aY)
+NS_IMETHODIMP nsChildView::Move(int32_t aX, int32_t aY)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
 
@@ -844,7 +790,7 @@ NS_IMETHODIMP nsChildView::Move(PRInt32 aX, PRInt32 aY)
   NS_OBJC_END_TRY_ABORT_BLOCK_NSRESULT;
 }
 
-NS_IMETHODIMP nsChildView::Resize(PRInt32 aWidth, PRInt32 aHeight, bool aRepaint)
+NS_IMETHODIMP nsChildView::Resize(int32_t aWidth, int32_t aHeight, bool aRepaint)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
 
@@ -869,7 +815,7 @@ NS_IMETHODIMP nsChildView::Resize(PRInt32 aWidth, PRInt32 aHeight, bool aRepaint
   NS_OBJC_END_TRY_ABORT_BLOCK_NSRESULT;
 }
 
-NS_IMETHODIMP nsChildView::Resize(PRInt32 aX, PRInt32 aY, PRInt32 aWidth, PRInt32 aHeight, bool aRepaint)
+NS_IMETHODIMP nsChildView::Resize(int32_t aX, int32_t aY, int32_t aWidth, int32_t aHeight, bool aRepaint)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
 
@@ -908,8 +854,8 @@ NS_IMETHODIMP nsChildView::Resize(PRInt32 aX, PRInt32 aY, PRInt32 aWidth, PRInt3
   NS_OBJC_END_TRY_ABORT_BLOCK_NSRESULT;
 }
 
-static const PRInt32 resizeIndicatorWidth = 15;
-static const PRInt32 resizeIndicatorHeight = 15;
+static const int32_t resizeIndicatorWidth = 15;
+static const int32_t resizeIndicatorHeight = 15;
 bool nsChildView::ShowsResizeIndicator(nsIntRect* aResizerRect)
 {
   NSView *topLevelView = mView, *superView = nil;
@@ -980,7 +926,7 @@ NS_IMETHODIMP nsChildView::GetPluginClipRect(nsIntRect& outClipRect, nsIntPoint&
 
     if (mClipRects) {
       nsIntRect clipBounds;
-      for (PRUint32 i = 0; i < mClipRectCount; ++i) {
+      for (uint32_t i = 0; i < mClipRectCount; ++i) {
         clipBounds.UnionRect(clipBounds, mClipRects[i]);
       }
       outClipRect.IntersectRect(outClipRect, clipBounds - outOrigin);
@@ -1014,26 +960,6 @@ static void InitializeEventRecord(EventRecord* event, Point* aMousePosition)
 }
 #endif
 
-void nsChildView::PaintQD()
-{
-#ifndef NP_NO_CARBON
-  void *pluginPort = this->GetNativeData(NS_NATIVE_PLUGIN_PORT_QD);
-  void *window = ::GetWindowFromPort(static_cast<NP_Port*>(pluginPort)->port);
-
-  NS_SUCCEEDED(StartDrawPlugin());
-  EventRecord updateEvent;
-  InitializeEventRecord(&updateEvent, nullptr);
-  updateEvent.what = updateEvt;
-  updateEvent.message = UInt32(window);
-
-  nsRefPtr<nsNPAPIPluginInstance> instance;
-  mPluginInstanceOwner->GetInstance(getter_AddRefs(instance));
-
-  instance->HandleEvent(&updateEvent, nullptr);
-  EndDrawPlugin();
-#endif
-}
-
 NS_IMETHODIMP nsChildView::StartDrawPlugin()
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
@@ -1042,7 +968,7 @@ NS_IMETHODIMP nsChildView::StartDrawPlugin()
                "StartDrawPlugin must only be called on a plugin widget");
   if (mWindowType != eWindowType_plugin) return NS_ERROR_FAILURE;
 
-  // This code is necessary for both Quickdraw and CoreGraphics in 32-bit builds.
+  // This code is necessary for CoreGraphics in 32-bit builds.
   // See comments below about why. In 64-bit CoreGraphics mode we will not keep
   // this region up to date, plugins should not depend on it.
 #ifndef __LP64__
@@ -1050,18 +976,15 @@ NS_IMETHODIMP nsChildView::StartDrawPlugin()
   if (!window)
     return NS_ERROR_FAILURE;
 
-  // In QuickDraw drawing mode, prevent reentrant handling of any plugin event
-  // (this emulates behavior on the 1.8 branch, where only QuickDraw mode is
-  // supported).  But in CoreGraphics drawing mode only do this if the current
+  // In QuickDraw drawing mode we used to prevent reentrant handling of any
+  // plugin event. But in CoreGraphics drawing mode only do this if the current
   // plugin event isn't an update/paint event.  This allows popupcontextmenu()
   // to work properly from a plugin that supports the Cocoa event model,
   // without regressing bug 409615.  See bug 435041.  (StartDrawPlugin() and
   // EndDrawPlugin() wrap every call to nsIPluginInstance::HandleEvent() --
   // not just calls that "draw" or paint.)
-  bool isQDPlugin = [(ChildView*)mView pluginDrawingModel] == NPDrawingModelQuickDraw;
-  if (isQDPlugin || mIsDispatchPaint) {
-    if (mPluginDrawing)
-      return NS_ERROR_FAILURE;
+  if (mIsDispatchPaint && mPluginDrawing) {
+    return NS_ERROR_FAILURE;
   }
 
   // It appears that the WindowRef from which we get the plugin port undergoes the
@@ -1079,13 +1002,9 @@ NS_IMETHODIMP nsChildView::StartDrawPlugin()
   if (::NewRgn && ::GetQDGlobalsThePort && ::GetGWorld && ::SetGWorld &&
       ::IsPortOffscreen && ::GetMainDevice && ::SetOrigin && ::RectRgn &&
       ::SetPortVisibleRegion && ::SetPortClipRegion && ::DisposeRgn) {
-    CGrafPtr port = ::GetWindowPort(WindowRef([window windowRef]));
-    if (isQDPlugin) {
-      port = mPluginQDPort.port;
-    }
-
     RgnHandle pluginRegion = ::NewRgn();
     if (pluginRegion) {
+      CGrafPtr port = ::GetWindowPort(WindowRef([window windowRef]));
       bool portChanged = (port != CGrafPtr(::GetQDGlobalsThePort()));
       CGrafPtr oldPort;
       GDHandle oldDevice;
@@ -1119,8 +1038,6 @@ NS_IMETHODIMP nsChildView::StartDrawPlugin()
         ::SetGWorld(oldPort, oldDevice);
       }
     }
-  } else {
-    NS_WARNING("Cannot set plugin's visible region -- required QuickDraw APIs are missing!");
   }
 #endif
 
@@ -1170,9 +1087,9 @@ NS_IMETHODIMP nsChildView::StartComplexTextInputForCurrentEvent()
   return mTextInputHandler->StartComplexTextInputForCurrentEvent();
 }
 
-nsresult nsChildView::SynthesizeNativeKeyEvent(PRInt32 aNativeKeyboardLayout,
-                                               PRInt32 aNativeKeyCode,
-                                               PRUint32 aModifierFlags,
+nsresult nsChildView::SynthesizeNativeKeyEvent(int32_t aNativeKeyboardLayout,
+                                               int32_t aNativeKeyCode,
+                                               uint32_t aModifierFlags,
                                                const nsAString& aCharacters,
                                                const nsAString& aUnmodifiedCharacters)
 {
@@ -1184,8 +1101,8 @@ nsresult nsChildView::SynthesizeNativeKeyEvent(PRInt32 aNativeKeyboardLayout,
 }
 
 nsresult nsChildView::SynthesizeNativeMouseEvent(nsIntPoint aPoint,
-                                                 PRUint32 aNativeMessage,
-                                                 PRUint32 aModifierFlags)
+                                                 uint32_t aNativeMessage,
+                                                 uint32_t aModifierFlags)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
 
@@ -1406,7 +1323,7 @@ nsChildView::UseOffMainThreadCompositing()
   return nsBaseWidget::UseOffMainThreadCompositing() && GetShouldAccelerate();
 }
 
-inline PRUint16 COLOR8TOCOLOR16(PRUint8 color8)
+inline uint16_t COLOR8TOCOLOR16(uint8_t color8)
 {
   // return (color8 == 0xFF ? 0xFFFF : (color8 << 8));
   return (color8 << 8) | color8;  /* (color8 * 257) == (color8 * 0x0101) */
@@ -1416,7 +1333,7 @@ inline PRUint16 COLOR8TOCOLOR16(PRUint8 color8)
 
 nsresult nsChildView::ConfigureChildren(const nsTArray<Configuration>& aConfigurations)
 {
-  for (PRUint32 i = 0; i < aConfigurations.Length(); ++i) {
+  for (uint32_t i = 0; i < aConfigurations.Length(); ++i) {
     const Configuration& config = aConfigurations[i];
     nsChildView* child = static_cast<nsChildView*>(config.mChild);
 #ifdef DEBUG
@@ -1432,15 +1349,10 @@ nsresult nsChildView::ConfigureChildren(const nsTArray<Configuration>& aConfigur
     // it from here.  See bug 592563.
     child->Show(!config.mClipRegion.IsEmpty());
 
-    bool repaint = false;
-#ifndef NP_NO_QUICKDRAW
-    repaint = child->mView &&
-      [(ChildView*)child->mView pluginDrawingModel] == NPDrawingModelQuickDraw;
-#endif
     child->Resize(
         config.mBounds.x, config.mBounds.y,
         config.mBounds.width, config.mBounds.height,
-        repaint);
+        false);
 
     // Store the clip region here in case GetPluginClipRect needs it.
     child->StoreWindowClipRegion(config.mClipRegion);
@@ -1576,7 +1488,7 @@ NS_IMETHODIMP nsChildView::SetTitle(const nsAString& title)
   return NS_OK;
 }
 
-NS_IMETHODIMP nsChildView::GetAttention(PRInt32 aCycleCount)
+NS_IMETHODIMP nsChildView::GetAttention(int32_t aCycleCount)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
 
@@ -1593,7 +1505,7 @@ bool nsChildView::DoHasPendingInputEvent()
 }
 
 /* static */
-PRUint32 nsChildView::GetCurrentInputEventCount()
+uint32_t nsChildView::GetCurrentInputEventCount()
 {
   // Can't use kCGAnyInputEventType because that updates too rarely for us (and
   // always in increments of 30+!) and because apparently it's sort of broken
@@ -1615,8 +1527,8 @@ PRUint32 nsChildView::GetCurrentInputEventCount()
     kCGEventOtherMouseDragged
   };
 
-  PRUint32 eventCount = 0;
-  for (PRUint32 i = 0; i < ArrayLength(eventTypes); ++i) {
+  uint32_t eventCount = 0;
+  for (uint32_t i = 0; i < ArrayLength(eventTypes); ++i) {
     eventCount +=
       CGEventSourceCounterForEventType(kCGEventSourceStateCombinedSessionState,
                                        eventTypes[i]);
@@ -1703,13 +1615,13 @@ NS_IMETHODIMP nsChildView::CancelIMEComposition()
   return NS_OK;
 }
 
-NS_IMETHODIMP nsChildView::GetToggledKeyState(PRUint32 aKeyCode,
+NS_IMETHODIMP nsChildView::GetToggledKeyState(uint32_t aKeyCode,
                                               bool* aLEDState)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
 
   NS_ENSURE_ARG_POINTER(aLEDState);
-  PRUint32 key;
+  uint32_t key;
   switch (aKeyCode) {
     case NS_VK_CAPS_LOCK:
       key = alphaLock;
@@ -1721,7 +1633,7 @@ NS_IMETHODIMP nsChildView::GetToggledKeyState(PRUint32 aKeyCode,
     default:
       return NS_ERROR_NOT_IMPLEMENTED;
   }
-  PRUint32 modifierFlags = ::GetCurrentKeyModifiers();
+  uint32_t modifierFlags = ::GetCurrentKeyModifiers();
   *aLEDState = (modifierFlags & key) != 0;
   return NS_OK;
 
@@ -1885,7 +1797,7 @@ nsChildView::UpdateThemeGeometries(const nsTArray<ThemeGeometry>& aThemeGeometri
   float unifiedToolbarHeight = 0;
   nsIntRect topPixelStrip(0, 0, [win frame].size.width, 1);
 
-  for (PRUint32 i = 0; i < aThemeGeometries.Length(); ++i) {
+  for (uint32_t i = 0; i < aThemeGeometries.Length(); ++i) {
     const ThemeGeometry& g = aThemeGeometries[i];
     if ((g.mWidgetType == NS_THEME_MOZ_MAC_UNIFIED_TOOLBAR ||
          g.mWidgetType == NS_THEME_TOOLBAR) &&
@@ -1997,6 +1909,8 @@ NSEvent* gLastDragMouseDownEvent = nil;
     mPluginEventModel = NPEventModelCocoa;
 #endif
 #ifndef NP_NO_QUICKDRAW
+    // We don't support the Quickdraw drawing model any more but it's still
+    // the default model for i386 per NPAPI.
     mPluginDrawingModel = NPDrawingModelQuickDraw;
 #else
     mPluginDrawingModel = NPDrawingModelCoreGraphics;
@@ -2118,17 +2032,7 @@ NSEvent* gLastDragMouseDownEvent = nil;
   [[NSNotificationCenter defaultCenter] removeObserver:self];
   [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
 
-  [super dealloc];    
-
-#ifndef NP_NO_QUICKDRAW
-  // This sets the current port to _savePort.
-  // todo: Only do if a Quickdraw plugin is present in the hierarchy!
-  // Check if ::SetPort() is available -- it probably won't be on
-  // OS X 10.8 and up.
-  if (::SetPort) {
-    ::SetPort(NULL);
-  }
-#endif
+  [super dealloc];
 
   NS_OBJC_END_TRY_ABORT_BLOCK;
 }
@@ -2341,7 +2245,7 @@ NSEvent* gLastDragMouseDownEvent = nil;
   return mPluginDrawingModel;
 }
 
-- (void)sendFocusEvent:(PRUint32)eventType
+- (void)sendFocusEvent:(uint32_t)eventType
 {
   if (!mGeckoChild)
     return;
@@ -2423,16 +2327,6 @@ NSEvent* gLastDragMouseDownEvent = nil;
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK;
 
-#ifndef NP_NO_QUICKDRAW
-  // Set the current GrafPort to a "safe" port before calling [NSQuickDrawView lockFocus],
-  // so that the NSQuickDrawView stashes a pointer to this known-good port internally.
-  // It will set the port back to this port on destruction.
-  // Check if ::SetPort() is available -- it probably won't be on OS X 10.8 and up.
-  if (::SetPort) {
-    ::SetPort(NULL);  // todo: only do if a Quickdraw plugin is present in the hierarchy!
-  }
-#endif
-
   [super lockFocus];
 
   if (mGLContext) {
@@ -2489,15 +2383,7 @@ NSEvent* gLastDragMouseDownEvent = nil;
   if (!mGeckoChild || !mGeckoChild->IsVisible())
     return;
 
-#ifndef NP_NO_QUICKDRAW
-  if (mIsPluginView && mPluginDrawingModel == NPDrawingModelQuickDraw) {
-    mGeckoChild->PaintQD();
-    return;
-  }
-#endif
-
-  // Don't ever draw non-QuickDraw plugin views explicitly; they'll be drawn as
-  // part of their parent widget.
+  // Don't ever draw plugin views explicitly; they'll be drawn as part of their parent widget.
   if (mIsPluginView)
     return;
 
@@ -2530,21 +2416,6 @@ NSEvent* gLastDragMouseDownEvent = nil;
   } else {
     region = boundingRect;
   }
-
-#ifndef NP_NO_QUICKDRAW
-  // Subtract quickdraw plugin rectangles from the region
-  NSArray* subviews = [self subviews];
-  for (int i = 0; i < int([subviews count]); ++i) {
-    NSView* view = [subviews objectAtIndex:i];
-    if (![view isKindOfClass:[ChildView class]] || [view isHidden])
-      continue;
-    ChildView* cview = (ChildView*) view;
-    if ([cview isPluginView] && [cview pluginDrawingModel] == NPDrawingModelQuickDraw) {
-      NSRect frame = [view frame];
-      region.Sub(region, nsIntRect(frame.origin.x, frame.origin.y, frame.size.width, frame.size.height));
-    }
-  }
-#endif
 
   LayerManager *layerManager = mGeckoChild->GetLayerManager(nullptr);
   if (layerManager->GetBackendType() == mozilla::layers::LAYERS_OPENGL) {
@@ -2783,11 +2654,11 @@ NSEvent* gLastDragMouseDownEvent = nil;
       // if we're dealing with menus, we probably have submenus and
       // we don't want to rollup if the click is in a parent menu of
       // the current submenu
-      PRUint32 popupsToRollup = PR_UINT32_MAX;
+      uint32_t popupsToRollup = PR_UINT32_MAX;
       if (gRollupListener) {
         nsAutoTArray<nsIWidget*, 5> widgetChain;
-        PRUint32 sameTypeCount = gRollupListener->GetSubmenuWidgetChain(&widgetChain);
-        for (PRUint32 i = 0; i < widgetChain.Length(); i++) {
+        uint32_t sameTypeCount = gRollupListener->GetSubmenuWidgetChain(&widgetChain);
+        for (uint32_t i = 0; i < widgetChain.Length(); i++) {
           nsIWidget* widget = widgetChain[i];
           NSWindow* currWindow = (NSWindow*)widget->GetNativeData(NS_NATIVE_WINDOW);
           if (nsCocoaUtils::IsEventOverWindow(theEvent, currWindow)) {
@@ -2886,7 +2757,7 @@ NSEvent* gLastDragMouseDownEvent = nil;
 
   float deltaZ = [anEvent deltaZ];
 
-  PRUint32 msg;
+  uint32_t msg;
   switch (mGestureState) {
   case eGestureState_StartGesture:
     msg = NS_SIMPLE_GESTURE_MAGNIFY_START;
@@ -2927,7 +2798,7 @@ NSEvent* gLastDragMouseDownEvent = nil;
 
   float rotation = [anEvent rotation];
 
-  PRUint32 msg;
+  uint32_t msg;
   switch (mGestureState) {
   case eGestureState_StartGesture:
     msg = NS_SIMPLE_GESTURE_ROTATE_START;
@@ -3371,10 +3242,10 @@ NSEvent* gLastDragMouseDownEvent = nil;
   NSPoint windowEventLocation = nsCocoaUtils::EventLocationForWindow(aEvent, [self window]);
   NSPoint localEventLocation = [self convertPoint:windowEventLocation fromView:nil];
 
-  PRUint32 msg = aEnter ? NS_MOUSE_ENTER : NS_MOUSE_EXIT;
+  uint32_t msg = aEnter ? NS_MOUSE_ENTER : NS_MOUSE_EXIT;
   nsMouseEvent event(true, msg, mGeckoChild, nsMouseEvent::eReal);
-  event.refPoint.x = nscoord((PRInt32)localEventLocation.x);
-  event.refPoint.y = nscoord((PRInt32)localEventLocation.y);
+  event.refPoint.x = nscoord((int32_t)localEventLocation.x);
+  event.refPoint.y = nscoord((int32_t)localEventLocation.y);
 
   // Create event for use by plugins.
   // This is going to our child view so we don't need to look up the destination
@@ -3686,10 +3557,10 @@ NSEvent* gLastDragMouseDownEvent = nil;
   mGeckoChild->DispatchWindowEvent(geckoEvent);
 }
 
-static PRInt32 RoundUp(double aDouble)
+static int32_t RoundUp(double aDouble)
 {
-  return aDouble < 0 ? static_cast<PRInt32>(floor(aDouble)) :
-                       static_cast<PRInt32>(ceil(aDouble));
+  return aDouble < 0 ? static_cast<int32_t>(floor(aDouble)) :
+                       static_cast<int32_t>(ceil(aDouble));
 }
 
 - (void)scrollWheel:(NSEvent*)theEvent
@@ -4355,7 +4226,7 @@ static PRInt32 RoundUp(double aDouble)
 
 - (NSDragOperation)dragOperationForSession:(nsIDragSession*)aDragSession
 {
-  PRUint32 dragAction;
+  uint32_t dragAction;
   aDragSession->GetDragAction(&dragAction);
   if (nsIDragService::DRAGDROP_ACTION_LINK & dragAction)
     return NSDragOperationLink;
@@ -4369,7 +4240,7 @@ static PRInt32 RoundUp(double aDouble)
 // This is a utility function used by NSView drag event methods
 // to send events. It contains all of the logic needed for Gecko
 // dragging to work. Returns the appropriate cocoa drag operation code.
-- (NSDragOperation)doDragAction:(PRUint32)aMessage sender:(id)aSender
+- (NSDragOperation)doDragAction:(uint32_t)aMessage sender:(id)aSender
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_RETURN;
 
@@ -4414,7 +4285,7 @@ static PRInt32 RoundUp(double aDouble)
     }
     
     unsigned int modifierFlags = [[NSApp currentEvent] modifierFlags];
-    PRUint32 action = nsIDragService::DRAGDROP_ACTION_MOVE;
+    uint32_t action = nsIDragService::DRAGDROP_ACTION_MOVE;
     // force copy = option, alias = cmd-option, default is move
     if (modifierFlags & NSAlternateKeyMask) {
       if (modifierFlags & NSCommandKeyMask)
@@ -4611,12 +4482,12 @@ static PRInt32 RoundUp(double aDouble)
   if (!gDraggedTransferables)
     return nil;
 
-  PRUint32 transferableCount;
+  uint32_t transferableCount;
   rv = gDraggedTransferables->Count(&transferableCount);
   if (NS_FAILED(rv))
     return nil;
 
-  for (PRUint32 i = 0; i < transferableCount; i++) {
+  for (uint32_t i = 0; i < transferableCount; i++) {
     nsCOMPtr<nsISupports> genericItem;
     gDraggedTransferables->GetElementAt(i, getter_AddRefs(genericItem));
     nsCOMPtr<nsITransferable> item(do_QueryInterface(genericItem));
@@ -4631,7 +4502,7 @@ static PRInt32 RoundUp(double aDouble)
     // now request the kFilePromiseMime data, which will invoke the data provider
     // If successful, the returned data is a reference to the resulting file.
     nsCOMPtr<nsISupports> fileDataPrimitive;
-    PRUint32 dataSize = 0;
+    uint32_t dataSize = 0;
     item->GetTransferData(kFilePromiseMime, getter_AddRefs(fileDataPrimitive), &dataSize);
   }
   

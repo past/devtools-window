@@ -510,12 +510,7 @@ JSStructuredCloneWriter::startWrite(const Value &v)
         if (!obj)
             return false;
 
-        // If we unwrapped above, we'll need to enter the underlying compartment.
-        // Let the AutoEnterCompartment do the right thing for us.
-        JSAutoEnterCompartment ac;
-        if (!ac.enter(context(), obj))
-            return false;
-
+        AutoCompartment ac(context(), obj);
         if (obj->isRegExp()) {
             RegExpObject &reobj = obj->asRegExp();
             return out.writePair(SCTAG_REGEXP_OBJECT, reobj.getFlags()) &&
@@ -555,12 +550,7 @@ JSStructuredCloneWriter::write(const Value &v)
 
     while (!counts.empty()) {
         RootedObject obj(context(), &objs.back().toObject());
-
-        // The objects in |obj| can live in other compartments.
-        JSAutoEnterCompartment ac;
-        if (!ac.enter(context(), obj))
-            return false;
-
+        AutoCompartment ac(context(), obj);
         if (counts.back()) {
             counts.back()--;
             RootedId id(context(), ids.back());
@@ -582,7 +572,7 @@ JSStructuredCloneWriter::write(const Value &v)
                 if (prop) {
                     RootedValue val(context());
                     if (!writeId(id) ||
-                        !obj->getGeneric(context(), id, &val) ||
+                        !JSObject::getGeneric(context(), obj, obj, id, &val) ||
                         !startWrite(val))
                         return false;
                 }
@@ -922,7 +912,7 @@ JSStructuredCloneReader::read(Value *vp)
             objs.popBack();
         } else {
             RootedValue v(context());
-            if (!startRead(v.address()) || !obj->defineGeneric(context(), id, v))
+            if (!startRead(v.address()) || !JSObject::defineGeneric(context(), obj, id, v))
                 return false;
         }
     }

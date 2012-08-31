@@ -7,6 +7,7 @@
 #include "nsDOMClassInfo.h"
 #include "DictionaryHelpers.h"
 
+#undef DOM_CAMERA_LOG_LEVEL
 #define DOM_CAMERA_LOG_LEVEL  DOM_CAMERA_LOG_NOTHING
 #include "CameraCommon.h"
 
@@ -29,7 +30,7 @@ NS_IMPL_RELEASE(nsDOMCameraManager)
  * GonkCameraManager.cpp and FallbackCameraManager.cpp.
  */
 
-nsDOMCameraManager::nsDOMCameraManager(PRUint64 aWindowId)
+nsDOMCameraManager::nsDOMCameraManager(uint64_t aWindowId)
   : mWindowId(aWindowId)
 {
   /* member initializers and constructor code */
@@ -43,14 +44,14 @@ nsDOMCameraManager::~nsDOMCameraManager()
 }
 
 void
-nsDOMCameraManager::OnNavigation(PRUint64 aWindowId)
+nsDOMCameraManager::OnNavigation(uint64_t aWindowId)
 {
   // TODO: implement -- see getUserMedia() implementation
 }
 
 // static creator
 already_AddRefed<nsDOMCameraManager>
-nsDOMCameraManager::Create(PRUint64 aWindowId)
+nsDOMCameraManager::Create(uint64_t aWindowId)
 {
   // TODO: check for permissions here to access cameras
 
@@ -64,7 +65,7 @@ nsDOMCameraManager::GetCamera(const JS::Value& aOptions, nsICameraGetCameraCallb
 {
   NS_ENSURE_TRUE(onSuccess, NS_ERROR_INVALID_ARG);
 
-  PRUint32 cameraId = 0;  // back (or forward-facing) camera by default
+  uint32_t cameraId = 0;  // back (or forward-facing) camera by default
   CameraSelector selector;
 
   nsresult rv = selector.Init(cx, &aOptions);

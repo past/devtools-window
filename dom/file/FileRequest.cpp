@@ -80,16 +80,11 @@ FileRequest::NotifyHelperCompleted(FileHelper* aFileHelper)
   NS_ASSERTION(global, "Failed to get global object!");
 
   JSAutoRequest ar(cx);
-  JSAutoEnterCompartment ac;
-  if (ac.enter(cx, global)) {
-    rv = aFileHelper->GetSuccessResult(cx, &result);
-    if (NS_FAILED(rv)) {
-      NS_WARNING("GetSuccessResult failed!");
-    }
-  }
-  else {
-    NS_WARNING("Failed to enter correct compartment!");
-    rv = NS_ERROR_DOM_FILEHANDLE_UNKNOWN_ERR;
+  JSAutoCompartment ac(cx, global);
+
+  rv = aFileHelper->GetSuccessResult(cx, &result);
+  if (NS_FAILED(rv)) {
+    NS_WARNING("GetSuccessResult failed!");
   }
 
   if (NS_SUCCEEDED(rv)) {
@@ -115,15 +110,11 @@ FileRequest::GetLockedFile(nsIDOMLockedFile** aLockedFile)
 NS_IMPL_CYCLE_COLLECTION_CLASS(FileRequest)
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(FileRequest, DOMRequest)
-  // Don't need NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS because
-  // nsDOMEventTargetHelper does it for us.
-  NS_CYCLE_COLLECTION_TRAVERSE_EVENT_HANDLER(progress)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR_AMBIGUOUS(mLockedFile,
                                                        nsIDOMLockedFile)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(FileRequest, DOMRequest)
-  NS_CYCLE_COLLECTION_UNLINK_EVENT_HANDLER(progress)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mLockedFile)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
@@ -141,7 +132,7 @@ DOMCI_DATA(FileRequest, FileRequest)
 NS_IMPL_EVENT_HANDLER(FileRequest, progress)
 
 void
-FileRequest::FireProgressEvent(PRUint64 aLoaded, PRUint64 aTotal)
+FileRequest::FireProgressEvent(uint64_t aLoaded, uint64_t aTotal)
 {
   if (NS_FAILED(CheckInnerWindowCorrectness())) {
     return;
@@ -164,15 +155,4 @@ FileRequest::FireProgressEvent(PRUint64 aLoaded, PRUint64 aTotal)
   if (NS_FAILED(rv)) {
     return;
   }
-}
-
-void
-FileRequest::RootResultVal()
-{
-  NS_ASSERTION(!mRooted, "Don't call me if already rooted!");
-  nsXPCOMCycleCollectionParticipant *participant;
-  CallQueryInterface(this, &participant);
-  nsContentUtils::HoldJSObjects(NS_CYCLE_COLLECTION_UPCAST(this, DOMRequest),
-                                participant);
-  mRooted = true;
 }

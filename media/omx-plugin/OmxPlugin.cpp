@@ -17,6 +17,7 @@
 
 #include "android/log.h"
 
+#undef LOG
 #define LOG(args...)  __android_log_print(ANDROID_LOG_INFO, "OmxPlugin" , ## args)
 
 using namespace MPAPI;
@@ -135,6 +136,7 @@ class OmxDecoder {
   void CbYCrYFrame(VideoFrame *aFrame, int64_t aTimeUs, void *aData, size_t aSize, bool aKeyFrame);
   void SemiPlanarYUV420Frame(VideoFrame *aFrame, int64_t aTimeUs, void *aData, size_t aSize, bool aKeyFrame);
   void SemiPlanarYVU420Frame(VideoFrame *aFrame, int64_t aTimeUs, void *aData, size_t aSize, bool aKeyFrame);
+  void SemiPlanarYVU420Packed32m4ka(VideoFrame *aFrame, int64_t aTimeUs, void *aData, size_t aSize, bool aKeyFrame);
   bool ToVideoFrame(VideoFrame *aFrame, int64_t aTimeUs, void *aData, size_t aSize, bool aKeyFrame);
   bool ToAudioFrame(AudioFrame *aFrame, int64_t aTimeUs, void *aData, size_t aDataOffset, size_t aSize,
                     int32_t aAudioChannels, int32_t aAudioSampleRate);
@@ -247,6 +249,7 @@ bool OmxDecoder::Init() {
   ssize_t audioTrackIndex = -1;
   ssize_t videoTrackIndex = -1;
   const char *audioMime = NULL;
+  const char *videoMime = NULL;
 
   for (size_t i = 0; i < extractor->countTracks(); ++i) {
     sp<MetaData> meta = extractor->getTrackMetaData(i);
@@ -262,6 +265,7 @@ bool OmxDecoder::Init() {
 
     if (videoTrackIndex == -1 && !strncasecmp(mime, "video/", 6)) {
       videoTrackIndex = i;
+      videoMime = mime;
     } else if (audioTrackIndex == -1 && !strncasecmp(mime, "audio/", 6)) {
       audioTrackIndex = i;
       audioMime = mime;
@@ -278,7 +282,6 @@ bool OmxDecoder::Init() {
 
 #ifdef MOZ_WIDGET_GONK
   sp<IOMX> omx = GetOMX();
-  uint32_t flags = OMXCodec::kSoftwareCodecsOnly;
 #else
   // OMXClient::connect() always returns OK and abort's fatally if
   // it can't connect. We may need to implement the connect functionality
@@ -287,10 +290,11 @@ bool OmxDecoder::Init() {
     LOG("OMXClient failed to connect");
   }
   sp<IOMX> omx = mClient.interface();
+#endif
   // Flag value of zero means return a hardware or software decoder
   // depending on what the device supports.
   uint32_t flags = 0;
-#endif
+
   sp<MediaSource> videoTrack;
   sp<MediaSource> videoSource;
   if (videoTrackIndex != -1 && (videoTrack = extractor->getTrack(videoTrackIndex)) != NULL) {
@@ -301,10 +305,13 @@ bool OmxDecoder::Init() {
                                    NULL,
                                    flags);
     if (videoSource == NULL) {
+      LOG("OMXCodec failed to initialize video decoder for \"%s\"", videoMime);
       return false;
     }
 
-    if (videoSource->start() != OK) {
+    status_t status = videoSource->start();
+    if (status != OK) {
+      LOG("videoSource->start() failed with status %#x", status);
       return false;
     }
 
@@ -327,10 +334,15 @@ bool OmxDecoder::Init() {
                                      false, // decoder
                                      audioTrack);
     }
+
     if (audioSource == NULL) {
+      LOG("OMXCodec failed to initialize audio decoder for \"%s\"", audioMime);
       return false;
     }
-    if (audioSource->start() != OK) {
+
+    status_t status = audioSource->start();
+    if (status != OK) {
+      LOG("audioSource->start() failed with status %#x", status);
       return false;
     }
 
@@ -465,8 +477,21 @@ void OmxDecoder::SemiPlanarYVU420Frame(VideoFrame *aFrame, int64_t aTimeUs, void
   aFrame->Cr.mOffset = 0;
 }
 
+void OmxDecoder::SemiPlanarYVU420Packed32m4ka(VideoFrame *aFrame, int64_t aTimeUs, void *aData, size_t aSize, bool aKeyFrame) {
+  size_t roundedSliceHeight = (mVideoSliceHeight + 31) & ~31;
+  size_t roundedStride = (mVideoStride + 31) & ~31;
+  void *y = aData;
+  void *uv = static_cast<uint8_t *>(y) + (roundedStride * roundedSliceHeight);
+  aFrame->Set(aTimeUs, aKeyFrame,
+              aData, aSize, mVideoStride, mVideoSliceHeight, mVideoRotation,
+              y, mVideoStride, mVideoWidth, mVideoHeight, 0, 0,
+              uv, mVideoStride, mVideoWidth/2, mVideoHeight/2, 1, 1,
+              uv, mVideoStride, mVideoWidth/2, mVideoHeight/2, 0, 1);
+}
+
 bool OmxDecoder::ToVideoFrame(VideoFrame *aFrame, int64_t aTimeUs, void *aData, size_t aSize, bool aKeyFrame) {
   const int OMX_QCOM_COLOR_FormatYVU420SemiPlanar = 0x7FA30C00;
+  const int OMX_QCOM_COLOR_FormatYVU420PackedSemiPlanar32m4ka = 0x7FA30C01;
 
   switch (mVideoColorFormat) {
   case OMX_COLOR_FormatYUV420Planar:
@@ -481,7 +506,11 @@ bool OmxDecoder::ToVideoFrame(VideoFrame *aFrame, int64_t aTimeUs, void *aData, 
   case OMX_QCOM_COLOR_FormatYVU420SemiPlanar:
     SemiPlanarYVU420Frame(aFrame, aTimeUs, aData, aSize, aKeyFrame);
     break;
+  case OMX_QCOM_COLOR_FormatYVU420PackedSemiPlanar32m4ka:
+    SemiPlanarYVU420Packed32m4ka(aFrame, aTimeUs, aData, aSize, aKeyFrame);
+    break;
   default:
+    LOG("Unknown video color format: %#x", mVideoColorFormat);
     return false;
   }
   return true;

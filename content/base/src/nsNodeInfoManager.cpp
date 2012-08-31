@@ -130,9 +130,9 @@ nsNodeInfoManager::~nsNodeInfoManager()
 }
 
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsNodeInfoManager)
-NS_IMPL_CYCLE_COLLECTION_UNLINK_0(nsNodeInfoManager)
-NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsNodeInfoManager)
+NS_IMPL_CYCLE_COLLECTION_NATIVE_CLASS(nsNodeInfoManager)
+NS_IMPL_CYCLE_COLLECTION_UNLINK_NATIVE_0(nsNodeInfoManager)
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NATIVE_BEGIN(nsNodeInfoManager)
   if (tmp->mDocument &&
       nsCCUncollectableMarker::InGeneration(cb,
                                             tmp->mDocument->GetMarkedCCGeneration())) {
@@ -144,12 +144,8 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsNodeInfoManager)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_RAWPTR(mBindingManager)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
-NS_IMPL_CYCLE_COLLECTING_ADDREF(nsNodeInfoManager)
-NS_IMPL_CYCLE_COLLECTING_RELEASE(nsNodeInfoManager)
-
-NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsNodeInfoManager)
-  NS_INTERFACE_MAP_ENTRY(nsISupports)
-NS_INTERFACE_MAP_END
+NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(nsNodeInfoManager, AddRef)
+NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(nsNodeInfoManager, Release)
 
 nsresult
 nsNodeInfoManager::Init(nsIDocument *aDocument)
@@ -207,7 +203,7 @@ nsNodeInfoManager::DropDocumentReference()
 
 already_AddRefed<nsINodeInfo>
 nsNodeInfoManager::GetNodeInfo(nsIAtom *aName, nsIAtom *aPrefix,
-                               PRInt32 aNamespaceID, PRUint16 aNodeType,
+                               int32_t aNamespaceID, uint16_t aNodeType,
                                nsIAtom* aExtraName /* = nullptr */)
 {
   CheckValidNodeInfo(aNodeType, aName, aNamespaceID, aExtraName);
@@ -250,7 +246,7 @@ nsNodeInfoManager::GetNodeInfo(nsIAtom *aName, nsIAtom *aPrefix,
 
 nsresult
 nsNodeInfoManager::GetNodeInfo(const nsAString& aName, nsIAtom *aPrefix,
-                               PRInt32 aNamespaceID, PRUint16 aNodeType,
+                               int32_t aNamespaceID, uint16_t aNodeType,
                                nsINodeInfo** aNodeInfo)
 {
 #ifdef DEBUG
@@ -299,10 +295,10 @@ nsNodeInfoManager::GetNodeInfo(const nsAString& aName, nsIAtom *aPrefix,
 nsresult
 nsNodeInfoManager::GetNodeInfo(const nsAString& aName, nsIAtom *aPrefix,
                                const nsAString& aNamespaceURI,
-                               PRUint16 aNodeType,
+                               uint16_t aNodeType,
                                nsINodeInfo** aNodeInfo)
 {
-  PRInt32 nsid = kNameSpaceID_None;
+  int32_t nsid = kNameSpaceID_None;
 
   if (!aNamespaceURI.IsEmpty()) {
     nsresult rv = nsContentUtils::NameSpaceManager()->

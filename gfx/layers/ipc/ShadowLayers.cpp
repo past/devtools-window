@@ -219,6 +219,19 @@ ShadowLayerForwarder::RemoveChild(ShadowableLayer* aContainer,
   mTxn->AddEdit(OpRemoveChild(NULL, Shadow(aContainer),
                               NULL, Shadow(aChild)));
 }
+void
+ShadowLayerForwarder::RepositionChild(ShadowableLayer* aContainer,
+                                      ShadowableLayer* aChild,
+                                      ShadowableLayer* aAfter)
+{
+  if (aAfter)
+    mTxn->AddEdit(OpRepositionChild(NULL, Shadow(aContainer),
+                                    NULL, Shadow(aChild),
+                                    NULL, Shadow(aAfter)));
+  else
+    mTxn->AddEdit(OpRaiseToTopChild(NULL, Shadow(aContainer),
+                                    NULL, Shadow(aChild)));
+}
 
 void
 ShadowLayerForwarder::PaintedThebesBuffer(ShadowableLayer* aThebes,
@@ -278,7 +291,7 @@ ShadowLayerForwarder::EndTransaction(InfallibleTArray<EditReply>* aReplies)
 
   MOZ_LAYERS_LOG(("[LayersForwarder] destroying buffers..."));
 
-  for (PRUint32 i = 0; i < mTxn->mDyingBuffers.Length(); ++i) {
+  for (uint32_t i = 0; i < mTxn->mDyingBuffers.Length(); ++i) {
     DestroySharedSurface(&mTxn->mDyingBuffers[i]);
   }
 

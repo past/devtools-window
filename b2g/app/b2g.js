@@ -142,10 +142,6 @@ pref("browser.xul.error_pages.enabled", true);
 // disable color management
 pref("gfx.color_management.mode", 0);
 
-//prefer Azure/Cairo canvas
-pref("gfx.canvas.azure.enabled", true);
-pref("gfx.canvas.azure.backends", "cairo");
-
 // don't allow JS to move and resize existing windows
 pref("dom.disable_window_move_resize", true);
 
@@ -396,6 +392,9 @@ pref("dom.mozSettings.enabled", true);
 pref("device.camera.enabled", true);
 pref("media.realtime_decoder.enabled", true);
 
+// TCPSocket
+pref("dom.mozTCPSocket.enabled", true);
+
 // "Preview" landing of bug 710563, which is bogged down in analysis
 // of talos regression.  This is a needed change for higher-framerate
 // CSS animations, and incidentally works around an apparent bug in
@@ -429,9 +428,11 @@ pref("full-screen-api.ignore-widgets", true);
 
 pref("media.volume.steps", 10);
 
+#ifdef ENABLE_MARIONETTE
 //Enable/disable marionette server, set listening port
 pref("marionette.defaultPrefs.enabled", true);
 pref("marionette.defaultPrefs.port", 2828);
+#endif
 
 #ifdef MOZ_UPDATER
 pref("app.update.enabled", true);
@@ -439,6 +440,7 @@ pref("app.update.auto", true);
 pref("app.update.silent", true);
 pref("app.update.mode", 0);
 pref("app.update.incompatible.mode", 0);
+pref("app.update.stage.enabled", true);
 pref("app.update.service.enabled", true);
 
 // The URL hosting the update manifest.
@@ -510,11 +512,16 @@ pref("hal.processPriorityManager.gonk.masterNice", -1);
 pref("hal.processPriorityManager.gonk.foregroundNice", 0);
 pref("hal.processPriorityManager.gonk.backgroundNice", 10);
 
+#ifndef DEBUG
 // Enable pre-launching content processes for improved startup time
 // (hiding latency).
 pref("dom.ipc.processPrelauch.enabled", true);
 // Wait this long before pre-launching a new subprocess.
 pref("dom.ipc.processPrelauch.delayMs", 1000);
+#endif
 
 // Ignore the "dialog=1" feature in window.open.
 pref("dom.disable_window_open_dialog_feature", true);
+
+// Screen reader support
+pref("accessibility.accessfu.activate", 2);

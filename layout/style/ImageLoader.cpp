@@ -20,7 +20,7 @@ ImageLoader::SetAnimationModeEnumerator(nsISupports* aKey, FrameSet* aValue,
 {
   imgIRequest* request = static_cast<imgIRequest*>(aKey);
 
-  PRUint16* mode = static_cast<PRUint16*>(aClosure);
+  uint16_t* mode = static_cast<uint16_t*>(aClosure);
 
 #ifdef DEBUG
   {
@@ -76,6 +76,13 @@ ImageLoader::AssociateRequestToFrame(imgIRequest* aRequest,
 
     mRequestToFrameMap.Put(aRequest, newFrameSet);
     frameSet = newFrameSet.forget();
+
+    nsPresContext* presContext = GetPresContext();
+    if (presContext) {
+      nsLayoutUtils::RegisterImageRequestIfAnimated(presContext,
+                                                    aRequest,
+                                                    nullptr);
+    }
   }
 
   RequestSet* requestSet = nullptr;
@@ -91,7 +98,7 @@ ImageLoader::AssociateRequestToFrame(imgIRequest* aRequest,
   }
 
   // Add these to the sets, but only if they're not already there.
-  PRUint32 i;
+  uint32_t i;
   if (!frameSet->GreatestIndexLtEq(aFrame, i)) {
     frameSet->InsertElementAt(i, aFrame);
   }
@@ -101,7 +108,7 @@ ImageLoader::AssociateRequestToFrame(imgIRequest* aRequest,
 }
 
 void
-ImageLoader::MaybeRegisterCSSImage(nsCSSValue::Image* aImage)
+ImageLoader::MaybeRegisterCSSImage(ImageLoader::Image* aImage)
 {
   NS_ASSERTION(aImage, "This should never be null!");
 
@@ -132,7 +139,7 @@ ImageLoader::MaybeRegisterCSSImage(nsCSSValue::Image* aImage)
 }
 
 void
-ImageLoader::DeregisterCSSImage(nsCSSValue::Image* aImage)
+ImageLoader::DeregisterCSSImage(ImageLoader::Image* aImage)
 {
   RemoveImage(aImage);
 }
@@ -201,7 +208,7 @@ ImageLoader::DropRequestsForFrame(nsIFrame* aFrame)
 }
 
 void
-ImageLoader::SetAnimationMode(PRUint16 aMode)
+ImageLoader::SetAnimationMode(uint16_t aMode)
 {
   NS_ASSERTION(aMode == imgIContainer::kNormalAnimMode ||
                aMode == imgIContainer::kDontAnimMode ||
@@ -212,10 +219,10 @@ ImageLoader::SetAnimationMode(PRUint16 aMode)
 }
 
 static PLDHashOperator
-ClearImageHashSet(nsPtrHashKey<nsCSSValue::Image>* aKey, void* aClosure)
+ClearImageHashSet(nsPtrHashKey<ImageLoader::Image>* aKey, void* aClosure)
 {
   nsIDocument* doc = static_cast<nsIDocument*>(aClosure);
-  nsCSSValue::Image* image = aKey->GetKey();
+  ImageLoader::Image* image = aKey->GetKey();
 
   imgIRequest* request = image->mRequests.GetWeak(doc);
   if (request) {
@@ -237,7 +244,7 @@ ImageLoader::ClearAll()
 
 void
 ImageLoader::LoadImage(nsIURI* aURI, nsIPrincipal* aOriginPrincipal,
-                       nsIURI* aReferrer, nsCSSValue::Image* aImage)
+                       nsIURI* aReferrer, ImageLoader::Image* aImage)
 {
   NS_ASSERTION(aImage->mRequests.Count() == 0, "Huh?");
 
@@ -277,7 +284,7 @@ ImageLoader::LoadImage(nsIURI* aURI, nsIPrincipal* aOriginPrincipal,
 }
 
 void
-ImageLoader::AddImage(nsCSSValue::Image* aImage)
+ImageLoader::AddImage(ImageLoader::Image* aImage)
 {
   NS_ASSERTION(!mImages.Contains(aImage), "Huh?");
   if (!mImages.PutEntry(aImage)) {
@@ -286,7 +293,7 @@ ImageLoader::AddImage(nsCSSValue::Image* aImage)
 }
 
 void
-ImageLoader::RemoveImage(nsCSSValue::Image* aImage)
+ImageLoader::RemoveImage(ImageLoader::Image* aImage)
 {
   NS_ASSERTION(mImages.Contains(aImage), "Huh?");
   mImages.RemoveEntry(aImage);
@@ -365,9 +372,12 @@ ImageLoader::OnStartContainer(imgIRequest* aRequest, imgIContainer* aImage)
 NS_IMETHODIMP
 ImageLoader::OnImageIsAnimated(imgIRequest* aRequest)
 {
-  // NB: Don't ignore this when cloning, it's our only chance to register
-  // the request with the refresh driver.
   if (!mDocument) {
+    return NS_OK;
+  }
+
+  FrameSet* frameSet = nullptr;
+  if (!mRequestToFrameMap.Get(aRequest, &frameSet)) {
     return NS_OK;
   }
 
@@ -384,7 +394,7 @@ ImageLoader::OnImageIsAnimated(imgIRequest* aRequest)
 }
 
 NS_IMETHODIMP
-ImageLoader::OnStopFrame(imgIRequest *aRequest, PRUint32 aFrame)
+ImageLoader::OnStopFrame(imgIRequest *aRequest, uint32_t aFrame)
 {
   if (!mDocument || mInClone) {
     return NS_OK;

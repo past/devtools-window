@@ -56,7 +56,7 @@ struct ObjectStoreInfoMap
   ObjectStoreInfoMap()
   : id(LL_MININT), info(nullptr) { }
 
-  PRInt64 id;
+  int64_t id;
   ObjectStoreInfo* info;
 };
 
@@ -208,11 +208,6 @@ IDBFactory::Create(ContentParent* aContentParent,
   }
 #endif
 
-  nsCString origin;
-  nsresult rv =
-    IndexedDatabaseManager::GetASCIIOriginFromWindow(nullptr, origin);
-  NS_ENSURE_SUCCESS(rv, rv);
-
   nsCOMPtr<nsIPrincipal> principal =
     do_CreateInstance("@mozilla.org/nullprincipal;1");
   NS_ENSURE_TRUE(principal, NS_ERROR_FAILURE);
@@ -232,7 +227,7 @@ IDBFactory::Create(ContentParent* aContentParent,
   NS_ASSERTION(xpc, "This should never be null!");
 
   nsCOMPtr<nsIXPConnectJSObjectHolder> globalHolder;
-  rv = xpc->CreateSandbox(cx, principal, getter_AddRefs(globalHolder));
+  nsresult rv = xpc->CreateSandbox(cx, principal, getter_AddRefs(globalHolder));
   NS_ENSURE_SUCCESS(rv, rv);
 
   JSObject* global;
@@ -243,11 +238,7 @@ IDBFactory::Create(ContentParent* aContentParent,
   // don't need a proxy here.
   global = JS_UnwrapObject(global);
 
-  JSAutoEnterCompartment ac;
-  if (!ac.enter(cx, global)) {
-    NS_WARNING("Failed to enter compartment!");
-    return NS_ERROR_FAILURE;
-  }
+  JSAutoCompartment ac(cx, global);
 
   nsRefPtr<IDBFactory> factory;
   rv = Create(cx, global, aContentParent, getter_AddRefs(factory));
@@ -314,7 +305,7 @@ IgnoreWhitespace(PRUnichar c)
 nsresult
 IDBFactory::LoadDatabaseInformation(mozIStorageConnection* aConnection,
                                     nsIAtom* aDatabaseId,
-                                    PRUint64* aVersion,
+                                    uint64_t* aVersion,
                                     ObjectStoreInfoArray& aObjectStores)
 {
   NS_ASSERTION(!NS_IsMainThread(), "Wrong thread!");
@@ -344,7 +335,7 @@ IDBFactory::LoadDatabaseInformation(mozIStorageConnection* aConnection,
 
     info->id = stmt->AsInt64(1);
 
-    PRInt32 columnType;
+    int32_t columnType;
     nsresult rv = stmt->GetTypeOfIndex(2, &columnType);
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -381,10 +372,10 @@ IDBFactory::LoadDatabaseInformation(mozIStorageConnection* aConnection,
   NS_ENSURE_SUCCESS(rv, rv);
 
   while (NS_SUCCEEDED((rv = stmt->ExecuteStep(&hasResult))) && hasResult) {
-    PRInt64 objectStoreId = stmt->AsInt64(0);
+    int64_t objectStoreId = stmt->AsInt64(0);
 
     ObjectStoreInfo* objectStoreInfo = nullptr;
-    for (PRUint32 index = 0; index < infoMap.Length(); index++) {
+    for (uint32_t index = 0; index < infoMap.Length(); index++) {
       if (infoMap[index].id == objectStoreId) {
         objectStoreInfo = infoMap[index].info;
         break;
@@ -430,10 +421,10 @@ IDBFactory::LoadDatabaseInformation(mozIStorageConnection* aConnection,
     return NS_ERROR_UNEXPECTED;
   }
 
-  PRInt64 version = 0;
+  int64_t version = 0;
   rv = stmt->GetInt64(0, &version);
 
-  *aVersion = NS_MAX<PRInt64>(version, 0);
+  *aVersion = NS_MAX<int64_t>(version, 0);
 
   return rv;
 }
@@ -441,7 +432,7 @@ IDBFactory::LoadDatabaseInformation(mozIStorageConnection* aConnection,
 // static
 nsresult
 IDBFactory::SetDatabaseMetadata(DatabaseInfo* aDatabaseInfo,
-                                PRUint64 aVersion,
+                                uint64_t aVersion,
                                 ObjectStoreInfoArray& aObjectStores)
 {
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
@@ -460,7 +451,7 @@ IDBFactory::SetDatabaseMetadata(DatabaseInfo* aDatabaseInfo,
 
   aDatabaseInfo->version = aVersion;
 
-  for (PRUint32 index = 0; index < objectStores.Length(); index++) {
+  for (uint32_t index = 0; index < objectStores.Length(); index++) {
     nsRefPtr<ObjectStoreInfo>& info = objectStores[index];
 
     if (!aDatabaseInfo->PutObjectStore(info)) {
@@ -507,7 +498,7 @@ DOMCI_DATA(IDBFactory, IDBFactory)
 
 nsresult
 IDBFactory::OpenCommon(const nsAString& aName,
-                       PRInt64 aVersion,
+                       int64_t aVersion,
                        bool aDeleting,
                        JSContext* aCallingCx,
                        IDBOpenDBRequest** _retval)
@@ -531,7 +522,7 @@ IDBFactory::OpenCommon(const nsAString& aName,
   }
 
   nsRefPtr<IDBOpenDBRequest> request =
-    IDBOpenDBRequest::Create(window, scriptOwner, aCallingCx);
+    IDBOpenDBRequest::Create(this, window, scriptOwner, aCallingCx);
   NS_ENSURE_TRUE(request, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
 
   nsresult rv;
@@ -581,9 +572,9 @@ IDBFactory::OpenCommon(const nsAString& aName,
 
 NS_IMETHODIMP
 IDBFactory::Open(const nsAString& aName,
-                 PRInt64 aVersion,
+                 int64_t aVersion,
                  JSContext* aCx,
-                 PRUint8 aArgc,
+                 uint8_t aArgc,
                  nsIIDBOpenDBRequest** _retval)
 {
   if (aVersion < 1 && aArgc) {
@@ -616,7 +607,7 @@ NS_IMETHODIMP
 IDBFactory::Cmp(const jsval& aFirst,
                 const jsval& aSecond,
                 JSContext* aCx,
-                PRInt16* _retval)
+                int16_t* _retval)
 {
   Key first, second;
   nsresult rv = first.SetFromJSVal(aCx, aFirst);

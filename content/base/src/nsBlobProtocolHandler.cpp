@@ -56,7 +56,7 @@ nsBlobProtocolHandler::GetFileDataEntryPrincipal(nsACString& aUri)
   if (!gFileDataTable) {
     return nullptr;
   }
-  
+
   FileDataInfo* res;
   gFileDataTable->Get(aUri, &res);
   if (!res) {
@@ -72,11 +72,11 @@ GetFileDataInfo(const nsACString& aUri)
   NS_ASSERTION(StringBeginsWith(aUri,
                                 NS_LITERAL_CSTRING(BLOBURI_SCHEME ":")),
                "Bad URI");
-  
+
   if (!gFileDataTable) {
     return nullptr;
   }
-  
+
   FileDataInfo* res;
   gFileDataTable->Get(aUri, &res);
   return res;
@@ -95,14 +95,14 @@ nsBlobProtocolHandler::GetScheme(nsACString &result)
 }
 
 NS_IMETHODIMP
-nsBlobProtocolHandler::GetDefaultPort(PRInt32 *result)
+nsBlobProtocolHandler::GetDefaultPort(int32_t *result)
 {
   *result = -1;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsBlobProtocolHandler::GetProtocolFlags(PRUint32 *result)
+nsBlobProtocolHandler::GetProtocolFlags(uint32_t *result)
 {
   *result = URI_NORELATIVE | URI_NOAUTH | URI_LOADABLE_BY_SUBSUMERS |
             URI_IS_LOCAL_RESOURCE | URI_NON_PERSISTABLE;
@@ -173,19 +173,25 @@ nsBlobProtocolHandler::NewChannel(nsIURI* uri, nsIChannel* *result)
   rv = info->mFile->GetType(type);
   NS_ENSURE_SUCCESS(rv, rv);
 
+  uint64_t size;
+  rv = info->mFile->GetSize(&size);
+  NS_ENSURE_SUCCESS(rv, rv);
+
   channel->SetOwner(owner);
   channel->SetOriginalURI(uri);
   channel->SetContentType(NS_ConvertUTF16toUTF8(type));
+  channel->SetContentLength(size);
+
   channel.forget(result);
-  
+
   return NS_OK;
 }
 
-NS_IMETHODIMP 
-nsBlobProtocolHandler::AllowPort(PRInt32 port, const char *scheme,
+NS_IMETHODIMP
+nsBlobProtocolHandler::AllowPort(int32_t port, const char *scheme,
                                      bool *_retval)
 {
-    // don't override anything.  
+    // don't override anything.
     *_retval = false;
     return NS_OK;
 }

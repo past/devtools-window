@@ -32,12 +32,14 @@ class nsIDOMBlob;
 namespace mozilla {
 
 namespace ipc {
+class OptionalURIParams;
+class URIParams;
 class TestShellParent;
-}
+} // namespace ipc
 
 namespace layers {
 class PCompositorParent;
-}
+} // namespace layers
 
 namespace dom {
 
@@ -50,10 +52,10 @@ class ContentParent : public PContentParent
                     , public nsIThreadObserver
                     , public nsIDOMGeoPositionCallback
 {
-private:
     typedef mozilla::ipc::GeckoChildProcessHost GeckoChildProcessHost;
+    typedef mozilla::ipc::OptionalURIParams OptionalURIParams;
     typedef mozilla::ipc::TestShellParent TestShellParent;
-    typedef mozilla::layers::PCompositorParent PCompositorParent;
+    typedef mozilla::ipc::URIParams URIParams;
     typedef mozilla::dom::ClonedMessageData ClonedMessageData;
 
 public:
@@ -65,7 +67,7 @@ public:
     /** Shut down the content-process machinery. */
     static void ShutDown();
 
-    static ContentParent* GetNewOrUsed();
+    static ContentParent* GetNewOrUsed(bool aForBrowserElement = false);
 
     /**
      * Get or create a content process for the given app descriptor,
@@ -115,6 +117,8 @@ protected:
     virtual void ActorDestroy(ActorDestroyReason why);
 
 private:
+    typedef base::ChildPrivileges ChildOSPrivileges;
+
     static nsDataHashtable<nsStringHashKey, ContentParent*> *gAppContentParents;
     static nsTArray<ContentParent*>* gNonAppContentParents;
     static nsTArray<ContentParent*>* gPrivateContent;
@@ -129,7 +133,8 @@ private:
     using PContentParent::SendPBrowserConstructor;
     using PContentParent::SendPTestShellConstructor;
 
-    ContentParent(const nsAString& aAppManifestURL);
+    ContentParent(const nsAString& aAppManifestURL, bool aIsForBrowser,
+                  ChildOSPrivileges aOSPrivileges = base::PRIVILEGES_DEFAULT);
     virtual ~ContentParent();
 
     void Init();
@@ -152,10 +157,14 @@ private:
      */
     void ShutDownProcess();
 
-    PCompositorParent* AllocPCompositor(mozilla::ipc::Transport* aTransport,
-                                        base::ProcessId aOtherProcess) MOZ_OVERRIDE;
+    PCompositorParent*
+    AllocPCompositor(mozilla::ipc::Transport* aTransport,
+                     base::ProcessId aOtherProcess) MOZ_OVERRIDE;
+    PImageBridgeParent*
+    AllocPImageBridge(mozilla::ipc::Transport* aTransport,
+                      base::ProcessId aOtherProcess) MOZ_OVERRIDE;
 
-    virtual PBrowserParent* AllocPBrowser(const PRUint32& aChromeFlags,
+    virtual PBrowserParent* AllocPBrowser(const uint32_t& aChromeFlags,
                                           const bool& aIsBrowserElement,
                                           const AppId& aApp);
     virtual bool DeallocPBrowser(PBrowserParent* frame);
@@ -167,11 +176,11 @@ private:
     virtual bool DeallocPBlob(PBlobParent*);
 
     virtual PCrashReporterParent* AllocPCrashReporter(const NativeThreadId& tid,
-                                                      const PRUint32& processType);
+                                                      const uint32_t& processType);
     virtual bool DeallocPCrashReporter(PCrashReporterParent* crashreporter);
     virtual bool RecvPCrashReporterConstructor(PCrashReporterParent* actor,
                                                const NativeThreadId& tid,
-                                               const PRUint32& processType);
+                                               const uint32_t& processType);
 
     virtual PHalParent* AllocPHal() MOZ_OVERRIDE;
     virtual bool DeallocPHal(PHalParent*) MOZ_OVERRIDE;
@@ -189,21 +198,21 @@ private:
     virtual PTestShellParent* AllocPTestShell();
     virtual bool DeallocPTestShell(PTestShellParent* shell);
 
-    virtual PAudioParent* AllocPAudio(const PRInt32&,
-                                     const PRInt32&,
-                                     const PRInt32&);
+    virtual PAudioParent* AllocPAudio(const int32_t&,
+                                     const int32_t&,
+                                     const int32_t&);
     virtual bool DeallocPAudio(PAudioParent*);
 
     virtual PNeckoParent* AllocPNecko();
     virtual bool DeallocPNecko(PNeckoParent* necko);
 
     virtual PExternalHelperAppParent* AllocPExternalHelperApp(
-            const IPC::URI& uri,
+            const OptionalURIParams& aUri,
             const nsCString& aMimeContentType,
             const nsCString& aContentDisposition,
             const bool& aForceSave,
-            const PRInt64& aContentLength,
-            const IPC::URI& aReferrer);
+            const int64_t& aContentLength,
+            const OptionalURIParams& aReferrer);
     virtual bool DeallocPExternalHelperApp(PExternalHelperAppParent* aService);
 
     virtual PSmsParent* AllocPSms();
@@ -212,31 +221,31 @@ private:
     virtual PStorageParent* AllocPStorage(const StorageConstructData& aData);
     virtual bool DeallocPStorage(PStorageParent* aActor);
 
-    virtual bool RecvReadPrefsArray(InfallibleTArray<PrefTuple> *retValue);
+    virtual bool RecvReadPrefsArray(InfallibleTArray<PrefSetting>* aPrefs);
     virtual bool RecvReadFontList(InfallibleTArray<FontListEntry>* retValue);
 
     virtual bool RecvReadPermissions(InfallibleTArray<IPC::Permission>* aPermissions);
 
-    virtual bool RecvSetClipboardText(const nsString& text, const bool& isPrivateData, const PRInt32& whichClipboard);
-    virtual bool RecvGetClipboardText(const PRInt32& whichClipboard, nsString* text);
+    virtual bool RecvSetClipboardText(const nsString& text, const bool& isPrivateData, const int32_t& whichClipboard);
+    virtual bool RecvGetClipboardText(const int32_t& whichClipboard, nsString* text);
     virtual bool RecvEmptyClipboard();
     virtual bool RecvClipboardHasText(bool* hasText);
 
-    virtual bool RecvGetSystemColors(const PRUint32& colorsCount, InfallibleTArray<PRUint32>* colors);
-    virtual bool RecvGetIconForExtension(const nsCString& aFileExt, const PRUint32& aIconSize, InfallibleTArray<PRUint8>* bits);
+    virtual bool RecvGetSystemColors(const uint32_t& colorsCount, InfallibleTArray<uint32_t>* colors);
+    virtual bool RecvGetIconForExtension(const nsCString& aFileExt, const uint32_t& aIconSize, InfallibleTArray<uint8_t>* bits);
     virtual bool RecvGetShowPasswordSetting(bool* showPassword);
 
-    virtual bool RecvStartVisitedQuery(const IPC::URI& uri);
+    virtual bool RecvStartVisitedQuery(const URIParams& uri);
 
-    virtual bool RecvVisitURI(const IPC::URI& uri,
-                              const IPC::URI& referrer,
-                              const PRUint32& flags);
+    virtual bool RecvVisitURI(const URIParams& uri,
+                              const OptionalURIParams& referrer,
+                              const uint32_t& flags);
 
-    virtual bool RecvSetURITitle(const IPC::URI& uri,
+    virtual bool RecvSetURITitle(const URIParams& uri,
                                  const nsString& title);
     
-    virtual bool RecvShowFilePicker(const PRInt16& mode,
-                                    const PRInt16& selectedType,
+    virtual bool RecvShowFilePicker(const int16_t& mode,
+                                    const int16_t& selectedType,
                                     const bool& addToRecentDocs,
                                     const nsString& title,
                                     const nsString& defaultFile,
@@ -244,14 +253,14 @@ private:
                                     const InfallibleTArray<nsString>& filters,
                                     const InfallibleTArray<nsString>& filterNames,
                                     InfallibleTArray<nsString>* files,
-                                    PRInt16* retValue,
+                                    int16_t* retValue,
                                     nsresult* result);
  
     virtual bool RecvShowAlertNotification(const nsString& aImageUrl, const nsString& aTitle,
                                            const nsString& aText, const bool& aTextClickable,
                                            const nsString& aCookie, const nsString& aName);
 
-    virtual bool RecvLoadURIExternal(const IPC::URI& uri);
+    virtual bool RecvLoadURIExternal(const URIParams& uri);
 
     virtual bool RecvSyncMessage(const nsString& aMsg,
                                  const ClonedMessageData& aData,
@@ -266,9 +275,9 @@ private:
     virtual bool RecvScriptError(const nsString& aMessage,
                                  const nsString& aSourceName,
                                  const nsString& aSourceLine,
-                                 const PRUint32& aLineNumber,
-                                 const PRUint32& aColNumber,
-                                 const PRUint32& aFlags,
+                                 const uint32_t& aLineNumber,
+                                 const uint32_t& aColNumber,
+                                 const uint32_t& aFlags,
                                  const nsCString& aCategory);
 
     virtual bool RecvPrivateDocShellsExist(const bool& aExist);
@@ -276,8 +285,9 @@ private:
     virtual void ProcessingError(Result what) MOZ_OVERRIDE;
 
     GeckoChildProcessHost* mSubprocess;
+    ChildOSPrivileges mOSPrivileges;
 
-    PRInt32 mGeolocationWatchID;
+    int32_t mGeolocationWatchID;
     int mRunToCompletionDepth;
     bool mShouldCallUnblockChild;
 

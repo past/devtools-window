@@ -10,6 +10,7 @@
 #include "nsThreadUtils.h"
 #include "nsClassHashtable.h"
 #include "nsIObserver.h"
+#include "nsIRunnable.h"
 #include "BluetoothCommon.h"
 
 BEGIN_BLUETOOTH_NAMESPACE
@@ -72,7 +73,7 @@ public:
    * @return NS_OK on initialization starting correctly, NS_ERROR_FAILURE
    * otherwise
    */
-  nsresult Start(BluetoothReplyRunnable* aResultRunnable);
+  nsresult Start(nsIRunnable* aResultRunnable);
 
   /** 
    * Stop bluetooth services. Starts up any threads and connections that
@@ -87,7 +88,7 @@ public:
    * @return NS_OK on initialization starting correctly, NS_ERROR_FAILURE
    * otherwise
    */
-  nsresult Stop(BluetoothReplyRunnable* aResultRunnable);
+  nsresult Stop(nsIRunnable* aResultRunnable);
 
   /** 
    * Returns the BluetoothService singleton. Only to be called from main thread.
@@ -201,13 +202,13 @@ public:
                                   const nsAString& aPattern,
                                   int aAttributeId) = 0;
 
-  virtual nsTArray<PRUint32>
+  virtual nsTArray<uint32_t>
   AddReservedServicesInternal(const nsAString& aAdapterPath,
-                              const nsTArray<PRUint32>& aServices) = 0;
+                              const nsTArray<uint32_t>& aServices) = 0;
 
   virtual bool
   RemoveReservedServicesInternal(const nsAString& aAdapterPath,
-                                 const nsTArray<PRUint32>& aServiceHandles) = 0;
+                                 const nsTArray<uint32_t>& aServiceHandles) = 0;
 
   virtual nsresult
   CreatePairedDeviceInternal(const nsAString& aAdapterPath,
@@ -221,7 +222,7 @@ public:
                        BluetoothReplyRunnable* aRunnable) = 0;
 
   virtual bool SetPinCodeInternal(const nsAString& aDeviceAddress, const nsAString& aPinCode) = 0;
-  virtual bool SetPasskeyInternal(const nsAString& aDeviceAddress, PRUint32 aPasskey) = 0;
+  virtual bool SetPasskeyInternal(const nsAString& aDeviceAddress, uint32_t aPasskey) = 0;
   virtual bool SetPairingConfirmationInternal(const nsAString& aDeviceAddress, bool aConfirm) = 0;
   virtual bool SetAuthorizationInternal(const nsAString& aDeviceAddress, bool aAllow) = 0;
 
@@ -249,8 +250,7 @@ protected:
   {
   }
 
-  nsresult StartStopBluetooth(BluetoothReplyRunnable* aResultRunnable,
-                              bool aStart);
+  nsresult StartStopBluetooth(nsIRunnable* aResultRunnable, bool aStart);
   // This function is implemented in platform-specific BluetoothServiceFactory
   // files
   static BluetoothService* Create();

@@ -93,7 +93,7 @@ mozJSSubScriptLoader::ReadScript(nsIURI *uri, JSContext *cx, JSObject *target_ob
         return ReportError(cx, LOAD_ERROR_NOSTREAM);
     }
 
-    PRInt32 len = -1;
+    int32_t len = -1;
 
     rv = chan->GetContentLength(&len);
     if (NS_FAILED(rv) || len == -1) {
@@ -116,7 +116,7 @@ mozJSSubScriptLoader::ReadScript(nsIURI *uri, JSContext *cx, JSObject *target_ob
     JS::RootedObject target_obj_root(cx, target_obj);
     if (!charset.IsVoid()) {
         nsString script;
-        rv = nsScriptLoader::ConvertToUTF16(nullptr, reinterpret_cast<const PRUint8*>(buf.get()), len,
+        rv = nsScriptLoader::ConvertToUTF16(nullptr, reinterpret_cast<const uint8_t*>(buf.get()), len,
                                             charset, nullptr, script);
 
         if (NS_FAILED(rv)) {
@@ -217,9 +217,7 @@ mozJSSubScriptLoader::LoadSubScript(const nsAString& url,
         NS_ENSURE_SUCCESS(rv, rv);
     }
 
-    JSAutoEnterCompartment ac;
-    if (!ac.enter(cx, targetObj))
-        return NS_ERROR_UNEXPECTED;
+    JSAutoCompartment ac(cx, targetObj);
 
     /* load up the url.  From here on, failures are reflected as ``custom''
      * js exceptions */
@@ -300,8 +298,8 @@ mozJSSubScriptLoader::LoadSubScript(const nsAString& url,
     bool ok = JS_ExecuteScriptVersion(cx, targetObj, script, retval, version);
 
     if (ok) {
-        JSAutoEnterCompartment rac;
-        if (!rac.enter(cx, result_obj) || !JS_WrapValue(cx, retval))
+        JSAutoCompartment rac(cx, result_obj);
+        if (!JS_WrapValue(cx, retval))
             return NS_ERROR_UNEXPECTED;
     }
 

@@ -45,7 +45,7 @@ static bool debug_InSecureKeyboardInputMode = false;
 #endif
 
 #ifdef NOISY_WIDGET_LEAKS
-static PRInt32 gNumWidgets;
+static int32_t gNumWidgets;
 #endif
 
 using namespace mozilla::layers;
@@ -439,7 +439,7 @@ void nsBaseWidget::RemoveChild(nsIWidget* aChild)
 // Sets widget's position within its parent's child list.
 //
 //-------------------------------------------------------------------------
-NS_IMETHODIMP nsBaseWidget::SetZIndex(PRInt32 aZIndex)
+NS_IMETHODIMP nsBaseWidget::SetZIndex(int32_t aZIndex)
 {
   // Hold a ref to ourselves just in case, since we're going to remove
   // from our parent.
@@ -454,7 +454,7 @@ NS_IMETHODIMP nsBaseWidget::SetZIndex(PRInt32 aZIndex)
     // Scope sib outside the for loop so we can check it afterward
     nsIWidget* sib = parent->GetFirstChild();
     for ( ; sib; sib = sib->GetNextSibling()) {
-      PRInt32 childZIndex;
+      int32_t childZIndex;
       if (NS_SUCCEEDED(sib->GetZIndex(&childZIndex))) {
         if (aZIndex < childZIndex) {
           // Insert ourselves before sib
@@ -488,7 +488,7 @@ NS_IMETHODIMP nsBaseWidget::SetZIndex(PRInt32 aZIndex)
 // Gets widget's position within its parent's child list.
 //
 //-------------------------------------------------------------------------
-NS_IMETHODIMP nsBaseWidget::GetZIndex(PRInt32* aZIndex)
+NS_IMETHODIMP nsBaseWidget::GetZIndex(int32_t* aZIndex)
 {
   *aZIndex = mZIndex;
   return NS_OK;
@@ -511,7 +511,7 @@ NS_IMETHODIMP nsBaseWidget::PlaceBehind(nsTopLevelWidgetZPlacement aPlacement,
 // merely stores the state.
 //
 //-------------------------------------------------------------------------
-NS_IMETHODIMP nsBaseWidget::SetSizeMode(PRInt32 aMode)
+NS_IMETHODIMP nsBaseWidget::SetSizeMode(int32_t aMode)
 {
   if (aMode == nsSizeMode_Normal ||
       aMode == nsSizeMode_Minimized ||
@@ -529,7 +529,7 @@ NS_IMETHODIMP nsBaseWidget::SetSizeMode(PRInt32 aMode)
 // Get the size mode (minimized, maximized, that sort of thing...)
 //
 //-------------------------------------------------------------------------
-NS_IMETHODIMP nsBaseWidget::GetSizeMode(PRInt32* aMode)
+NS_IMETHODIMP nsBaseWidget::GetSizeMode(int32_t* aMode)
 {
   *aMode = mSizeMode;
   return NS_OK;
@@ -596,7 +596,7 @@ NS_METHOD nsBaseWidget::SetCursor(nsCursor aCursor)
 }
 
 NS_IMETHODIMP nsBaseWidget::SetCursor(imgIContainer* aCursor,
-                                      PRUint32 aHotspotX, PRUint32 aHotspotY)
+                                      uint32_t aHotspotX, uint32_t aHotspotY)
 {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
@@ -656,7 +656,7 @@ nsBaseWidget::GetWindowClipRegion(nsTArray<nsIntRect>* aRects)
 //
 //-------------------------------------------------------------------------
 
-NS_IMETHODIMP nsBaseWidget::SetWindowShadowStyle(PRInt32 aMode)
+NS_IMETHODIMP nsBaseWidget::SetWindowShadowStyle(int32_t aMode)
 {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
@@ -695,7 +695,7 @@ NS_IMETHODIMP nsBaseWidget::MakeFullScreen(bool aFullScreen)
                                    mOriginalBounds->width, mOriginalBounds->height,
                                    getter_AddRefs(screen));
       if (screen) {
-        PRInt32 left, top, width, height;
+        int32_t left, top, width, height;
         if (NS_SUCCEEDED(screen->GetRect(&left, &top, &width, &height))) {
           Resize(left, top, width, height, true);
         }
@@ -751,35 +751,9 @@ nsBaseWidget::AutoUseBasicLayerManager::~AutoUseBasicLayerManager()
 bool
 nsBaseWidget::GetShouldAccelerate()
 {
-#if defined(XP_WIN) || defined(ANDROID) || (MOZ_PLATFORM_MAEMO > 5) || defined(MOZ_GL_PROVIDER)
+#if defined(XP_WIN) || defined(ANDROID) || (MOZ_PLATFORM_MAEMO > 5) || \
+    defined(MOZ_GL_PROVIDER) || defined(XP_MACOSX)
   bool accelerateByDefault = true;
-#elif defined(XP_MACOSX)
-/* quickdraw plugins don't work with OpenGL so we need to avoid OpenGL when we want to support
- * them. e.g. 10.5 */
-# if defined(NP_NO_QUICKDRAW)
-  bool accelerateByDefault = true;
-
-  // 10.6.2 and lower have a bug involving textures and pixel buffer objects
-  // that caused bug 629016, so we don't allow OpenGL-accelerated layers on
-  // those versions of the OS.
-  // This will still let full-screen video be accelerated on OpenGL, because
-  // that XUL widget opts in to acceleration, but that's probably OK.
-  SInt32 major, minor, bugfix;
-  OSErr err1 = ::Gestalt(gestaltSystemVersionMajor, &major);
-  OSErr err2 = ::Gestalt(gestaltSystemVersionMinor, &minor);
-  OSErr err3 = ::Gestalt(gestaltSystemVersionBugFix, &bugfix);
-  if (err1 == noErr && err2 == noErr && err3 == noErr) {
-    if (major == 10 && minor == 6) {
-      if (bugfix <= 2) {
-        accelerateByDefault = false;
-      }
-    }
-  }
-
-# else
-  bool accelerateByDefault = false;
-# endif
-
 #else
   bool accelerateByDefault = false;
 #endif
@@ -813,7 +787,7 @@ nsBaseWidget::GetShouldAccelerate()
     // that assumption to be unsafe.
     gfxInfo->GetData();
 
-    PRInt32 status;
+    int32_t status;
     if (NS_SUCCEEDED(gfxInfo->GetFeatureStatus(nsIGfxInfo::FEATURE_OPENGL_LAYERS, &status))) {
       if (status == nsIGfxInfo::FEATURE_NO_INFO) {
         whitelisted = true;
@@ -859,7 +833,7 @@ void nsBaseWidget::CreateCompositor()
   AsyncChannel *parentChannel = mCompositorParent->GetIPCChannel();
   AsyncChannel::Side childSide = mozilla::ipc::AsyncChannel::Child;
   mCompositorChild->Open(parentChannel, childMessageLoop, childSide);
-  PRInt32 maxTextureSize;
+  int32_t maxTextureSize;
   PLayersChild* shadowManager;
   mozilla::layers::LayersBackend backendHint =
     mUseAcceleratedRendering ? mozilla::layers::LAYERS_OPENGL : mozilla::layers::LAYERS_BASIC;
@@ -986,7 +960,7 @@ NS_METHOD nsBaseWidget::SetWindowClass(const nsAString& xulWinType)
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
-NS_METHOD nsBaseWidget::MoveClient(PRInt32 aX, PRInt32 aY)
+NS_METHOD nsBaseWidget::MoveClient(int32_t aX, int32_t aY)
 {
   nsIntPoint clientOffset(GetClientOffset());
   aX -= clientOffset.x;
@@ -994,8 +968,8 @@ NS_METHOD nsBaseWidget::MoveClient(PRInt32 aX, PRInt32 aY)
   return Move(aX, aY);
 }
 
-NS_METHOD nsBaseWidget::ResizeClient(PRInt32 aWidth,
-                                     PRInt32 aHeight,
+NS_METHOD nsBaseWidget::ResizeClient(int32_t aWidth,
+                                     int32_t aHeight,
                                      bool aRepaint)
 {
   NS_ASSERTION((aWidth >=0) , "Negative width passed to ResizeClient");
@@ -1009,10 +983,10 @@ NS_METHOD nsBaseWidget::ResizeClient(PRInt32 aWidth,
   return Resize(aWidth, aHeight, aRepaint);
 }
 
-NS_METHOD nsBaseWidget::ResizeClient(PRInt32 aX,
-                                     PRInt32 aY,
-                                     PRInt32 aWidth,
-                                     PRInt32 aHeight,
+NS_METHOD nsBaseWidget::ResizeClient(int32_t aX,
+                                     int32_t aY,
+                                     int32_t aWidth,
+                                     int32_t aHeight,
                                      bool aRepaint)
 {
   NS_ASSERTION((aWidth >=0) , "Negative width passed to ResizeClient");
@@ -1100,7 +1074,7 @@ NS_METHOD nsBaseWidget::SetModal(bool aModal)
 }
 
 NS_IMETHODIMP
-nsBaseWidget::GetAttention(PRInt32 aCycleCount) {
+nsBaseWidget::GetAttention(int32_t aCycleCount) {
     return NS_OK;
 }
 
@@ -1179,9 +1153,9 @@ NS_METHOD nsBaseWidget::UnregisterTouchWindow()
 }
 
 NS_IMETHODIMP
-nsBaseWidget::OverrideSystemMouseScrollSpeed(PRInt32 aOriginalDelta,
+nsBaseWidget::OverrideSystemMouseScrollSpeed(int32_t aOriginalDelta,
                                              bool aIsHorizontal,
-                                             PRInt32 &aOverriddenDelta)
+                                             int32_t &aOverriddenDelta)
 {
   aOverriddenDelta = aOriginalDelta;
 
@@ -1201,14 +1175,14 @@ nsBaseWidget::OverrideSystemMouseScrollSpeed(PRInt32 aOriginalDelta,
     factorPrefName.AppendLiteral("vertical.");
   }
   factorPrefName.AppendLiteral("factor");
-  PRInt32 iFactor = Preferences::GetInt(factorPrefName.get(), 0);
+  int32_t iFactor = Preferences::GetInt(factorPrefName.get(), 0);
   // The pref value must be larger than 100, otherwise, we don't override the
   // delta value.
   if (iFactor <= 100) {
     return NS_OK;
   }
   double factor = (double)iFactor / 100;
-  aOverriddenDelta = PRInt32(NS_round((double)aOriginalDelta * factor));
+  aOverriddenDelta = int32_t(NS_round((double)aOriginalDelta * factor));
 
   return NS_OK;
 }
@@ -1282,7 +1256,7 @@ nsBaseWidget::ResolveIconName(const nsAString &aIconName,
 }
 
 NS_IMETHODIMP 
-nsBaseWidget::BeginResizeDrag(nsGUIEvent* aEvent, PRInt32 aHorizontal, PRInt32 aVertical)
+nsBaseWidget::BeginResizeDrag(nsGUIEvent* aEvent, int32_t aHorizontal, int32_t aVertical)
 {
   return NS_ERROR_NOT_IMPLEMENTED;
 }
@@ -1293,7 +1267,7 @@ nsBaseWidget::BeginMoveDrag(nsMouseEvent* aEvent)
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
-PRUint32
+uint32_t
 nsBaseWidget::GetGLFrameBufferFormat()
 {
   if (mLayerManager &&
@@ -1510,7 +1484,7 @@ nsBaseWidget::debug_GetCachedBoolPref(const char * aPrefName)
 {
   NS_ASSERTION(nullptr != aPrefName,"cmon, pref name is null.");
 
-  for (PRUint32 i = 0; i < ArrayLength(debug_PrefValues); i++)
+  for (uint32_t i = 0; i < ArrayLength(debug_PrefValues); i++)
   {
     if (strcmp(debug_PrefValues[i].name, aPrefName) == 0)
     {
@@ -1525,7 +1499,7 @@ static void debug_SetCachedBoolPref(const char * aPrefName,bool aValue)
 {
   NS_ASSERTION(nullptr != aPrefName,"cmon, pref name is null.");
 
-  for (PRUint32 i = 0; i < ArrayLength(debug_PrefValues); i++)
+  for (uint32_t i = 0; i < ArrayLength(debug_PrefValues); i++)
   {
     if (strcmp(debug_PrefValues[i].name, aPrefName) == 0)
     {
@@ -1571,7 +1545,7 @@ debug_RegisterPrefCallbacks()
   once = false;
 
   nsCOMPtr<nsIObserver> obs(new Debug_PrefObserver());
-  for (PRUint32 i = 0; i < ArrayLength(debug_PrefValues); i++) {
+  for (uint32_t i = 0; i < ArrayLength(debug_PrefValues); i++) {
     // Initialize the pref values
     debug_PrefValues[i].value =
       Preferences::GetBool(debug_PrefValues[i].name, false);
@@ -1583,10 +1557,10 @@ debug_RegisterPrefCallbacks()
   }
 }
 //////////////////////////////////////////////////////////////
-static PRInt32
+static int32_t
 _GetPrintCount()
 {
-  static PRInt32 sCount = 0;
+  static int32_t sCount = 0;
   
   return ++sCount;
 }
@@ -1602,7 +1576,7 @@ nsBaseWidget::debug_DumpEvent(FILE *                aFileOut,
                               nsIWidget *           aWidget,
                               nsGUIEvent *          aGuiEvent,
                               const nsCAutoString & aWidgetName,
-                              PRInt32               aWindowID)
+                              int32_t               aWindowID)
 {
   if (aGuiEvent->message == NS_MOUSE_MOVE)
   {
@@ -1638,7 +1612,7 @@ nsBaseWidget::debug_DumpPaintEvent(FILE *                aFileOut,
                                    nsIWidget *           aWidget,
                                    const nsIntRegion &   aRegion,
                                    const nsCAutoString & aWidgetName,
-                                   PRInt32               aWindowID)
+                                   int32_t               aWindowID)
 {
   NS_ASSERTION(nullptr != aFileOut,"cmon, null output FILE");
   NS_ASSERTION(nullptr != aWidget,"cmon, the widget is null");
@@ -1664,7 +1638,7 @@ nsBaseWidget::debug_DumpInvalidate(FILE *                aFileOut,
                                    nsIWidget *           aWidget,
                                    const nsIntRect *     aRect,
                                    const nsCAutoString & aWidgetName,
-                                   PRInt32               aWindowID)
+                                   int32_t               aWindowID)
 {
   if (!debug_GetCachedBoolPref("nglayout.debug.invalidate_dumping"))
     return;

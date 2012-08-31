@@ -72,11 +72,12 @@ public:
   void Init();
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(TabChildGlobal, nsDOMEventTargetHelper)
-  NS_FORWARD_SAFE_NSIFRAMEMESSAGEMANAGER(mMessageManager)
+  NS_FORWARD_SAFE_NSIMESSAGELISTENERMANAGER(mMessageManager)
+  NS_FORWARD_SAFE_NSIMESSAGESENDER(mMessageManager)
   NS_IMETHOD SendSyncMessage(const nsAString& aMessageName,
                              const jsval& aObject,
                              JSContext* aCx,
-                             PRUint8 aArgc,
+                             uint8_t aArgc,
                              jsval* aRetval)
   {
     return mMessageManager
@@ -106,7 +107,7 @@ public:
   NS_IMETHOD AddEventListener(const nsAString& aType,
                               nsIDOMEventListener* aListener,
                               bool aUseCapture, bool aWantsUntrusted,
-                              PRUint8 optional_argc)
+                              uint8_t optional_argc)
   {
     return nsDOMEventTargetHelper::AddEventListener(aType, aListener,
                                                     aUseCapture,
@@ -148,18 +149,20 @@ class TabChild : public PBrowserChild,
     typedef mozilla::dom::ClonedMessageData ClonedMessageData;
 
 public:
-    /**
-     * Create a new TabChild object.
-     *
-     * |aIsBrowserElement| indicates whether the tab is inside an <iframe mozbrowser>.
-     * |aAppId| is the app id of the app containing this tab. If the tab isn't
-     * contained in an app, aAppId will be nsIScriptSecurityManager::NO_APP_ID.
+    /** 
+     * This is expected to be called off the critical path to content
+     * startup.  This is an opportunity to load things that are slow
+     * on the critical path.
      */
-    TabChild(PRUint32 aChromeFlags, bool aIsBrowserElement, PRUint32 aAppId);
-    virtual ~TabChild();
-    nsresult Init();
+    static void PreloadSlowThings();
 
-    PRUint32 GetAppId() { return mAppId; }
+    /** Return a TabChild with the given attributes. */
+    static already_AddRefed<TabChild> 
+    Create(uint32_t aChromeFlags, bool aIsBrowserElement, uint32_t aAppId);
+
+    virtual ~TabChild();
+
+    uint32_t GetAppId() { return mAppId; }
 
     NS_DECL_ISUPPORTS
     NS_DECL_NSIWEBBROWSERCHROME
@@ -182,18 +185,19 @@ public:
     virtual bool RecvMouseEvent(const nsString& aType,
                                 const float&    aX,
                                 const float&    aY,
-                                const PRInt32&  aButton,
-                                const PRInt32&  aClickCount,
-                                const PRInt32&  aModifiers,
+                                const int32_t&  aButton,
+                                const int32_t&  aClickCount,
+                                const int32_t&  aModifiers,
                                 const bool&     aIgnoreRootScrollFrame);
     virtual bool RecvRealMouseEvent(const nsMouseEvent& event);
     virtual bool RecvRealKeyEvent(const nsKeyEvent& event);
     virtual bool RecvMouseWheelEvent(const mozilla::widget::WheelEvent& event);
     virtual bool RecvRealTouchEvent(const nsTouchEvent& event);
+    virtual bool RecvRealTouchMoveEvent(const nsTouchEvent& event);
     virtual bool RecvKeyEvent(const nsString& aType,
-                              const PRInt32&  aKeyCode,
-                              const PRInt32&  aCharCode,
-                              const PRInt32&  aModifiers,
+                              const int32_t&  aKeyCode,
+                              const int32_t&  aCharCode,
+                              const int32_t&  aModifiers,
                               const bool&     aPreventDefault);
     virtual bool RecvCompositionEvent(const nsCompositionEvent& event);
     virtual bool RecvTextEvent(const nsTextEvent& event);
@@ -206,18 +210,18 @@ public:
     virtual PDocumentRendererChild*
     AllocPDocumentRenderer(const nsRect& documentRect, const gfxMatrix& transform,
                            const nsString& bgcolor,
-                           const PRUint32& renderFlags, const bool& flushLayout,
+                           const uint32_t& renderFlags, const bool& flushLayout,
                            const nsIntSize& renderSize);
     virtual bool DeallocPDocumentRenderer(PDocumentRendererChild* actor);
     virtual bool RecvPDocumentRendererConstructor(PDocumentRendererChild* actor,
                                                   const nsRect& documentRect,
                                                   const gfxMatrix& transform,
                                                   const nsString& bgcolor,
-                                                  const PRUint32& renderFlags,
+                                                  const uint32_t& renderFlags,
                                                   const bool& flushLayout,
                                                   const nsIntSize& renderSize);
 
-    virtual PContentDialogChild* AllocPContentDialog(const PRUint32&,
+    virtual PContentDialogChild* AllocPContentDialog(const uint32_t&,
                                                      const nsCString&,
                                                      const nsCString&,
                                                      const InfallibleTArray<int>&,
@@ -245,8 +249,8 @@ public:
     virtual PContentPermissionRequestChild* AllocPContentPermissionRequest(const nsCString& aType, const IPC::Principal& aPrincipal);
     virtual bool DeallocPContentPermissionRequest(PContentPermissionRequestChild* actor);
 
-    virtual POfflineCacheUpdateChild* AllocPOfflineCacheUpdate(const URI& manifestURI,
-            const URI& documentURI,
+    virtual POfflineCacheUpdateChild* AllocPOfflineCacheUpdate(const URIParams& manifestURI,
+            const URIParams& documentURI,
             const nsCString& clientID,
             const bool& stickDocument);
     virtual bool DeallocPOfflineCacheUpdate(POfflineCacheUpdateChild* offlineCacheUpdate);
@@ -256,6 +260,9 @@ public:
     JSContext* GetJSContext() { return mCx; }
 
     nsIPrincipal* GetPrincipal() { return mPrincipal; }
+
+    /** Return the DPI of the widget this TabChild draws to. */
+    void GetDPI(float* aDPI);
 
     void SetBackgroundColor(const nscolor& aColor);
 
@@ -279,12 +286,26 @@ protected:
     virtual bool DeallocPIndexedDB(PIndexedDBChild* aActor);
 
 private:
+    /**
+     * Create a new TabChild object.
+     *
+     * |aIsBrowserElement| indicates whether the tab is inside an <iframe mozbrowser>.
+     * |aAppId| is the app id of the app containing this tab. If the tab isn't
+     * contained in an app, aAppId will be nsIScriptSecurityManager::NO_APP_ID.
+     */
+    TabChild(uint32_t aChromeFlags, bool aIsBrowserElement, uint32_t aAppId);
+
+    nsresult Init();
+
+    void SetAppBrowserConfig(bool aIsBrowserElement, uint32_t aAppId);
+
     bool UseDirectCompositor();
 
     void ActorDestroy(ActorDestroyReason why);
 
-    bool InitTabChildGlobal();
-    bool InitWidget(const nsIntSize& size);
+    enum FrameScriptLoading { DONT_LOAD_SCRIPTS, DEFAULT_LOAD_SCRIPTS };
+    bool InitTabChildGlobal(FrameScriptLoading aScriptLoading = DEFAULT_LOAD_SCRIPTS);
+    bool InitRenderingState();
     void DestroyWindow();
 
     // Call RecvShow(nsIntSize(0, 0)) and block future calls to RecvShow().
@@ -310,14 +331,15 @@ private:
     nsCOMPtr<nsIWidget> mWidget;
     RenderFrameChild* mRemoteFrame;
     nsRefPtr<TabChildGlobal> mTabChildGlobal;
-    PRUint32 mChromeFlags;
+    uint32_t mChromeFlags;
     nsIntRect mOuterRect;
     nscolor mLastBackgroundColor;
     ScrollingBehavior mScrolling;
+    uint32_t mAppId;
     bool mDidFakeShow;
     bool mIsBrowserElement;
     bool mNotified;
-    PRUint32 mAppId;
+    bool mTriedBrowserInit;
 
     DISALLOW_EVIL_CONSTRUCTORS(TabChild);
 };

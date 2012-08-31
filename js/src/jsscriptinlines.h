@@ -27,12 +27,6 @@ Bindings::Bindings()
     : callObjShape_(NULL), bindingArrayAndFlag_(TEMPORARY_STORAGE_BIT), numArgs_(0), numVars_(0)
 {}
 
-bool
-Bindings::extensibleParents()
-{
-    return callObjShape_->extensibleParents();
-}
-
 inline
 AliasedFormalIter::AliasedFormalIter(JSScript *script)
   : begin_(script->bindings.bindingArray()),
@@ -126,17 +120,6 @@ JSScript::isEmpty() const
     return JSOp(*pc) == JSOP_STOP;
 }
 
-inline bool
-JSScript::hasGlobal() const
-{
-    /*
-     * Make sure that we don't try to query information about global objects
-     * which have had their scopes cleared. compileAndGo code should not run
-     * anymore against such globals.
-     */
-    return compileAndGo && !global().isCleared();
-}
-
 inline js::GlobalObject &
 JSScript::global() const
 {
@@ -145,13 +128,6 @@ JSScript::global() const
      * can assert that maybeGlobal is non-null here.
      */
     return *compartment()->maybeGlobal();
-}
-
-inline bool
-JSScript::hasClearedGlobal() const
-{
-    JS_ASSERT(types);
-    return global().isCleared();
 }
 
 #ifdef JS_METHODJIT

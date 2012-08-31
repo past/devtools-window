@@ -61,6 +61,9 @@ var DebuggerServer = {
   xpcInspector: null,
   _allowConnection: null,
 
+  LONG_STRING_LENGTH: 10000,
+  LONG_STRING_INITIAL_LENGTH: 1000,
+
   /**
    * Initialize the debugger server.
    *
@@ -366,7 +369,10 @@ DebuggerServerConnection.prototype = {
    * Remove a previously-added pool of actors to the connection.
    */
   removeActorPool: function DSC_removeActorPool(aActorPool) {
-    let index = this._extraPools.splice(this._extraPools.lastIndexOf(aActorPool), 1);
+    let index = this._extraPools.lastIndexOf(aActorPool);
+    if (index > -1) {
+      this._extraPools.splice(index, 1);
+    }
   },
 
   /**
