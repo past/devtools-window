@@ -44,8 +44,8 @@ struct nsListenerStruct
   nsCOMPtr<nsIAtom>             mTypeAtom;
   uint16_t                      mFlags;
   uint8_t                       mListenerType;
-  bool                          mListenerIsHandler;
-  bool                          mHandlerIsString;
+  bool                          mListenerIsHandler : 1;
+  bool                          mHandlerIsString : 1;
 
   nsIJSEventListener* GetJSListener() const {
     return (mListenerType == eJSEventListener) ?
@@ -184,6 +184,12 @@ public:
   bool HasListenersFor(const nsAString& aEventName);
 
   /**
+   * Returns true if there is at least one event listener for aEventNameWithOn.
+   * Note that aEventNameWithOn must start with "on"!
+   */
+  bool HasListenersFor(nsIAtom* aEventNameWithOn);
+
+  /**
    * Returns true if there is at least one event listener.
    */
   bool HasListeners();
@@ -272,8 +278,8 @@ public:
    * be in the same compartment.  If aExpectScriptContext is false,
    * not finding an nsIScriptContext does not cause failure.
    */
-  nsresult SetEventHandlerToJsval(nsIAtom *aEventName, JSContext *cx,
-                                  JSObject *aScope, const jsval &v,
+  nsresult SetEventHandlerToJsval(nsIAtom* aEventName, JSContext* cx,
+                                  JSObject* aScope, const jsval& v,
                                   bool aExpectScriptContext);
   /**
    * Get the value of the "inline" event listener for aEventName.

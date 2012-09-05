@@ -359,6 +359,10 @@ class ElementsHeader
             friend class SparseElementsHeader;
             Shape * shape;
         } sparse;
+        class {
+            friend class ArrayBufferElementsHeader;
+            JSObject * views;
+        } buffer;
     };
 
     void staticAsserts() {
@@ -750,6 +754,8 @@ class ArrayBufferElementsHeader : public ElementsHeader
 
     bool setElement(JSContext *cx, Handle<ObjectImpl*> obj, Handle<ObjectImpl*> receiver,
                     uint32_t index, const Value &v, unsigned resolveFlags, bool *succeeded);
+
+    JSObject **viewList() { return &buffer.views; }
 
   private:
     inline bool isArrayBufferElements() const MOZ_DELETE;
@@ -1156,6 +1162,14 @@ class ObjectImpl : public gc::Cell
     inline Shape * nativeLookupNoAllocation(PropertyId pid);
     inline Shape * nativeLookupNoAllocation(PropertyName *name);
 
+    inline bool nativeContains(JSContext *cx, Handle<jsid> id);
+    inline bool nativeContains(JSContext *cx, Handle<PropertyName*> name);
+    inline bool nativeContains(JSContext *cx, Handle<Shape*> shape);
+
+    inline bool nativeContainsNoAllocation(jsid id);
+    inline bool nativeContainsNoAllocation(PropertyName *name);
+    inline bool nativeContainsNoAllocation(Shape &shape);
+
     inline Class *getClass() const;
     inline JSClass *getJSClass() const;
     inline bool hasClass(const Class *c) const;
@@ -1357,6 +1371,23 @@ GetOwnProperty(JSContext *cx, Handle<ObjectImpl*> obj, Handle<SpecialId> sid, un
 extern bool
 GetElement(JSContext *cx, Handle<ObjectImpl*> obj, Handle<ObjectImpl*> receiver, uint32_t index,
            unsigned resolveFlags, Value *vp);
+extern bool
+GetProperty(JSContext *cx, Handle<ObjectImpl*> obj, Handle<ObjectImpl*> receiver,
+            Handle<PropertyId> pid, unsigned resolveFlags, MutableHandle<Value> vp);
+inline bool
+GetProperty(JSContext *cx, Handle<ObjectImpl*> obj, Handle<ObjectImpl*> receiver,
+            Handle<PropertyName*> name, unsigned resolveFlags, MutableHandle<Value> vp)
+{
+    Rooted<PropertyId> pid(cx, PropertyId(name));
+    return GetProperty(cx, obj, receiver, pid, resolveFlags, vp);
+}
+inline bool
+GetProperty(JSContext *cx, Handle<ObjectImpl*> obj, Handle<ObjectImpl*> receiver,
+            Handle<SpecialId> sid, unsigned resolveFlags, MutableHandle<Value> vp)
+{
+    Rooted<PropertyId> pid(cx, PropertyId(sid));
+    return GetProperty(cx, obj, receiver, pid, resolveFlags, vp);
+}
 
 extern bool
 DefineElement(JSContext *cx, Handle<ObjectImpl*> obj, uint32_t index, const PropDesc &desc,
