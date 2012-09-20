@@ -837,7 +837,8 @@ public:
 
     // RemoveSkippable removes entries from the purple buffer if
     // nsPurpleBufferEntry::mObject is null or if the object's
-    // nsXPCOMCycleCollectionParticipant::CanSkip() returns true.
+    // nsXPCOMCycleCollectionParticipant::CanSkip() returns true or
+    // if nsPurpleBufferEntry::mNotPurple is true.
     // If removeChildlessNodes is true, then any nodes in the purple buffer
     // that will have no children in the cycle collector graph will also be
     // removed. CanSkip() may be run on these children.
@@ -882,10 +883,7 @@ public:
 
         e->mObject = p;
         e->mParticipant = cp;
-
-#ifdef DEBUG_CC
-        mNormalObjects.PutEntry(p);
-#endif
+        e->mNotPurple = false;
 
         // Caller is responsible for filling in result's mRefCnt.
         return e;
@@ -932,7 +930,7 @@ nsPurpleBuffer::SelectPointers(GCGraphBuilder &aBuilder)
                               *eEnd = ArrayEnd(b->mEntries);
             e != eEnd; ++e) {
             if (!(uintptr_t(e->mObject) & uintptr_t(1))) {
-                if (e->mObject) {
+                if (e->mObject && !e->mNotPurple) {
                     ++realCount;
                 }
             }
@@ -951,8 +949,14 @@ nsPurpleBuffer::SelectPointers(GCGraphBuilder &aBuilder)
             if (!(uintptr_t(e->mObject) & uintptr_t(1))) {
                 // This is a real entry (rather than something on the
                 // free list).
-                if (!e->mObject || AddPurpleRoot(aBuilder, e->mObject,
-                                                 e->mParticipant)) {
+                if (e->mObject && e->mNotPurple) {
+                    void* o = e->mObject;
+                    nsCycleCollectionParticipant* cp = e->mParticipant;
+                    CanonicalizeParticipant(&o, &cp);
+                    cp->UnmarkIfPurple(o);
+                    Remove(e);
+                } else if (!e->mObject || AddPurpleRoot(aBuilder, e->mObject,
+                                                        e->mParticipant)) {
                     Remove(e);
                 }
             }
@@ -1048,6 +1052,7 @@ struct nsCycleCollector
     FILE *mPtrLog;
     PointerSet mExpectedGarbage;
 
+    bool LogPurpleAddition(void* aObject, nsCycleCollectionParticipant *cp);
     void LogPurpleRemoval(void* aObject);
 
     void ShouldBeFreed(nsISupports *n);
@@ -1298,17 +1303,22 @@ public:
         }
         char basename[MAXPATHLEN] = {'\0'};
         char ccname[MAXPATHLEN] = {'\0'};
+        char* env;
+        if ((env = PR_GetEnv("MOZ_CC_LOG_DIRECTORY"))) {
+            strcpy(basename, env);
+        } else {
 #ifdef XP_WIN
-        // On Windows, tmpnam returns useless stuff, such as "\\s164.".
-        // Therefore we need to call the APIs directly.
-        GetTempPathA(mozilla::ArrayLength(basename), basename);
+            // On Windows, tmpnam returns useless stuff, such as "\\s164.".
+            // Therefore we need to call the APIs directly.
+            GetTempPathA(mozilla::ArrayLength(basename), basename);
 #else
-        tmpnam(basename);
-        char *lastSlash = strrchr(basename, XPCOM_FILE_PATH_SEPARATOR[0]);
-        if (lastSlash) {
-            *lastSlash = '\0';
-        }
+            tmpnam(basename);
+            char *lastSlash = strrchr(basename, XPCOM_FILE_PATH_SEPARATOR[0]);
+            if (lastSlash) {
+                *lastSlash = '\0';
+            }
 #endif
+        }
 
         ++gLogCounter;
 
@@ -1335,8 +1345,13 @@ public:
         nsCOMPtr<nsIConsoleService> cs =
             do_GetService(NS_CONSOLESERVICE_CONTRACTID);
         if (cs) {
-            cs->LogStringMessage(NS_ConvertUTF8toUTF16(ccname).get());
-            cs->LogStringMessage(NS_ConvertUTF8toUTF16(gcname).get());
+            nsString msg = NS_LITERAL_STRING("Cycle Collector log dumped to ");
+            AppendUTF8toUTF16(ccname, msg);
+            cs->LogStringMessage(msg.get());
+
+            msg = NS_LITERAL_STRING("Garbage Collector log dumped to ");
+            AppendUTF8toUTF16(gcname, msg);
+            cs->LogStringMessage(msg.get());
         }
 
         return NS_OK;
@@ -1993,7 +2008,7 @@ nsPurpleBuffer::RemoveSkippable(bool removeChildlessNodes)
                     void *o = e->mObject;
                     nsCycleCollectionParticipant *cp = e->mParticipant;
                     CanonicalizeParticipant(&o, &cp);
-                    if (!cp->CanSkip(o, false) &&
+                    if (!e->mNotPurple && !cp->CanSkip(o, false) &&
                         (!removeChildlessNodes || MayHaveChild(o, cp))) {
                         continue;
                     }
@@ -2435,16 +2450,8 @@ nsCycleCollector::Suspect2(void *n, nsCycleCollectionParticipant *cp)
         return nullptr;
 
 #ifdef DEBUG_CC
-    mStats.mSuspectNode++;
-
-    if (!cp && nsCycleCollector_shouldSuppress(static_cast<nsISupports *>(n)))
+    if (!LogPurpleAddition(n, cp))
         return nullptr;
-
-    if (mParams.mLogPointers) {
-        if (!mPtrLog)
-            mPtrLog = fopen("pointer_log", "w");
-        fprintf(mPtrLog, "S %p\n", static_cast<void*>(n));
-    }
 #endif
 
     // Caller is responsible for filling in result's mRefCnt.
@@ -2473,6 +2480,42 @@ nsCycleCollector::Forget2(nsPurpleBufferEntry *e)
 }
 
 #ifdef DEBUG_CC
+void
+nsCycleCollector_logPurpleAddition(void* aObject,
+                                   nsCycleCollectionParticipant *cp)
+{
+    if (sCollector) {
+        sCollector->LogPurpleAddition(aObject, cp);
+    }
+}
+
+bool
+nsCycleCollector::LogPurpleAddition(void* aObject,
+                                    nsCycleCollectionParticipant *cp)
+{
+
+    if (mScanInProgress)
+        return false;
+
+    if (mParams.mDoNothing)
+        return false;
+
+    mStats.mSuspectNode++;
+
+    if (!cp &&
+        nsCycleCollector_shouldSuppress(static_cast<nsISupports *>(aObject)))
+        return false;
+
+    if (mParams.mLogPointers) {
+        if (!mPtrLog)
+            mPtrLog = fopen("pointer_log", "w");
+        fprintf(mPtrLog, "S %p\n", static_cast<void*>(aObject));
+    }
+
+    mPurpleBuf.mNormalObjects.PutEntry(aObject);
+    return true;
+}
+
 void
 nsCycleCollector_logPurpleRemoval(void* aObject)
 {

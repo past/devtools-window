@@ -261,26 +261,26 @@ ThreadActor.prototype = {
         return undefined;
       }
 
-      switch (aRequest.resumeLimit.type) {
-        case "step":
-          this.dbg.onEnterFrame = onEnterFrame;
-          // Fall through.
-        case "next":
-          let stepFrame = this._getNextStepFrame(startFrame);
-          if (stepFrame) {
+      let steppingType = aRequest.resumeLimit.type;
+      if (["step", "next", "finish"].indexOf(steppingType) == -1) {
+            return { error: "badParameterType",
+                     message: "Unknown resumeLimit type" };
+      }
+      // Make sure there is still a frame on the stack if we are to continue
+      // stepping.
+      let stepFrame = this._getNextStepFrame(startFrame);
+      if (stepFrame) {
+        switch (steppingType) {
+          case "step":
+            this.dbg.onEnterFrame = onEnterFrame;
+            // Fall through.
+          case "next":
             stepFrame.onStep = onStep;
             stepFrame.onPop = onPop;
-          }
-          break;
-        case "finish":
-          stepFrame = this._getNextStepFrame(startFrame);
-          if (stepFrame) {
+            break;
+          case "finish":
             stepFrame.onPop = onPop;
-          }
-          break;
-        default:
-          return { error: "badParameterType",
-                   message: "Unknown resumeLimit type" };
+        }
       }
     }
 
@@ -1821,9 +1821,14 @@ function getFunctionName(aFunction) {
   if (aFunction.name) {
     name = aFunction.name;
   } else {
+    // Check if the developer has added a de-facto standard displayName
+    // property for us to use.
     let desc = aFunction.getOwnPropertyDescriptor("displayName");
     if (desc && desc.value && typeof desc.value == "string") {
       name = desc.value;
+    } else {
+      // Otherwise use SpiderMonkey's inferred name.
+      name = aFunction.displayName;
     }
   }
   return name;

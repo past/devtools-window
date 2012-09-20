@@ -1,5 +1,5 @@
-/* -*- Mode: c++; c-basic-offset: 4; tab-width: 40; indent-tabs-mode: nil -*- */
-/* vim: set ts=40 sw=4 et tw=99: */
+/* -*- Mode: C++; c-basic-offset: 4; tab-width: 4; indent-tabs-mode: nil -*- */
+/* vim: set ts=4 sw=4 et tw=99: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -35,6 +35,8 @@
 #include "jstypedarrayinlines.h"
 
 #include "vm/GlobalObject-inl.h"
+
+#define ENABLE_TYPEDARRAY_MOVE
 
 using namespace mozilla;
 using namespace js;
@@ -813,17 +815,11 @@ ArrayBufferObject::obj_deleteSpecial(JSContext *cx, HandleObject obj,
 }
 
 JSBool
-ArrayBufferObject::obj_enumerate(JSContext *cx, HandleObject obj,
-                                 JSIterateOp enum_op, Value *statep, jsid *idp)
+ArrayBufferObject::obj_enumerate(JSContext *cx, HandleObject obj, JSIterateOp enum_op,
+                                 MutableHandleValue statep, MutableHandleId idp)
 {
-    statep->setNull();
+    statep.setNull();
     return true;
-}
-
-JSType
-ArrayBufferObject::obj_typeOf(JSContext *cx, HandleObject obj)
-{
-    return JSTYPE_OBJECT;
 }
 
 /*
@@ -1371,7 +1367,7 @@ class TypedArrayTemplate
 
     static JSBool
     obj_enumerate(JSContext *cx, HandleObject tarray, JSIterateOp enum_op,
-                  Value *statep, jsid *idp)
+                  MutableHandleValue statep, MutableHandleId idp)
     {
         JS_ASSERT(tarray->isTypedArray());
 
@@ -1379,34 +1375,27 @@ class TypedArrayTemplate
         switch (enum_op) {
           case JSENUMERATE_INIT_ALL:
           case JSENUMERATE_INIT:
-            statep->setInt32(0);
-            if (idp)
-                *idp = ::INT_TO_JSID(length(tarray));
+            statep.setInt32(0);
+            idp.set(::INT_TO_JSID(length(tarray)));
             break;
 
           case JSENUMERATE_NEXT:
-            index = static_cast<uint32_t>(statep->toInt32());
+            index = static_cast<uint32_t>(statep.toInt32());
             if (index < length(tarray)) {
-                *idp = ::INT_TO_JSID(index);
-                statep->setInt32(index + 1);
+                idp.set(::INT_TO_JSID(index));
+                statep.setInt32(index + 1);
             } else {
                 JS_ASSERT(index == length(tarray));
-                statep->setNull();
+                statep.setNull();
             }
             break;
 
           case JSENUMERATE_DESTROY:
-            statep->setNull();
+            statep.setNull();
             break;
         }
 
         return true;
-    }
-
-    static JSType
-    obj_typeOf(JSContext *cx, HandleObject obj)
-    {
-        return JSTYPE_OBJECT;
     }
 
     static JSObject *
@@ -1607,16 +1596,16 @@ class TypedArrayTemplate
     static
     bool defineGetters(JSContext *cx, HandleObject proto)
     {
-        if (!DefineGetter<lengthValue>(cx, cx->runtime->atomState.lengthAtom, proto))
+        if (!DefineGetter<lengthValue>(cx, cx->names().length, proto))
             return false;
 
-        if (!DefineGetter<bufferValue>(cx, cx->runtime->atomState.bufferAtom, proto))
+        if (!DefineGetter<bufferValue>(cx, cx->names().buffer, proto))
             return false;
 
-        if (!DefineGetter<byteLengthValue>(cx, cx->runtime->atomState.byteLengthAtom, proto))
+        if (!DefineGetter<byteLengthValue>(cx, cx->names().byteLength, proto))
             return false;
 
-        if (!DefineGetter<byteOffsetValue>(cx, cx->runtime->atomState.byteOffsetAtom, proto))
+        if (!DefineGetter<byteOffsetValue>(cx, cx->names().byteOffset, proto))
             return false;
 
         return true;
@@ -3019,7 +3008,7 @@ Class js::ArrayBufferClass = {
         ArrayBufferObject::obj_deleteElement,
         ArrayBufferObject::obj_deleteSpecial,
         ArrayBufferObject::obj_enumerate,
-        ArrayBufferObject::obj_typeOf,
+        NULL,       /* typeOf          */
         NULL,       /* thisObject      */
     }
 };
@@ -3033,7 +3022,8 @@ JSFunctionSpec ArrayBufferObject::jsfuncs[] = {
  * TypedArray boilerplate
  */
 
-#define IMPL_TYPED_ARRAY_STATICS(_typedArray)                                  \
+#ifdef ENABLE_TYPEDARRAY_MOVE
+# define IMPL_TYPED_ARRAY_STATICS(_typedArray)                                 \
 JSFunctionSpec _typedArray::jsfuncs[] = {                                      \
     JS_FN("iterator", JS_ArrayIterator, 0, 0),                                 \
     JS_FN("subarray", _typedArray::fun_subarray, 2, JSFUN_GENERIC_NATIVE),     \
@@ -3041,6 +3031,15 @@ JSFunctionSpec _typedArray::jsfuncs[] = {                                      \
     JS_FN("move", _typedArray::fun_move, 3, JSFUN_GENERIC_NATIVE),             \
     JS_FS_END                                                                  \
 }
+#else
+# define IMPL_TYPED_ARRAY_STATICS(_typedArray)                                 \
+JSFunctionSpec _typedArray::jsfuncs[] = {                                      \
+    JS_FN("iterator", JS_ArrayIterator, 0, 0),                                 \
+    JS_FN("subarray", _typedArray::fun_subarray, 2, JSFUN_GENERIC_NATIVE),     \
+    JS_FN("set", _typedArray::fun_set, 2, JSFUN_GENERIC_NATIVE),               \
+    JS_FS_END                                                                  \
+}
+#endif
 
 #define IMPL_TYPED_ARRAY_JSAPI_CONSTRUCTORS(Name,NativeType)                                 \
   JS_FRIEND_API(JSObject *) JS_New ## Name ## Array(JSContext *cx, uint32_t nelements)       \
@@ -3190,7 +3189,7 @@ IMPL_TYPED_ARRAY_COMBINED_UNWRAPPERS(Float64, double, double)
         _typedArray::obj_deleteElement,                                        \
         _typedArray::obj_deleteSpecial,                                        \
         _typedArray::obj_enumerate,                                            \
-        _typedArray::obj_typeOf,                                               \
+        NULL,                /* typeOf      */                                 \
         NULL,                /* thisObject  */                                 \
     }                                                                          \
 }
@@ -3206,7 +3205,7 @@ InitTypedArrayClass(JSContext *cx)
 
     RootedFunction ctor(cx);
     ctor = global->createConstructor(cx, ArrayType::class_constructor,
-                                     cx->runtime->atomState.classAtoms[ArrayType::key], 3);
+                                     ClassName(ArrayType::key, cx), 3);
     if (!ctor)
         return NULL;
 
@@ -3216,11 +3215,11 @@ InitTypedArrayClass(JSContext *cx)
     RootedValue bytesValue(cx, Int32Value(ArrayType::BYTES_PER_ELEMENT));
 
     if (!JSObject::defineProperty(cx, ctor,
-                                  cx->runtime->atomState.BYTES_PER_ELEMENTAtom, bytesValue,
+                                  cx->names().BYTES_PER_ELEMENT, bytesValue,
                                   JS_PropertyStub, JS_StrictPropertyStub,
                                   JSPROP_PERMANENT | JSPROP_READONLY) ||
         !JSObject::defineProperty(cx, proto,
-                                  cx->runtime->atomState.BYTES_PER_ELEMENTAtom, bytesValue,
+                                  cx->names().BYTES_PER_ELEMENT, bytesValue,
                                   JS_PropertyStub, JS_StrictPropertyStub,
                                   JSPROP_PERMANENT | JSPROP_READONLY))
     {
@@ -3292,14 +3291,14 @@ InitArrayBufferClass(JSContext *cx)
         return NULL;
 
     RootedFunction ctor(cx, global->createConstructor(cx, ArrayBufferObject::class_constructor,
-                                                      CLASS_NAME(cx, ArrayBuffer), 1));
+                                                      cx->names().ArrayBuffer, 1));
     if (!ctor)
         return NULL;
 
     if (!LinkConstructorAndPrototype(cx, ctor, arrayBufferProto))
         return NULL;
 
-    RootedId byteLengthId(cx, NameToId(cx->runtime->atomState.byteLengthAtom));
+    RootedId byteLengthId(cx, NameToId(cx->names().byteLength));
     unsigned flags = JSPROP_SHARED | JSPROP_GETTER | JSPROP_PERMANENT;
     JSObject *getter = js_NewFunction(cx, NULL, ArrayBufferObject::byteLengthGetter, 0, 0, global, NULL);
     if (!getter)
@@ -3421,20 +3420,20 @@ DataViewObject::initClass(JSContext *cx)
         return NULL;
 
     RootedFunction ctor(cx, global->createConstructor(cx, DataViewObject::class_constructor,
-                                                      CLASS_NAME(cx, DataView), 3));
+                                                      cx->names().DataView, 3));
     if (!ctor)
         return NULL;
 
     if (!LinkConstructorAndPrototype(cx, ctor, proto))
         return NULL;
 
-    if (!defineGetter<bufferValue>(cx, cx->runtime->atomState.bufferAtom, proto))
+    if (!defineGetter<bufferValue>(cx, cx->names().buffer, proto))
         return NULL;
 
-    if (!defineGetter<byteLengthValue>(cx, cx->runtime->atomState.byteLengthAtom, proto))
+    if (!defineGetter<byteLengthValue>(cx, cx->names().byteLength, proto))
         return NULL;
 
-    if (!defineGetter<byteOffsetValue>(cx, cx->runtime->atomState.byteOffsetAtom, proto))
+    if (!defineGetter<byteOffsetValue>(cx, cx->names().byteOffset, proto))
         return NULL;
 
     if (!JS_DefineFunctions(cx, proto, DataViewObject::jsfuncs))

@@ -35,7 +35,7 @@ var SettingsListener = {
       throw new Error('Callback is not a function');
     }
 
-    var req = settings.getLock().get(name);
+    var req = settings.createLock().get(name);
     req.addEventListener('success', (function onsuccess() {
       callback(typeof(req.result[name]) != 'undefined' ?
         req.result[name] : defaultValue);
@@ -105,4 +105,9 @@ SettingsListener.observe('debug.log-animations.enabled', false, function(value) 
 
 SettingsListener.observe('debug.dev-mode', false, function(value) {
   Services.prefs.setBoolPref('dom.mozApps.dev_mode', value);
+});
+
+// =================== Privacy ====================
+SettingsListener.observe('privacy.donottrackheader.enabled', false, function(value) {
+  Services.prefs.setBoolPref('privacy.donottrackheader.enabled', value);
 });

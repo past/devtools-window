@@ -163,6 +163,13 @@
     "kind": "boolean",
     "description": "Successful telemetry submission"
   },
+  "MEMORY_RESIDENT": {
+    "kind": "exponential",
+    "low": "32 * 1024",
+    "high": "1024 * 1024",
+    "n_buckets": 50,
+    "description": "Resident memory size (KB)"
+  },
   "MEMORY_JS_COMPARTMENTS_SYSTEM": {
     "kind": "exponential",
     "high": "1000",
@@ -828,6 +835,18 @@
     "kind": "boolean",
     "description": "Stores 1 if the cache would be clean with the disk cache corruption plan of Bug 105843"
   },
+  "DISK_CACHE_REVALIDATION_SAFE": {
+    "kind": "boolean",
+    "description": "Stores 1 if the cache clean file was revalidated, or 0 if a non empty doom list prevented revalidation"
+  },
+  "DISK_CACHE_INVALIDATION_SUCCESS": {
+    "kind": "boolean",
+    "description": "Stores 1 if writing '0' to the cache clean file succeeded, and 0 if it failed."
+  },
+  "DISK_CACHE_REVALIDATION_SUCCESS": {
+    "kind": "boolean",
+    "description": "Stores 1 if writing '1' to the cache clean file succeeded, and 0 if it failed."
+  },
   "HTTP_CACHE_DISPOSITION_2": {
     "kind": "enumerated",
     "n_values": 5,
@@ -1270,6 +1289,12 @@
     "n_buckets": 50,
     "description": "Time spent waiting on the cache service lock (ms) on the main thread in NSDISKCACHEMAP_REVALIDATION"
   },
+  "CACHE_SERVICE_LOCK_WAIT_MAINTHREAD_NSASYNCDOOMEVENT_RUN": {
+    "kind": "exponential",
+    "high": "10 * 1000",
+    "n_buckets": 50,
+    "description": "Time spent waiting on the cache service lock (ms) on the main thread in NSASYNCDOOMEVENT_RUN"
+  },
   "DNS_LOOKUP_METHOD2": {
     "kind": "enumerated",
     "n_values": 16,
@@ -1589,18 +1614,6 @@
     "high": "10000",
     "n_buckets": 10,
     "description": "Total Time spent (ms) during disk cache revalidation"
-  },
-  "NETWORK_DISK_CACHE_OUTPUT_STREAM_CLOSE": {
-    "kind": "exponential",
-    "high": "10000",
-    "n_buckets": 10,
-    "description": "Time spent in nsDiskCacheOutputStream::Close() on non-main thread (ms)"
-  },
-  "NETWORK_DISK_CACHE_OUTPUT_STREAM_CLOSE_MAIN_THREAD": {
-    "kind": "exponential",
-    "high": "10000",
-    "n_buckets": 10,
-    "description": "Time spent in nsDiskCacheOutputStream::Close() on the main thread (ms)"
   },
   "NETWORK_DISK_CACHE_OUTPUT_STREAM_CLOSE_INTERNAL": {
     "kind": "exponential",
@@ -2209,5 +2222,9 @@
   "SOCIAL_TOGGLED": {
     "kind": "boolean",
     "description": "Social has been toggled to on or off"
+  },
+  "ENABLE_PRIVILEGE_EVER_CALLED": {
+    "kind": "flag",
+    "description": "Whether enablePrivilege has ever been called during the current session"
   }
 }

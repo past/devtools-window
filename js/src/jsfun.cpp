@@ -1,5 +1,5 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- * vim: set ts=8 sw=4 et tw=99:
+/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=4 sw=4 et tw=99:
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -51,12 +51,19 @@
 #include "jsatominlines.h"
 #include "jsfuninlines.h"
 #include "jsinferinlines.h"
+#include "jsinterpinlines.h"
 #include "jsobjinlines.h"
 #include "jsscriptinlines.h"
 
 #include "vm/ArgumentsObject-inl.h"
 #include "vm/ScopeObject-inl.h"
 #include "vm/Stack-inl.h"
+
+#ifdef JS_ION
+#include "ion/Ion.h"
+#include "ion/IonFrameIterator.h"
+#include "ion/IonFrameIterator-inl.h"
+#endif
 
 using namespace mozilla;
 using namespace js;
@@ -102,7 +109,7 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
 
     StackFrame *fp = iter.fp();
 
-    if (JSID_IS_ATOM(id, cx->runtime->atomState.argumentsAtom)) {
+    if (JSID_IS_ATOM(id, cx->names().arguments)) {
         if (fun->hasRest()) {
             JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL, JSMSG_FUNCTION_ARGUMENTS_AND_REST);
             return false;
@@ -117,12 +124,25 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
         if (!argsobj)
             return false;
 
+#ifdef JS_ION
+        // If this script hasn't been compiled yet, make sure it will never
+        // be compiled. IonMonkey does not guarantee |f.arguments| can be
+        // fully recovered, so we try to mitigate observing this behavior by
+        // detecting its use early.
+        JSScript *script = iter.script();
+        if (!script->hasIonScript())
+            ion::ForbidCompilation(script);
+#endif
+
         vp.setObject(*argsobj);
         return true;
     }
 
 #ifdef JS_METHODJIT
-    if (JSID_IS_ATOM(id, cx->runtime->atomState.callerAtom) && fp && fp->prev()) {
+    if (iter.isScript() && iter.isIon())
+        fp = NULL;
+
+    if (JSID_IS_ATOM(id, cx->names().caller) && fp && fp->prev()) {
         /*
          * If the frame was called from within an inlined frame, mark the
          * innermost function as uninlineable to expand its frame and allow us
@@ -139,7 +159,7 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
     }
 #endif
 
-    if (JSID_IS_ATOM(id, cx->runtime->atomState.callerAtom)) {
+    if (JSID_IS_ATOM(id, cx->names().caller)) {
         ++iter;
         if (iter.done() || !iter.isFunctionFrame()) {
             JS_ASSERT(vp.isNull());
@@ -186,16 +206,16 @@ fun_enumerate(JSContext *cx, HandleObject obj)
     bool found;
 
     if (!obj->isBoundFunction()) {
-        id = NameToId(cx->runtime->atomState.classPrototypeAtom);
+        id = NameToId(cx->names().classPrototype);
         if (!JSObject::hasProperty(cx, obj, id, &found, JSRESOLVE_QUALIFIED))
             return false;
     }
 
-    id = NameToId(cx->runtime->atomState.lengthAtom);
+    id = NameToId(cx->names().length);
     if (!JSObject::hasProperty(cx, obj, id, &found, JSRESOLVE_QUALIFIED))
         return false;
 
-    id = NameToId(cx->runtime->atomState.nameAtom);
+    id = NameToId(cx->names().name);
     if (!JSObject::hasProperty(cx, obj, id, &found, JSRESOLVE_QUALIFIED))
         return false;
 
@@ -245,10 +265,10 @@ ResolveInterpretedFunctionPrototype(JSContext *cx, HandleObject obj)
      */
     RootedValue protoVal(cx, ObjectValue(*proto));
     RootedValue objVal(cx, ObjectValue(*obj));
-    if (!JSObject::defineProperty(cx, obj, cx->runtime->atomState.classPrototypeAtom,
+    if (!JSObject::defineProperty(cx, obj, cx->names().classPrototype,
                                   protoVal, JS_PropertyStub, JS_StrictPropertyStub,
                                   JSPROP_PERMANENT) ||
-        !JSObject::defineProperty(cx, proto, cx->runtime->atomState.constructorAtom,
+        !JSObject::defineProperty(cx, proto, cx->names().constructor,
                                   objVal, JS_PropertyStub, JS_StrictPropertyStub, 0))
     {
        return NULL;
@@ -266,20 +286,20 @@ fun_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
 
     RootedFunction fun(cx, obj->toFunction());
 
-    if (JSID_IS_ATOM(id, cx->runtime->atomState.classPrototypeAtom)) {
+    if (JSID_IS_ATOM(id, cx->names().classPrototype)) {
         /*
-         * Native or "built-in" functions do not have a .prototype property per
-         * ECMA-262, or (Object.prototype, Function.prototype, etc.) have that
-         * property created eagerly.
+         * Built-in functions do not have a .prototype property per ECMA-262,
+         * or (Object.prototype, Function.prototype, etc.) have that property
+         * created eagerly.
          *
          * ES5 15.3.4: the non-native function object named Function.prototype
          * does not have a .prototype property.
          *
          * ES5 15.3.4.5: bound functions don't have a prototype property. The
-         * isNative() test covers this case because bound functions are native
-         * functions by definition/construction.
+         * isBuiltin() test covers this case because bound functions are native
+         * (and thus built-in) functions by definition/construction.
          */
-        if (fun->isNative() || fun->isFunctionPrototype())
+        if (fun->isBuiltin() || fun->isFunctionPrototype())
             return true;
 
         if (!ResolveInterpretedFunctionPrototype(cx, fun))
@@ -288,12 +308,11 @@ fun_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
         return true;
     }
 
-    if (JSID_IS_ATOM(id, cx->runtime->atomState.lengthAtom) ||
-        JSID_IS_ATOM(id, cx->runtime->atomState.nameAtom)) {
+    if (JSID_IS_ATOM(id, cx->names().length) || JSID_IS_ATOM(id, cx->names().name)) {
         JS_ASSERT(!IsInternalFunctionObject(obj));
 
         RootedValue v(cx);
-        if (JSID_IS_ATOM(id, cx->runtime->atomState.lengthAtom))
+        if (JSID_IS_ATOM(id, cx->names().length))
             v.setInt32(fun->nargs - fun->hasRest());
         else
             v.setString(fun->atom() == NULL ?  cx->runtime->emptyString : fun->atom());
@@ -450,9 +469,9 @@ js::CloneInterpretedFunction(JSContext *cx, HandleObject enclosingScope, HandleF
  * if v is an object) returning true if .prototype is found.
  */
 static JSBool
-fun_hasInstance(JSContext *cx, HandleObject obj_, const Value *v, JSBool *bp)
+fun_hasInstance(JSContext *cx, HandleObject objArg, MutableHandleValue v, JSBool *bp)
 {
-    RootedObject obj(cx, obj_);
+    RootedObject obj(cx, objArg);
 
     while (obj->isFunction()) {
         if (!obj->isBoundFunction())
@@ -461,7 +480,7 @@ fun_hasInstance(JSContext *cx, HandleObject obj_, const Value *v, JSBool *bp)
     }
 
     RootedValue pval(cx);
-    if (!JSObject::getProperty(cx, obj, obj, cx->runtime->atomState.classPrototypeAtom, &pval))
+    if (!JSObject::getProperty(cx, obj, obj, cx->names().classPrototype, &pval))
         return JS_FALSE;
 
     if (pval.isPrimitive()) {
@@ -474,7 +493,7 @@ fun_hasInstance(JSContext *cx, HandleObject obj_, const Value *v, JSBool *bp)
         return JS_FALSE;
     }
 
-    *bp = js_IsDelegate(cx, &pval.toObject(), *v);
+    *bp = js_IsDelegate(cx, &pval.toObject(), v);
     return JS_TRUE;
 }
 
@@ -852,18 +871,48 @@ js_fun_apply(JSContext *cx, unsigned argc, Value *vp)
          * N.B. Changes here need to be propagated to stubs::SplatApplyArgs.
          */
         /* Steps 4-6. */
-        unsigned length = cx->fp()->numActualArgs();
-        JS_ASSERT(length <= StackSpace::ARGS_LENGTH_MAX);
+        StackFrame *fp = cx->fp();
 
-        if (!cx->stack.pushInvokeArgs(cx, length, &args))
-            return false;
+#ifdef JS_ION
+        // We do not want to use StackIter to abstract here because this is
+        // supposed to be a fast path as opposed to StackIter which is doing
+        // complex logic to settle on the next frame twice.
+        if (fp->beginsIonActivation()) {
+            ion::IonActivationIterator activations(cx);
+            ion::IonFrameIterator frame(activations);
+            JS_ASSERT(frame.isNative());
+            // Stop on the next Ion JS Frame.
+            ++frame;
+            ion::InlineFrameIterator iter(&frame);
 
-        /* Push fval, obj, and aobj's elements as args. */
-        args.setCallee(fval);
-        args.setThis(vp[2]);
+            unsigned length = iter.numActualArgs();
+            JS_ASSERT(length <= StackSpace::ARGS_LENGTH_MAX);
 
-        /* Steps 7-8. */
-        cx->fp()->forEachUnaliasedActual(CopyTo(args.array()));
+            if (!cx->stack.pushInvokeArgs(cx, length, &args))
+                return false;
+
+            /* Push fval, obj, and aobj's elements as args. */
+            args.setCallee(fval);
+            args.setThis(vp[2]);
+
+            /* Steps 7-8. */
+            iter.forEachCanonicalActualArg(CopyTo(args.array()), 0, -1);
+        } else
+#endif
+        {
+            unsigned length = fp->numActualArgs();
+            JS_ASSERT(length <= StackSpace::ARGS_LENGTH_MAX);
+
+            if (!cx->stack.pushInvokeArgs(cx, length, &args))
+                return false;
+
+            /* Push fval, obj, and aobj's elements as args. */
+            args.setCallee(fval);
+            args.setThis(vp[2]);
+
+            /* Steps 7-8. */
+            fp->forEachUnaliasedActual(CopyTo(args.array()));
+        }
     } else {
         /* Step 3. */
         if (!vp[3].isObject()) {
@@ -1337,7 +1386,7 @@ Function(JSContext *cx, unsigned argc, Value *vp)
      * and so would a call to f from another top-level's script or function.
      */
     RootedFunction fun(cx, js_NewFunction(cx, NULL, NULL, 0, JSFUN_LAMBDA | JSFUN_INTERPRETED,
-                                          global, cx->runtime->atomState.anonymousAtom));
+                                          global, cx->names().anonymous));
     if (!fun)
         return false;
 
@@ -1568,3 +1617,31 @@ js::ReportIncompatible(JSContext *cx, CallReceiver call)
         }
     }
 }
+
+bool
+JSObject::hasIdempotentProtoChain() const
+{
+    // Return false if obj (or an object on its proto chain) is non-native or
+    // has a resolve or lookup hook.
+    const JSObject *obj = this;
+    while (true) {
+        if (!obj->isNative())
+            return false;
+
+        JSResolveOp resolve = obj->getClass()->resolve;
+        if (resolve != JS_ResolveStub && resolve != (JSResolveOp) fun_resolve)
+            return false;
+
+        if (obj->getOps()->lookupProperty || obj->getOps()->lookupGeneric || obj->getOps()->lookupElement)
+            return false;
+
+        const JSObject *proto = obj->getProto();
+        if (!proto)
+            return true;
+        obj = proto;
+    }
+
+    JS_NOT_REACHED("Should not get here");
+    return false;
+}
+

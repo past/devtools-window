@@ -46,8 +46,8 @@ DebuggerUI.prototype = {
     tabs.addEventListener("TabSelect", bound_refreshCommand, true);
 
     win.addEventListener("unload", function onClose(aEvent) {
-      tabs.removeEventListener("TabSelect", bound_refreshCommand, true);
       win.removeEventListener("unload", onClose, false);
+      tabs.removeEventListener("TabSelect", bound_refreshCommand, true);
     }, false);
   },
 
@@ -245,7 +245,7 @@ DebuggerPane.prototype = {
   _initServer: function DP__initServer() {
     if (!DebuggerServer.initialized) {
       // Always allow connections from nsIPipe transports.
-      DebuggerServer.init(function () { return true; });
+      DebuggerServer.init(function() true);
       DebuggerServer.addBrowserActors();
     }
   },
@@ -466,37 +466,10 @@ ChromeDebuggerProcess.prototype = {
    */
   _initServer: function RDP__initServer() {
     if (!DebuggerServer.initialized) {
-      DebuggerServer.init(this._allowConnection);
+      DebuggerServer.init();
       DebuggerServer.addBrowserActors();
     }
-    DebuggerServer.closeListener();
     DebuggerServer.openListener(DebuggerPreferences.remotePort);
-  },
-
-  /**
-   * Prompt the user to accept or decline the incoming connection.
-   *
-   * @return true if the connection should be permitted, false otherwise
-   */
-  _allowConnection: function RDP__allowConnection() {
-    let title = L10N.getStr("remoteIncomingPromptTitle");
-    let msg = L10N.getStr("remoteIncomingPromptMessage");
-    let disableButton = L10N.getStr("remoteIncomingPromptDisable");
-    let prompt = Services.prompt;
-    let flags = prompt.BUTTON_POS_0 * prompt.BUTTON_TITLE_OK +
-                prompt.BUTTON_POS_1 * prompt.BUTTON_TITLE_CANCEL +
-                prompt.BUTTON_POS_2 * prompt.BUTTON_TITLE_IS_STRING +
-                prompt.BUTTON_POS_1_DEFAULT;
-    let result = prompt.confirmEx(null, title, msg, flags, null, null,
-                                  disableButton, null, { value: false });
-    if (result == 0) {
-      return true;
-    }
-    if (result == 2) {
-      DebuggerServer.closeListener();
-      Services.prefs.setBoolPref("devtools.debugger.remote-enabled", false);
-    }
-    return false;
   },
 
   /**

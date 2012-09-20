@@ -160,32 +160,6 @@ void nsOggReader::BuildSerialList(nsTArray<uint32_t>& aTracks)
   }
 }
 
-static
-nsHTMLMediaElement::MetadataTags* TagsFromVorbisComment(vorbis_comment *vc)
-{
-  nsHTMLMediaElement::MetadataTags* tags;
-  int i;
-
-  tags = new nsHTMLMediaElement::MetadataTags;
-  tags->Init();
-  for (i = 0; i < vc->comments; i++) {
-    char *comment = vc->user_comments[i];
-    char *div = (char*)memchr(comment, '=', vc->comment_lengths[i]);
-    if (!div) {
-      LOG(PR_LOG_DEBUG, ("Invalid vorbis comment: no separator"));
-      continue;
-    }
-    // This should be ASCII.
-    nsCString key = nsCString(comment, div-comment);
-    uint32_t value_length = vc->comment_lengths[i] - (div-comment);
-    // This should be utf-8.
-    nsCString value = nsCString(div + 1, value_length);
-    tags->Put(key, value);
-  }
-
-  return tags;
-}
-
 nsresult nsOggReader::ReadMetadata(nsVideoInfo* aInfo,
                                    nsHTMLMediaElement::MetadataTags** aTags)
 {
@@ -322,7 +296,7 @@ nsresult nsOggReader::ReadMetadata(nsVideoInfo* aInfo,
     memcpy(&mVorbisInfo, &mVorbisState->mInfo, sizeof(mVorbisInfo));
     mVorbisInfo.codec_setup = NULL;
     mVorbisSerial = mVorbisState->mSerial;
-    *aTags = TagsFromVorbisComment(&mVorbisState->mComment);
+    *aTags = mVorbisState->GetTags();
   } else {
     memset(&mVorbisInfo, 0, sizeof(mVorbisInfo));
   }
@@ -333,6 +307,8 @@ nsresult nsOggReader::ReadMetadata(nsVideoInfo* aInfo,
     mInfo.mAudioChannels = mOpusState->mChannels > 2 ? 2 : mOpusState->mChannels;
     mOpusSerial = mOpusState->mSerial;
     mOpusPreSkip = mOpusState->mPreSkip;
+
+    *aTags = mOpusState->GetTags();
   }
 #endif
   if (mSkeletonState) {

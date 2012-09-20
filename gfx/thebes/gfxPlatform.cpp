@@ -137,6 +137,8 @@ SRGBOverrideObserver::Observe(nsISupports *aSubject,
 #define HARFBUZZ_SCRIPTS_DEFAULT  mozilla::unicode::SHAPING_DEFAULT
 #define GFX_PREF_FALLBACK_USE_CMAPS  "gfx.font_rendering.fallback.always_use_cmaps"
 
+#define GFX_PREF_OPENTYPE_SVG "gfx.font_rendering.opentype_svg.enabled"
+
 #ifdef MOZ_GRAPHITE
 #define GFX_PREF_GRAPHITE_SHAPING "gfx.font_rendering.graphite.enabled"
 #endif
@@ -226,8 +228,9 @@ gfxPlatform::gfxPlatform()
 #endif
     mBidiNumeralOption = UNINITIALIZED_VALUE;
 
-    uint32_t backendMask = (1 << BACKEND_CAIRO) | (1 << BACKEND_SKIA);
-    InitCanvasBackend(backendMask);
+    uint32_t canvasMask = (1 << BACKEND_CAIRO) | (1 << BACKEND_SKIA);
+    uint32_t contentMask = 0;
+    InitBackendPrefs(canvasMask, contentMask);
 }
 
 gfxPlatform*
@@ -387,9 +390,6 @@ gfxPlatform::Shutdown()
 
     // Shut down the default GL context provider.
     mozilla::gl::GLContextProvider::Shutdown();
-
-    // We always have OSMesa at least potentially available; shut it down too.
-    mozilla::gl::GLContextProviderOSMesa::Shutdown();
 
 #if defined(XP_WIN)
     // The above shutdown calls operate on the available context providers on
@@ -855,7 +855,7 @@ gfxPlatform::MakePlatformFont(const gfxProxyFontEntry *aProxyEntry,
 static void
 AppendGenericFontFromPref(nsString& aFonts, nsIAtom *aLangGroup, const char *aGenericName)
 {
-    NS_ENSURE_TRUE(Preferences::GetRootBranch(), );
+    NS_ENSURE_TRUE_VOID(Preferences::GetRootBranch());
 
     nsAutoCString prefName, langGroupString;
 
@@ -1185,25 +1185,36 @@ gfxPlatform::AppendPrefLang(eFontPrefLang aPrefLangs[], uint32_t& aLen, eFontPre
 }
 
 void
-gfxPlatform::InitCanvasBackend(uint32_t aBackendBitmask)
+gfxPlatform::InitBackendPrefs(uint32_t aCanvasBitmask, uint32_t aContentBitmask)
 {
-    if (!Preferences::GetBool("gfx.canvas.azure.enabled", false)) {
-        mPreferredCanvasBackend = BACKEND_NONE;
-        mFallbackCanvasBackend = BACKEND_NONE;
-        return;
-    }
-
-    mPreferredCanvasBackend = GetCanvasBackendPref(aBackendBitmask);
-    mFallbackCanvasBackend = GetCanvasBackendPref(aBackendBitmask & ~(1 << mPreferredCanvasBackend));
+    mPreferredCanvasBackend = GetCanvasBackendPref(aCanvasBitmask);
+    mFallbackCanvasBackend = GetCanvasBackendPref(aCanvasBitmask & ~(1 << mPreferredCanvasBackend));
+    mContentBackend = GetContentBackendPref(aContentBitmask);
 }
 
 /* static */ BackendType
 gfxPlatform::GetCanvasBackendPref(uint32_t aBackendBitmask)
 {
+    return GetBackendPref("gfx.canvas.azure.enabled", "gfx.canvas.azure.backends", aBackendBitmask);
+}
+
+/* static */ BackendType
+gfxPlatform::GetContentBackendPref(uint32_t aBackendBitmask)
+{
+    return GetBackendPref("gfx.content.azure.enabled", "gfx.content.azure.backends", aBackendBitmask);
+}
+
+/* static */ BackendType
+gfxPlatform::GetBackendPref(const char* aEnabledPrefName, const char* aBackendPrefName, uint32_t aBackendBitmask)
+{
+    if (!Preferences::GetBool(aEnabledPrefName, false)) {
+        return BACKEND_NONE;
+    }
+
     if (!gBackendList) {
         gBackendList = new nsTArray<nsCString>();
         nsCString prefString;
-        if (NS_SUCCEEDED(Preferences::GetCString("gfx.canvas.azure.backends", &prefString))) {
+        if (NS_SUCCEEDED(Preferences::GetCString(aBackendPrefName, &prefString))) {
             ParseString(prefString, ',', *gBackendList);
         }
     }
@@ -1566,6 +1577,8 @@ gfxPlatform::FontsPrefsChanged(const char *aPref)
         }
     } else if (!strcmp(BIDI_NUMERAL_PREF, aPref)) {
         mBidiNumeralOption = UNINITIALIZED_VALUE;
+    } else if (!strcmp(GFX_PREF_OPENTYPE_SVG, aPref)) {
+        gfxFontCache::GetCache()->AgeAllGenerations();
     }
 }
 

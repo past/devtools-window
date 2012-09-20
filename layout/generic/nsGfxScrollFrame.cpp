@@ -55,6 +55,7 @@
 #include "mozilla/Attributes.h"
 #include "ScrollbarActivity.h"
 #include "nsRefreshDriver.h"
+#include "nsContentList.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -1377,7 +1378,7 @@ public:
   bool SetRefreshObserver(nsGfxScrollFrameInner *aCallee) {
     NS_ASSERTION(aCallee && !mCallee, "AsyncScroll::SetRefreshObserver - Invalid usage.");
 
-    if (!RefreshDriver(aCallee)->AddRefreshObserver(this, Flush_Display)) {
+    if (!RefreshDriver(aCallee)->AddRefreshObserver(this, Flush_Style)) {
       return false;
     }
 
@@ -1405,7 +1406,7 @@ private:
    */
   void RemoveObserver() {
     if (mCallee) {
-      RefreshDriver(mCallee)->RemoveRefreshObserver(this, Flush_Display);
+      RefreshDriver(mCallee)->RemoveRefreshObserver(this, Flush_Style);
     }
   }
 };
@@ -1933,7 +1934,7 @@ void nsGfxScrollFrameInner::ScrollVisual(nsPoint aOldScrolledFramePos)
     return;
   }
 
-  rootPresContext->RequestUpdatePluginGeometry(mOuter);
+  rootPresContext->RequestUpdatePluginGeometry();
 
   AdjustViews(mScrolledFrame);
   // We need to call this after fixing up the view positions

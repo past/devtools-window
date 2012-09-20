@@ -245,7 +245,7 @@ var shell = {
       case 'keypress':
         return;
     }
-  
+
     // On my device, the physical hardware buttons (sleep and volume)
     // send multiple events (press press release release), but the
     // soft home button just sends one.  This hack is to manually
@@ -352,8 +352,7 @@ var shell = {
     this.sendChromeEvent({
       type: 'open-app',
       url: msg.uri,
-      origin: origin,
-      manifest: msg.manifest,
+      manifestURL: msg.manifest,
       isActivity: (msg.type == 'activity'),
       target: msg.target
     });
@@ -421,6 +420,10 @@ Services.obs.addObserver(function(aSubject, aTopic, aData) {
   shell.sendChromeEvent({ type: "fullscreenoriginchange",
                           fullscreenorigin: aData });
 }, "fullscreen-origin-change", false);
+
+Services.obs.addObserver(function onWebappsReady(subject, topic, data) {
+  shell.sendChromeEvent({ type: 'webapps-registry-ready' });
+}, 'webapps-registry-ready', false);
 
 (function Repl() {
   if (!Services.prefs.getBoolPref('b2g.remote-js.enabled')) {
@@ -508,6 +511,9 @@ var CustomEventManager = {
         break;
       case 'select-choicechange':
         FormsHelper.handleEvent(detail);
+        break;
+      case 'system-message-listener-ready':
+        Services.obs.notifyObservers(null, 'system-message-listener-ready', null);
         break;
     }
   }
@@ -598,7 +604,7 @@ var WebappsHelper = {
           shell.sendChromeEvent({
             "type": "webapps-launch",
             "url": manifest.fullLaunchPath(json.startPoint),
-            "origin": json.origin
+            "manifestURL": json.manifestURL
           });
         });
         break;
@@ -706,10 +712,10 @@ window.addEventListener('ContentStart', function ss_onContentStart() {
 (function headphonesStatusTracker() {
   Services.obs.addObserver(function(aSubject, aTopic, aData) {
     shell.sendChromeEvent({
-      type: 'headphones-status',
+      type: 'headphones-status-changed',
       state: aData
     });
-}, "headphones-status", false);
+}, "headphones-status-changed", false);
 })();
 
 (function recordingStatusTracker() {

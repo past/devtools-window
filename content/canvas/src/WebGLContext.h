@@ -605,12 +605,12 @@ public:
     nsHTMLCanvasElement* GetCanvas() const {
         return mCanvasElement;
     }
-    WebGLsizei GetDrawingBufferWidth() const {
+    WebGLsizei DrawingBufferWidth() const {
         if (!IsContextStable())
             return 0;
         return mWidth;
     }
-    WebGLsizei GetDrawingBufferHeight() const {
+    WebGLsizei DrawingBufferHeight() const {
         if (!IsContextStable())
             return 0;
         return mHeight;
@@ -735,8 +735,8 @@ public:
                                   WebGLenum pname) {
         return GetProgramParameter(prog, pname);
     }
-    void GetProgramInfoLog(WebGLProgram *prog, nsACString& retval, ErrorResult& rv);
-    void GetProgramInfoLog(WebGLProgram *prog, nsAString& retval, ErrorResult& rv);
+    void GetProgramInfoLog(WebGLProgram *prog, nsACString& retval);
+    void GetProgramInfoLog(WebGLProgram *prog, nsAString& retval);
     JS::Value GetRenderbufferParameter(WebGLenum target, WebGLenum pname);
     JS::Value GetRenderbufferParameter(JSContext* /* unused */,
                                        WebGLenum target, WebGLenum pname) {
@@ -749,8 +749,8 @@ public:
     }
     already_AddRefed<WebGLShaderPrecisionFormat>
       GetShaderPrecisionFormat(WebGLenum shadertype, WebGLenum precisiontype);
-    void GetShaderInfoLog(WebGLShader *shader, nsACString& retval, ErrorResult& rv);
-    void GetShaderInfoLog(WebGLShader *shader, nsAString& retval, ErrorResult& rv);
+    void GetShaderInfoLog(WebGLShader *shader, nsACString& retval);
+    void GetShaderInfoLog(WebGLShader *shader, nsAString& retval);
     void GetShaderSource(WebGLShader *shader, nsAString& retval);
     JS::Value GetTexParameter(WebGLenum target, WebGLenum pname);
     JS::Value GetTexParameter(JSContext * /* unused */, WebGLenum target,
@@ -778,7 +778,7 @@ public:
         MakeContextCurrent();
         gl->fLineWidth(width);
     }
-    void LinkProgram(WebGLProgram *program, ErrorResult& rv);
+    void LinkProgram(WebGLProgram *program);
     void PixelStorei(WebGLenum pname, WebGLint param);
     void PolygonOffset(WebGLfloat factor, WebGLfloat units) {
         if (!IsContextStable())
@@ -1124,6 +1124,15 @@ protected:
     int32_t mGLMaxVaryingVectors;
     int32_t mGLMaxFragmentUniformVectors;
     int32_t mGLMaxVertexUniformVectors;
+
+    // Cache the max number of elements that can be read from bound VBOs
+    // (result of ValidateBuffers).
+    int32_t mMinInUseAttribArrayLength;
+
+    inline void InvalidateCachedMinInUseAttribArrayLength()
+    {
+        mMinInUseAttribArrayLength = -1;
+    }
 
     // Represents current status, or state, of the context. That is, is it lost
     // or stable and what part of the context lost process are we currently at.

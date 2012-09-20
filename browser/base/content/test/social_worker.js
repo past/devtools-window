@@ -11,6 +11,7 @@ onconnect = function(e) {
     switch (topic) {
       case "test-init":
         testPort = port;
+        port.postMessage({topic: "test-init-done"});
         break;
       case "sidebar-message":
         sidebarPort = port;
@@ -64,12 +65,11 @@ onconnect = function(e) {
         testPort.postMessage({topic:"got-flyout-visibility", result: event.data.result});
         break;
       case "test-worker-chat":
-        apiPort.postMessage({topic: "social.request-chat", data: "https://example.com/browser/browser/base/content/test/social_chat.html" });
+        apiPort.postMessage({topic: "social.request-chat", data: event.data.data });
         break;
       case "social.initialize":
         // This is the workerAPI port, respond and set up a notification icon.
         apiPort = port;
-        port.postMessage({topic: "social.initialize-response"});
         let profile = {
           portrait: "https://example.com/portrait.jpg",
           userName: "trickster",
@@ -77,13 +77,15 @@ onconnect = function(e) {
           profileURL: "http://en.wikipedia.org/wiki/Kuma_Lisa"
         };
         port.postMessage({topic: "social.user-profile", data: profile});
+        break;
+      case "test-ambient-notification":
         let icon = {
           name: "testIcon",
           iconURL: "chrome://branding/content/icon48.png",
           contentPanel: "https://example.com/browser/browser/base/content/test/social_panel.html",
           counter: 1
         };
-        port.postMessage({topic: "social.ambient-notification", data: icon});
+        apiPort.postMessage({topic: "social.ambient-notification", data: icon});
         break;
       case "test-isVisible":
         sidebarPort.postMessage({topic: "test-isVisible"});

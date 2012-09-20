@@ -329,9 +329,12 @@ CopyUpdaterIntoUpdateDir(nsIFile *greDir, nsIFile *appDir, nsIFile *updateDir,
     return false;
 #if defined(XP_MACOSX)
   rv  = updater->AppendNative(NS_LITERAL_CSTRING(kUpdaterApp));
-  rv |= updater->AppendNative(NS_LITERAL_CSTRING("Contents"));
-  rv |= updater->AppendNative(NS_LITERAL_CSTRING("MacOS"));
-  if (NS_FAILED(rv))
+  nsresult tmp = updater->AppendNative(NS_LITERAL_CSTRING("Contents"));
+  if (NS_FAILED(tmp)) {
+    rv = tmp;
+  }
+  tmp = updater->AppendNative(NS_LITERAL_CSTRING("MacOS"));
+  if (NS_FAILED(tmp) || NS_FAILED(rv))
     return false;
 #endif
   rv = updater->AppendNative(NS_LITERAL_CSTRING(kUpdaterBin));
@@ -997,18 +1000,18 @@ nsUpdateProcessor::StartBackgroundUpdate()
                                mInfo.mAppVersion.get(),
                                false,
                                &mUpdaterPID);
-  NS_ENSURE_SUCCESS(rv, );
+  NS_ENSURE_SUCCESS_VOID(rv);
 
   if (mUpdaterPID) {
     // Track the state of the background updater process
     rv = NS_DispatchToCurrentThread(NS_NewRunnableMethod(this, &nsUpdateProcessor::WaitForProcess));
-    NS_ENSURE_SUCCESS(rv, );
+    NS_ENSURE_SUCCESS_VOID(rv);
   } else {
     // Failed to launch the background updater process for some reason.
     // We need to shutdown the current thread as there isn't anything more for
     // us to do...
     rv = NS_DispatchToMainThread(NS_NewRunnableMethod(this, &nsUpdateProcessor::ShutdownWatcherThread));
-    NS_ENSURE_SUCCESS(rv, );
+    NS_ENSURE_SUCCESS_VOID(rv);
   }
 }
 

@@ -74,10 +74,10 @@ ProtoGetterImpl(JSContext *cx, CallArgs args)
         return false;
 
     unsigned dummy;
-    Rooted<JSObject*> obj(cx, &args.thisv().toObject());
-    Rooted<jsid> nid(cx, NameToId(cx->runtime->atomState.protoAtom));
-    Rooted<Value> v(cx);
-    if (!CheckAccess(cx, obj, nid, JSACC_PROTO, v.address(), &dummy))
+    RootedObject obj(cx, &args.thisv().toObject());
+    RootedId nid(cx, NameToId(cx->names().proto));
+    RootedValue v(cx);
+    if (!CheckAccess(cx, obj, nid, JSACC_PROTO, &v, &dummy))
         return false;
 
     args.rval().set(v);
@@ -154,9 +154,9 @@ ProtoSetterImpl(JSContext *cx, CallArgs args)
     Rooted<JSObject*> newProto(cx, args[0].toObjectOrNull());
 
     unsigned dummy;
-    Rooted<jsid> nid(cx, NameToId(cx->runtime->atomState.protoAtom));
-    Rooted<Value> v(cx);
-    if (!CheckAccess(cx, obj, nid, JSAccessMode(JSACC_PROTO | JSACC_WRITE), v.address(), &dummy))
+    RootedId nid(cx, NameToId(cx->names().proto));
+    RootedValue v(cx);
+    if (!CheckAccess(cx, obj, nid, JSAccessMode(JSACC_PROTO | JSACC_WRITE), &v, &dummy))
         return false;
 
     if (!SetProto(cx, obj, newProto, true))
@@ -348,7 +348,7 @@ GlobalObject::initFunctionAndObjectClasses(JSContext *cx)
         if (!ctor)
             return NULL;
         objectCtor = js_NewFunction(cx, ctor, js_Object, 1, JSFUN_CONSTRUCTOR, self,
-                                    CLASS_NAME(cx, Object));
+                                    cx->names().Object);
         if (!objectCtor)
             return NULL;
     }
@@ -367,7 +367,7 @@ GlobalObject::initFunctionAndObjectClasses(JSContext *cx)
         if (!ctor)
             return NULL;
         functionCtor = js_NewFunction(cx, ctor, Function, 1, JSFUN_CONSTRUCTOR, self,
-                                      CLASS_NAME(cx, Function));
+                                      cx->names().Function);
         if (!functionCtor)
             return NULL;
         JS_ASSERT(ctor == functionCtor);
@@ -404,7 +404,7 @@ GlobalObject::initFunctionAndObjectClasses(JSContext *cx)
         return NULL;
     RootedValue undefinedValue(cx, UndefinedValue());
     if (!JSObject::defineProperty(cx, objectProto,
-                                  cx->runtime->atomState.protoAtom, undefinedValue,
+                                  cx->names().proto, undefinedValue,
                                   JS_DATA_TO_FUNC_PTR(PropertyOp, getter.get()),
                                   JS_DATA_TO_FUNC_PTR(StrictPropertyOp, setter.get()),
                                   JSPROP_GETTER | JSPROP_SETTER | JSPROP_SHARED))
@@ -424,17 +424,17 @@ GlobalObject::initFunctionAndObjectClasses(JSContext *cx)
     }
 
     /* Add the global Function and Object properties now. */
-    jsid objectId = NameToId(CLASS_NAME(cx, Object));
+    jsid objectId = NameToId(cx->names().Object);
     if (!self->addDataProperty(cx, objectId, JSProto_Object + JSProto_LIMIT * 2, 0))
         return NULL;
-    jsid functionId = NameToId(CLASS_NAME(cx, Function));
+    jsid functionId = NameToId(cx->names().Function);
     if (!self->addDataProperty(cx, functionId, JSProto_Function + JSProto_LIMIT * 2, 0))
         return NULL;
 
     /* Heavy lifting done, but lingering tasks remain. */
 
     /* ES5 15.1.2.1. */
-    RootedId id(cx, NameToId(cx->runtime->atomState.evalAtom));
+    RootedId id(cx, NameToId(cx->names().eval));
     JSObject *evalobj = js_DefineFunction(cx, self, id, IndirectEval, 1, JSFUN_STUB_GSOPS);
     if (!evalobj)
         return NULL;
@@ -489,6 +489,8 @@ GlobalObject::create(JSContext *cx, Class *clasp)
 
     if (!JSObject::setSingletonType(cx, global) || !global->setVarObj(cx))
         return NULL;
+    if (!global->setDelegate(cx))
+        return NULL;
 
     /* Construct a regexp statics object for this global object. */
     JSObject *res = RegExpStatics::create(cx, global);
@@ -502,11 +504,9 @@ GlobalObject::create(JSContext *cx, Class *clasp)
 /* static */ bool
 GlobalObject::initStandardClasses(JSContext *cx, Handle<GlobalObject*> global)
 {
-    JSAtomState &state = cx->runtime->atomState;
-
     /* Define a top-level property 'undefined' with the undefined value. */
     RootedValue undefinedValue(cx, UndefinedValue());
-    if (!JSObject::defineProperty(cx, global, state.typeAtoms[JSTYPE_VOID], undefinedValue,
+    if (!JSObject::defineProperty(cx, global, cx->names().undefined, undefinedValue,
                                   JS_PropertyStub, JS_StrictPropertyStub, JSPROP_PERMANENT | JSPROP_READONLY))
     {
         return false;
@@ -599,10 +599,10 @@ LinkConstructorAndPrototype(JSContext *cx, JSObject *ctor_, JSObject *proto_)
     RootedValue protoVal(cx, ObjectValue(*proto));
     RootedValue ctorVal(cx, ObjectValue(*ctor));
 
-    return JSObject::defineProperty(cx, ctor, cx->runtime->atomState.classPrototypeAtom,
+    return JSObject::defineProperty(cx, ctor, cx->names().classPrototype,
                                     protoVal, JS_PropertyStub, JS_StrictPropertyStub,
                                     JSPROP_PERMANENT | JSPROP_READONLY) &&
-           JSObject::defineProperty(cx, proto, cx->runtime->atomState.constructorAtom,
+           JSObject::defineProperty(cx, proto, cx->names().constructor,
                                     ctorVal, JS_PropertyStub, JS_StrictPropertyStub, 0);
 }
 

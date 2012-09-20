@@ -500,10 +500,10 @@ gfxWindowsPlatform::UpdateRenderMode()
                 DWRITE_FACTORY_TYPE_SHARED,
                 __uuidof(IDWriteFactory),
                 reinterpret_cast<IUnknown**>(&factory));
-            mDWriteFactory = factory;
-            factory->Release();
 
-            if (SUCCEEDED(hr)) {
+            if (SUCCEEDED(hr) && factory) {
+                mDWriteFactory = factory;
+                factory->Release();
                 hr = mDWriteFactory->CreateTextAnalyzer(
                     getter_AddRefs(mDWriteAnalyzer));
             }
@@ -516,13 +516,16 @@ gfxWindowsPlatform::UpdateRenderMode()
     }
 #endif
 
-    uint32_t backendMask = 1 << BACKEND_CAIRO;
+    uint32_t canvasMask = 1 << BACKEND_CAIRO;
+    uint32_t contentMask;
     if (mRenderMode == RENDER_DIRECT2D) {
-      backendMask |= 1 << BACKEND_DIRECT2D;
+      canvasMask |= 1 << BACKEND_DIRECT2D;
+      contentMask = BACKEND_DIRECT2D;
     } else {
-      backendMask |= 1 << BACKEND_SKIA;
+      canvasMask |= 1 << BACKEND_SKIA;
+      contentMask = 0;
     }
-    InitCanvasBackend(backendMask);
+    InitBackendPrefs(canvasMask, contentMask);
 }
 
 void

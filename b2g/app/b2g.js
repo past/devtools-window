@@ -44,9 +44,9 @@ pref("network.http.pipelining.ssl", true);
 pref("network.http.proxy.pipelining", true);
 pref("network.http.pipelining.maxrequests" , 6);
 pref("network.http.keep-alive.timeout", 600);
-pref("network.http.max-connections", 6);
-pref("network.http.max-persistent-connections-per-server", 4);
-pref("network.http.max-persistent-connections-per-proxy", 4);
+pref("network.http.max-connections", 20);
+pref("network.http.max-persistent-connections-per-server", 6);
+pref("network.http.max-persistent-connections-per-proxy", 20);
 
 // See bug 545869 for details on why these are set the way they are
 pref("network.buffer.cache.count", 24);
@@ -435,22 +435,30 @@ pref("marionette.defaultPrefs.port", 2828);
 #endif
 
 #ifdef MOZ_UPDATER
+// Timeout before the update prompt automatically installs the update
+pref("b2g.update.apply-prompt-timeout", 60000); // milliseconds
+// Optional timeout the user can wait before getting another update prompt
+pref("b2g.update.apply-wait-timeout", 1800000); // milliseconds
+// Amount of time the updater waits for the process to exit cleanly before
+// forcefully exiting the process
+pref("b2g.update.self-destruct-timeout", 5000); // milliseconds
+
 pref("app.update.enabled", true);
-pref("app.update.auto", true);
-pref("app.update.silent", true);
+pref("app.update.auto", false);
+pref("app.update.silent", false);
 pref("app.update.mode", 0);
 pref("app.update.incompatible.mode", 0);
-pref("app.update.stage.enabled", true);
+pref("app.update.staging.enabled", true);
 pref("app.update.service.enabled", true);
 
 // The URL hosting the update manifest.
-pref("app.update.url", "http://update.boot2gecko.org/m2.5/updates.xml");
+pref("app.update.url", "http://update.boot2gecko.org/nightly/update.xml");
 // Interval at which update manifest is fetched.  In units of seconds.
-pref("app.update.interval", 3600); // 1 hour
+pref("app.update.interval", 86400); // 1 day
 // First interval to elapse before checking for update.  In units of
 // milliseconds.  Capped at 10 seconds.
-pref("app.update.timerFirstInterval", 30000);
-pref("app.update.timerMinimumDelay", 30); // seconds
+pref("app.update.timerFirstInterval", 3600000); // 1 hour
+pref("app.update.timerMinimumDelay", 3600); // 1 hour in seconds
 // Don't throttle background updates.
 pref("app.update.download.backgroundInterval", 0);
 
@@ -484,7 +492,7 @@ pref("dom.experimental_forms", true);
 // Turns on gralloc-based direct texturing for Gonk
 pref("gfx.gralloc.enabled", false);
 
-// XXXX REMOVE FOR PRODUCTION. Turns on GC and CC logging 
+// XXXX REMOVE FOR PRODUCTION. Turns on GC and CC logging
 pref("javascript.options.mem.log", true);
 
 // Increase mark slice time from 10ms to 30ms
@@ -505,9 +513,9 @@ pref("ui.showHideScrollbars", 1);
 // background.
 pref("dom.ipc.processPriorityManager.enabled", true);
 pref("dom.ipc.processPriorityManager.gracePeriodMS", 1000);
-pref("hal.processPriorityManager.gonk.masterOomAdjust", 0);
-pref("hal.processPriorityManager.gonk.foregroundOomAdjust", 1);
-pref("hal.processPriorityManager.gonk.backgroundOomAdjust", 2);
+pref("hal.processPriorityManager.gonk.masterOomScoreAdjust", 0);
+pref("hal.processPriorityManager.gonk.foregroundOomScoreAdjust", 67);
+pref("hal.processPriorityManager.gonk.backgroundOomScoreAdjust", 400);
 pref("hal.processPriorityManager.gonk.masterNice", -1);
 pref("hal.processPriorityManager.gonk.foregroundNice", 0);
 pref("hal.processPriorityManager.gonk.backgroundNice", 10);
@@ -525,3 +533,6 @@ pref("dom.disable_window_open_dialog_feature", true);
 
 // Screen reader support
 pref("accessibility.accessfu.activate", 2);
+
+// Disable native prompt
+pref("browser.prompt.allowNative", false);

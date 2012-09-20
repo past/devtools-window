@@ -337,14 +337,14 @@ void nsViewManager::Refresh(nsView *aView, const nsIntRegion& aRegion,
     return;
   }
 
+  if (aView->ForcedRepaint() && IsRefreshDriverPaintingEnabled()) {
+    ProcessPendingUpdates();
+    aView->SetForcedRepaint(false);
+  }
+  
   nsIWidget *widget = aView->GetWidget();
   if (!widget) {
     return;
-  }
-
-  if (aView->ForcedRepaint()) {
-    ProcessPendingUpdates();
-    aView->SetForcedRepaint(false);
   }
 
   NS_ASSERTION(!IsPainting(), "recursive painting not permitted");
@@ -1232,8 +1232,13 @@ nsViewManager::UpdateWidgetGeometry()
   }
 
   if (mHasPendingWidgetGeometryChanges) {
-    mHasPendingWidgetGeometryChanges = false;
+    if (IsRefreshDriverPaintingEnabled()) {
+      mHasPendingWidgetGeometryChanges = false;
+    }
     ProcessPendingUpdatesForView(mRootView, false);
+    if (!IsRefreshDriverPaintingEnabled()) {
+      mHasPendingWidgetGeometryChanges = false;
+    }
   }
 }
 

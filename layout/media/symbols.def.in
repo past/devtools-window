@@ -19,6 +19,7 @@ nestegg_track_codec_data
 nestegg_track_codec_data_count
 nestegg_track_codec_id
 nestegg_track_count
+nestegg_get_cue_point
 nestegg_track_seek
 nestegg_track_type
 nestegg_track_video_params
@@ -323,6 +324,7 @@ _moz_cairo_get_current_point
 _moz_cairo_get_dash
 _moz_cairo_get_dash_count
 _moz_cairo_get_fill_rule
+_moz_cairo_get_font_matrix
 _moz_cairo_get_group_target
 _moz_cairo_get_line_cap
 _moz_cairo_get_line_join

@@ -268,6 +268,12 @@ public:
                               nsIAtom*        aAttribute,
                               int32_t         aModType);
 
+  /**
+   * Move any frames on our overflow list to the end of our principal list.
+   * @return true if there were any overflow frames
+   */
+  virtual bool DrainSelfOverflowList();
+
   virtual nsresult StealFrame(nsPresContext* aPresContext,
                               nsIFrame*      aChild,
                               bool           aForceNormal = false);
@@ -691,11 +697,14 @@ protected:
   bool RenumberLists(nsPresContext* aPresContext);
 
   static bool RenumberListsInBlock(nsPresContext* aPresContext,
-                                     nsBlockFrame* aBlockFrame,
-                                     int32_t* aOrdinal,
-                                     int32_t aDepth);
+                                   nsBlockFrame* aBlockFrame,
+                                   int32_t* aOrdinal,
+                                   int32_t aDepth,
+                                   int32_t aIncrement);
 
-  static bool RenumberListsFor(nsPresContext* aPresContext, nsIFrame* aKid, int32_t* aOrdinal, int32_t aDepth);
+  static bool RenumberListsFor(nsPresContext* aPresContext, nsIFrame* aKid,
+                               int32_t* aOrdinal, int32_t aDepth,
+                               int32_t aIncrement);
 
   static bool FrameStartsCounterScope(nsIFrame* aFrame);
 

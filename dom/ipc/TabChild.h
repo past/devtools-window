@@ -48,6 +48,7 @@
 #include "nsITabChild.h"
 #include "mozilla/Attributes.h"
 #include "FrameMetrics.h"
+#include "ProcessUtils.h"
 
 struct gfxMatrix;
 
@@ -164,6 +165,8 @@ public:
 
     uint32_t GetAppId() { return mAppId; }
 
+    bool IsRootContentDocument();
+
     NS_DECL_ISUPPORTS
     NS_DECL_NSIWEBBROWSERCHROME
     NS_DECL_NSIWEBBROWSERCHROME2
@@ -180,6 +183,7 @@ public:
     virtual bool RecvUpdateDimensions(const nsRect& rect, const nsIntSize& size);
     virtual bool RecvUpdateFrame(const mozilla::layers::FrameMetrics& aFrameMetrics);
     virtual bool RecvHandleDoubleTap(const nsIntPoint& aPoint);
+    virtual bool RecvHandleSingleTap(const nsIntPoint& aPoint);
     virtual bool RecvActivate();
     virtual bool RecvDeactivate();
     virtual bool RecvMouseEvent(const nsString& aType,
@@ -307,6 +311,7 @@ private:
     bool InitTabChildGlobal(FrameScriptLoading aScriptLoading = DEFAULT_LOAD_SCRIPTS);
     bool InitRenderingState();
     void DestroyWindow();
+    void SetProcessNameToAppName();
 
     // Call RecvShow(nsIntSize(0, 0)) and block future calls to RecvShow().
     void DoFakeShow();
@@ -318,6 +323,9 @@ private:
     // so we don't need things like this.
     void DispatchMessageManagerMessage(const nsAString& aMessageName,
                                        const nsACString& aJSONData);
+
+    // Sends a simulated mouse event from a touch event for compatibility.
+    void DispatchSynthesizedMouseEvent(const nsTouchEvent& aEvent);
 
     nsresult
     BrowserFrameProvideWindow(nsIDOMWindow* aOpener,

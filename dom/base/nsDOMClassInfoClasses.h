@@ -430,8 +430,6 @@ DOMCI_CLASS(TimeRanges)
 DOMCI_CLASS(MediaStream)
 #endif
 
-DOMCI_CLASS(ProgressEvent)
-
 DOMCI_CLASS(XMLHttpRequestUpload)
 
 // DOM Traversal NodeIterator class
@@ -485,9 +483,6 @@ DOMCI_CLASS(FormData)
 
 DOMCI_CLASS(DesktopNotification)
 DOMCI_CLASS(DesktopNotificationCenter)
-
-// WebSocket
-DOMCI_CLASS(WebSocket)
 
 DOMCI_CLASS(IDBFactory)
 DOMCI_CLASS(IDBFileHandle)
@@ -546,3 +541,5 @@ DOMCI_CLASS(FileRequest)
 DOMCI_CLASS(LockedFile)
 
 DOMCI_CLASS(MozActivity)
+
+DOMCI_CLASS(MozTimeManager)

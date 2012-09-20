@@ -320,14 +320,6 @@ struct JSObject : public js::ObjectImpl
 
     inline bool isBoundFunction() const;
 
-    /*
-     * The meaning of the system object bit is defined by the API client. It is
-     * set in JS_NewSystemObject and is queried by JS_IsSystemObject, but it
-     * has no intrinsic meaning to SpiderMonkey.
-     */
-    inline bool isSystem() const;
-    inline bool setSystem(JSContext *cx);
-
     inline bool hasSpecialEquality() const;
 
     inline bool watched() const;
@@ -379,6 +371,8 @@ struct JSObject : public js::ObjectImpl
     inline void sizeOfExcludingThis(JSMallocSizeOfFun mallocSizeOf,
                                     size_t *slotsSize, size_t *elementsSize,
                                     size_t *miscSize) const;
+
+    bool hasIdempotentProtoChain() const;
 
     static const uint32_t MAX_FIXED_SLOTS = 16;
 
@@ -891,8 +885,8 @@ struct JSObject : public js::ObjectImpl
     static bool deleteByValue(JSContext *cx, js::HandleObject obj,
                               const js::Value &property, js::MutableHandleValue rval, bool strict);
 
-    static inline bool enumerate(JSContext *cx, js::HandleObject obj,
-                                 JSIterateOp iterop, js::Value *statep, jsid *idp);
+    static inline bool enumerate(JSContext *cx, JS::HandleObject obj, JSIterateOp iterop,
+                                 JS::MutableHandleValue statep, JS::MutableHandleId idp);
     static inline bool defaultValue(JSContext *cx, js::HandleObject obj,
                                     JSType hint, js::MutableHandleValue vp);
     static inline JSType typeOf(JSContext *cx, js::HandleObject obj);
@@ -1322,7 +1316,7 @@ HasDataProperty(JSContext *cx, HandleObject obj, PropertyName *name, Value *vp)
 
 extern JSBool
 CheckAccess(JSContext *cx, JSObject *obj, HandleId id, JSAccessMode mode,
-            js::Value *vp, unsigned *attrsp);
+            MutableHandleValue v, unsigned *attrsp);
 
 } /* namespace js */
 

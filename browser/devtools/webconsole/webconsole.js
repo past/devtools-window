@@ -343,11 +343,30 @@ WebConsoleFrame.prototype = {
       this.saveRequestAndResponseBodies = !this.saveRequestAndResponseBodies;
     }.bind(this));
     saveBodies.setAttribute("checked", this.saveRequestAndResponseBodies);
+    saveBodies.disabled = !this.getFilterState("networkinfo") &&
+                          !this.getFilterState("network");
 
-    let contextMenuId = this.outputNode.getAttribute("context");
-    let contextMenu = doc.getElementById(contextMenuId);
-    contextMenu.addEventListener("popupshowing", function() {
+    saveBodies.parentNode.addEventListener("popupshowing", function() {
       saveBodies.setAttribute("checked", this.saveRequestAndResponseBodies);
+      saveBodies.disabled = !this.getFilterState("networkinfo") &&
+                            !this.getFilterState("network");
+    }.bind(this));
+
+    // Remove this part when context menu entry is removed.
+    let saveBodiesContextMenu = doc.getElementById("saveBodiesContextMenu");
+    saveBodiesContextMenu.addEventListener("command", function() {
+      this.saveRequestAndResponseBodies = !this.saveRequestAndResponseBodies;
+    }.bind(this));
+    saveBodiesContextMenu.setAttribute("checked",
+                                       this.saveRequestAndResponseBodies);
+    saveBodiesContextMenu.disabled = !this.getFilterState("networkinfo") &&
+                                     !this.getFilterState("network");
+
+    saveBodiesContextMenu.parentNode.addEventListener("popupshowing", function() {
+      saveBodiesContextMenu.setAttribute("checked",
+                                         this.saveRequestAndResponseBodies);
+      saveBodiesContextMenu.disabled = !this.getFilterState("networkinfo") &&
+                                       !this.getFilterState("network");
     }.bind(this));
 
     this.closeButton = doc.getElementById("webconsole-close-button");
@@ -686,13 +705,22 @@ WebConsoleFrame.prototype = {
         let prefKey = target.getAttribute("prefKey");
         this.setFilterState(prefKey, state);
 
+        // Disable the log response and request body if network logging is off.
+        if (prefKey == "networkinfo" || prefKey == "network") {
+          let checkState = !this.getFilterState("networkinfo") &&
+                           !this.getFilterState("network");
+          this.document.getElementById("saveBodies").disabled = checkState;
+          this.document.getElementById("saveBodiesContextMenu").disabled = checkState;
+        }
+
         // Adjust the state of the button appropriately.
         let menuPopup = target.parentNode;
 
         let someChecked = false;
         let menuItem = menuPopup.firstChild;
         while (menuItem) {
-          if (menuItem.getAttribute("checked") === "true") {
+          if (menuItem.hasAttribute("prefKey") &&
+              menuItem.getAttribute("checked") === "true") {
             someChecked = true;
             break;
           }
@@ -1278,6 +1306,7 @@ WebConsoleFrame.prototype = {
                                              msgNode, null, null, clipboardText);
 
     messageNode._connectionId = entry.connection;
+    messageNode.url = request.url;
 
     this.makeOutputMessageLink(messageNode, function WCF_net_message_link() {
       if (!messageNode._panelOpen) {
@@ -2276,6 +2305,20 @@ WebConsoleFrame.prototype = {
     }
 
     clipboardHelper.copyString(strings.join("\n"), this.document);
+  },
+
+  /**
+   * Open the selected item's URL in a new tab.
+   */
+  openSelectedItemInTab: function WCF_openSelectedItemInTab()
+  {
+    let item = this.outputNode.selectedItem;
+
+    if (!item || !item.url) {
+      return;
+    }
+
+    this.owner.openLink(item.url);
   },
 
   /**
@@ -3413,6 +3456,14 @@ CommandController.prototype = {
     this.owner.outputNode.selectAll();
   },
 
+  /**
+   * Open the URL of the selected message in a new tab.
+   */
+  openURL: function CommandController_openURL()
+  {
+    this.owner.openSelectedItemInTab();
+  },
+
   supportsCommand: function CommandController_supportsCommand(aCommand)
   {
     return this.isCommandEnabled(aCommand);
@@ -3424,6 +3475,11 @@ CommandController.prototype = {
       case "cmd_copy":
         // Only enable "copy" if nodes are selected.
         return this.owner.outputNode.selectedCount > 0;
+      case "consoleCmd_openURL": {
+        // Only enable "open url" if node is Net Activity.
+        let selectedItem = this.owner.outputNode.selectedItem;
+        return selectedItem && selectedItem.url;
+      }
       case "cmd_fontSizeEnlarge":
       case "cmd_fontSizeReduce":
       case "cmd_fontSizeReset":
@@ -3437,6 +3493,9 @@ CommandController.prototype = {
     switch (aCommand) {
       case "cmd_copy":
         this.copy();
+        break;
+      case "consoleCmd_openURL":
+        this.openURL();
         break;
       case "cmd_selectAll":
         this.selectAll();
@@ -3460,3 +3519,114 @@ function gSequenceId()
 }
 gSequenceId.n = 0;
 
+
+function goUpdateConsoleCommands() {
+  goUpdateCommand("consoleCmd_openURL");
+}
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Context Menu
+///////////////////////////////////////////////////////////////////////////////
+
+const CONTEXTMENU_ID = "output-contextmenu";
+
+/*
+ * ConsoleContextMenu: This handle to show/hide a context menu item.
+ */
+let ConsoleContextMenu = {
+  /*
+   * Handle to show/hide context menu item.
+   *
+   * @param nsIDOMEvent aEvent
+   */
+  build: function CCM_build(aEvent)
+  {
+    let popup = aEvent.target;
+    if (popup.id !== CONTEXTMENU_ID) {
+      return;
+    }
+
+    let view = document.querySelector(".hud-output-node");
+    let metadata = this.getSelectionMetadata(view);
+
+    for (let i = 0, l = popup.childNodes.length; i < l; ++i) {
+      let element = popup.childNodes[i];
+      element.hidden = this.shouldHideMenuItem(element, metadata);
+    }
+  },
+
+  /*
+   * Get selection information from the view.
+   *
+   * @param nsIDOMElement aView
+   *        This should be <xul:richlistbox>.
+   *
+   * @return object
+   *         Selection metadata.
+   */
+  getSelectionMetadata: function CCM_getSelectionMetadata(aView)
+  {
+    let metadata = {
+      selectionType: "",
+      selection: new Set(),
+    };
+    let selectedItems = aView.selectedItems;
+
+    metadata.selectionType = (selectedItems > 1) ? "multiple" : "single";
+
+    let selection = metadata.selection;
+    for (let item of selectedItems) {
+      switch (item.category) {
+        case CATEGORY_NETWORK:
+          selection.add("network");
+          break;
+        case CATEGORY_CSS:
+          selection.add("css");
+          break;
+        case CATEGORY_JS:
+          selection.add("js");
+          break;
+        case CATEGORY_WEBDEV:
+          selection.add("webdev");
+          break;
+      }
+    }
+
+    return metadata;
+  },
+
+  /*
+   * Determine if an item should be hidden.
+   *
+   * @param nsIDOMElement aMenuItem
+   * @param object aMetadata
+   * @return boolean
+   *         Whether the given item should be hidden or not.
+   */
+  shouldHideMenuItem: function CCM_shouldHideMenuItem(aMenuItem, aMetadata)
+  {
+    let selectionType = aMenuItem.getAttribute("selectiontype");
+    if (selectionType && !aMetadata.selectionType == selectionType) {
+      return true;
+    }
+
+    let selection = aMenuItem.getAttribute("selection");
+    if (!selection) {
+      return false;
+    }
+
+    let shouldHide = true;
+    let itemData = selection.split("|");
+    for (let type of aMetadata.selection) {
+      // check whether this menu item should show or not.
+      if (itemData.indexOf(type) !== -1) {
+        shouldHide = false;
+        break;
+      }
+    }
+
+    return shouldHide;
+  },
+};

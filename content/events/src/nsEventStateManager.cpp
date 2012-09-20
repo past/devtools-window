@@ -383,11 +383,13 @@ CanScrollOn(nsIScrollableFrame* aScrollFrame, double aDeltaX, double aDeltaY)
 
   nsPoint scrollPt = aScrollFrame->GetScrollPosition();
   nsRect scrollRange = aScrollFrame->GetScrollRange();
+  nscoord oneDevPixel =
+    aScrollFrame->GetScrolledFrame()->PresContext()->AppUnitsPerDevPixel();
 
-  return ((aDeltaX && CanScrollInRange(scrollRange.x, scrollPt.x,
-                                       scrollRange.XMost(), aDeltaX)) ||
-          (aDeltaY && CanScrollInRange(scrollRange.y, scrollPt.y,
-                                       scrollRange.YMost(), aDeltaY)));
+  return (aDeltaX && scrollRange.width >= oneDevPixel &&
+          CanScrollInRange(scrollRange.x, scrollPt.x, scrollRange.XMost(), aDeltaX)) ||
+         (aDeltaY && scrollRange.height >= oneDevPixel &&
+          CanScrollInRange(scrollRange.y, scrollPt.y, scrollRange.YMost(), aDeltaY));
 }
 
 void
@@ -1576,6 +1578,42 @@ nsEventStateManager::IsRemoteTarget(nsIContent* target) {
   return false;
 }
 
+/*static*/ void
+nsEventStateManager::MapEventCoordinatesForChildProcess(nsFrameLoader* aFrameLoader,
+                                                        nsEvent* aEvent)
+{
+  // The "toplevel widget" in child processes is always at position
+  // 0,0.  Map the event coordinates to match that.
+  nsIFrame* targetFrame = aFrameLoader->GetPrimaryFrameOfOwningContent();
+  if (!targetFrame) {
+    return;
+  }
+  nsPresContext* presContext = targetFrame->PresContext();
+
+  if (aEvent->eventStructType != NS_TOUCH_EVENT) {
+    nsPoint pt = nsLayoutUtils::GetEventCoordinatesRelativeTo(aEvent,
+                                                              targetFrame);
+    aEvent->refPoint = pt.ToNearestPixels(presContext->AppUnitsPerDevPixel());
+  } else {
+    aEvent->refPoint = nsIntPoint();
+    // Find out how far we're offset from the nearest widget.
+    nsPoint offset =
+      nsLayoutUtils::GetEventCoordinatesRelativeTo(aEvent, targetFrame);
+    nsIntPoint intOffset =
+      offset.ToNearestPixels(presContext->AppUnitsPerDevPixel());
+    nsTouchEvent* touchEvent = static_cast<nsTouchEvent*>(aEvent);
+    // Then offset all the touch points by that distance, to put them
+    // in the space where top-left is 0,0.
+    const nsTArray<nsCOMPtr<nsIDOMTouch> >& touches = touchEvent->touches;
+    for (uint32_t i = 0; i < touches.Length(); ++i) {
+      nsIDOMTouch* touch = touches[i];
+      if (touch) {
+        touch->mRefPoint += intOffset;
+      }
+    }
+  }
+}
+
 bool
 CrossProcessSafeEvent(const nsEvent& aEvent)
 {
@@ -1689,32 +1727,7 @@ nsEventStateManager::HandleCrossProcessEvent(nsEvent *aEvent,
       continue;
     }
 
-    // The "toplevel widget" in content processes is always at position
-    // 0,0.  Map the event coordinates to match that.
-    if (aEvent->eventStructType != NS_TOUCH_EVENT) {
-      nsPoint pt = nsLayoutUtils::GetEventCoordinatesRelativeTo(aEvent,
-                                                                aTargetFrame);
-      aEvent->refPoint =
-        pt.ToNearestPixels(mPresContext->AppUnitsPerDevPixel());
-    } else {
-      nsIFrame* targetFrame = frameLoader->GetPrimaryFrameOfOwningContent();
-      aEvent->refPoint = nsIntPoint();
-      // Find out how far we're offset from the nearest widget.
-      nsPoint offset =
-        nsLayoutUtils::GetEventCoordinatesRelativeTo(aEvent, targetFrame);
-      nsIntPoint intOffset =
-        offset.ToNearestPixels(mPresContext->AppUnitsPerDevPixel());
-      nsTouchEvent* touchEvent = static_cast<nsTouchEvent*>(aEvent);
-      // Then offset all the touch points by that distance, to put them
-      // in the space where top-left is 0,0.
-      const nsTArray<nsCOMPtr<nsIDOMTouch> >& touches = touchEvent->touches;
-      for (uint32_t i = 0; i < touches.Length(); ++i) {
-        nsIDOMTouch* touch = touches[i];
-        if (touch) {
-          touch->mRefPoint += intOffset;
-        }
-      }
-    }
+    MapEventCoordinatesForChildProcess(frameLoader, aEvent);
 
     dispatched |= DispatchCrossProcessEvent(aEvent, frameLoader, aStatus);
   }
@@ -4892,8 +4905,7 @@ nsEventStateManager::UnregisterAccessKey(nsIContent* aContent, uint32_t aKey)
 uint32_t
 nsEventStateManager::GetRegisteredAccessKey(nsIContent* aContent)
 {
-  NS_ASSERTION(aContent, "Null pointer passed to GetRegisteredAccessKey");
-  NS_ENSURE_TRUE(aContent, 0);
+  MOZ_ASSERT(aContent);
 
   if (mAccessKeys.IndexOf(aContent) == -1)
     return 0;

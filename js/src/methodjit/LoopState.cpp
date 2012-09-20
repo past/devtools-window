@@ -17,39 +17,6 @@ using namespace js::mjit;
 using namespace js::analyze;
 using namespace js::types;
 
-inline bool
-SafeAdd(int32_t one, int32_t two, int32_t *res)
-{
-    *res = one + two;
-    int64_t ores = (int64_t)one + (int64_t)two;
-    if (ores == (int64_t)*res)
-        return true;
-    JaegerSpew(JSpew_Analysis, "Overflow computing %d + %d\n", one, two);
-    return false;
-}
-
-inline bool
-SafeSub(int32_t one, int32_t two, int32_t *res)
-{
-    *res = one - two;
-    int64_t ores = (int64_t)one - (int64_t)two;
-    if (ores == (int64_t)*res)
-        return true;
-    JaegerSpew(JSpew_Analysis, "Overflow computing %d - %d\n", one, two);
-    return false;
-}
-
-inline bool
-SafeMul(int32_t one, int32_t two, int32_t *res)
-{
-    *res = one * two;
-    int64_t ores = (int64_t)one * (int64_t)two;
-    if (ores == (int64_t)*res)
-        return true;
-    JaegerSpew(JSpew_Analysis, "Overflow computing %d * %d\n", one, two);
-    return false;
-}
-
 LoopState::LoopState(JSContext *cx, analyze::CrossScriptSSA *ssa,
                      mjit::Compiler *cc, FrameState *frame)
     : cx(cx), ssa(ssa),
@@ -882,7 +849,7 @@ LoopState::invariantProperty(const CrossSSAValue &obj, jsid id)
     if (skipAnalysis)
         return NULL;
 
-    if (id == NameToId(cx->runtime->atomState.lengthAtom))
+    if (id == NameToId(cx->names().length))
         return NULL;
 
     uint32_t objSlot;

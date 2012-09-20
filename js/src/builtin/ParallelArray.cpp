@@ -32,7 +32,7 @@ typedef ParallelArrayObject::IndexVector IndexVector;
 typedef ParallelArrayObject::IndexInfo IndexInfo;
 
 bool
-ParallelArrayObject::IndexInfo::isInitialized()
+ParallelArrayObject::IndexInfo::isInitialized() const
 {
     return (dimensions.length() > 0 &&
             indices.capacity() >= dimensions.length() &&
@@ -448,15 +448,15 @@ ParallelArrayObject::SequentialMode::scatter(JSContext *cx, HandleParallelArrayO
 
     // The length of the scatter vector.
     uint32_t targetsLength;
-
     if (!MaybeGetParallelArrayObjectAndLength(cx, targets, &targetsPA, &tiv, &targetsLength))
         return ExecutionFailed;
 
-    // Iterate over the scatter vector.
+    // Iterate over the scatter vector, but not more than the length of the
+    // source array.
     RootedValue elem(cx);
     RootedValue telem(cx);
     RootedValue targetElem(cx);
-    for (uint32_t i = 0; i < targetsLength; i++) {
+    for (uint32_t i = 0; i < Min(targetsLength, source->outermostDimension()); i++) {
         uint32_t targetIndex;
 
         if (!GetElementFromArrayLikeObject(cx, targets, targetsPA, tiv, i, &telem) ||
@@ -847,8 +847,8 @@ ParallelArrayObject::initClass(JSContext *cx, JSObject *obj)
         return NULL;
 
     JSProtoKey key = JSProto_ParallelArray;
-    JSAtom *atom = CLASS_NAME(cx, ParallelArray);
-    RootedFunction ctor(cx, global->createConstructor(cx, construct, atom, 0));
+    RootedFunction ctor(cx);
+    ctor = global->createConstructor(cx, construct, cx->names().ParallelArray, 0);
     if (!ctor ||
         !LinkConstructorAndPrototype(cx, ctor, proto) ||
         !DefinePropertiesAndBrand(cx, proto, NULL, methods) ||
@@ -858,9 +858,9 @@ ParallelArrayObject::initClass(JSContext *cx, JSObject *obj)
     }
 
     // Define the length and shape properties.
-    RootedId lengthId(cx, AtomToId(cx->runtime->atomState.lengthAtom));
-    RootedId shapeId(cx, AtomToId(cx->runtime->atomState.shapeAtom));
-    unsigned flags = JSPROP_PERMANENT | JSPROP_READONLY | JSPROP_SHARED | JSPROP_GETTER;
+    RootedId lengthId(cx, AtomToId(cx->names().length));
+    RootedId shapeId(cx, AtomToId(cx->names().shape));
+    unsigned flags = JSPROP_PERMANENT | JSPROP_SHARED | JSPROP_GETTER;
 
     JSObject *scriptedLength = js_NewFunction(cx, NULL, NonGenericMethod<lengthGetter>,
                                               0, 0, global, NULL);
@@ -912,12 +912,10 @@ ParallelArrayObject::getParallelArrayElement(JSContext *cx, IndexInfo &iv, Mutab
     // ParallelArray of lesser dimensionality. Here we create a new 'view' on
     // the underlying buffer, though whether a ParallelArray is a view or a
     // copy is not observable by the user.
-    uint32_t rowLength = iv.partialProducts[d - 1];
-    uint32_t offset = base + iv.toScalar();
-
-    // Make sure both the start of the extent and the end of the extent are
-    // within bounds, in case one or both are 0.
-    if (offset >= end || offset + rowLength > end) {
+    //
+    // It is not enough to compute the scalar index and check bounds that way,
+    // since the row length can be 0.
+    if (!iv.inBounds()) {
         vp.setUndefined();
         return true;
     }
@@ -925,7 +923,7 @@ ParallelArrayObject::getParallelArrayElement(JSContext *cx, IndexInfo &iv, Mutab
     RootedObject buf(cx, buffer());
     IndexVector newDims(cx);
     return (newDims.append(iv.dimensions.begin() + d, iv.dimensions.end()) &&
-            create(cx, buf, offset, newDims, vp));
+            create(cx, buf, base + iv.toScalar(), newDims, vp));
 }
 
 bool
@@ -1261,13 +1259,6 @@ ParallelArrayObject::scatter(JSContext *cx, CallArgs args)
 
     // Get the scatter vector.
     RootedObject targets(cx, &args[0].toObject());
-    uint32_t targetsLength;
-    if (!GetLengthProperty(cx, targets, &targetsLength))
-        return false;
-
-    // Don't iterate more than the length of the source array.
-    if (targetsLength > outer)
-        targetsLength = outer;
 
     // The default value is optional and defaults to undefined.
     Value defaultValue;
@@ -1542,7 +1533,7 @@ ParallelArrayObject::toStringBufferImpl(JSContext *cx, IndexInfo &iv, bool useLo
                 if (!robj)
                     return false;
 
-                id = NameToId(cx->runtime->atomState.toLocaleStringAtom);
+                id = NameToId(cx->names().toLocaleString);
                 if (!robj->callMethod(cx, id, 0, NULL, &localeElem) ||
                     !ValueToStringBuffer(cx, localeElem, sb))
                 {
@@ -1620,7 +1611,7 @@ ParallelArrayObject::lookupGeneric(JSContext *cx, HandleObject obj, HandleId id,
     if (js_IdIsIndex(id, &i))
         return lookupElement(cx, obj, i, objp, propp);
 
-    if (JSID_IS_ATOM(id, cx->runtime->atomState.lengthAtom)) {
+    if (JSID_IS_ATOM(id, cx->names().length)) {
         MarkNonNativePropertyFound(obj, propp);
         objp.set(obj);
         return true;
@@ -1727,7 +1718,7 @@ JSBool
 ParallelArrayObject::getProperty(JSContext *cx, HandleObject obj, HandleObject receiver,
                                  HandlePropertyName name, MutableHandleValue vp)
 {
-    if (name == cx->runtime->atomState.lengthAtom) {
+    if (name == cx->names().length) {
         vp.setNumber(as(obj)->outermostDimension());
         return true;
     }
@@ -1798,7 +1789,7 @@ JSBool
 ParallelArrayObject::getGenericAttributes(JSContext *cx, HandleObject obj, HandleId id,
                                           unsigned *attrsp)
 {
-    if (JSID_IS_ATOM(id, cx->runtime->atomState.lengthAtom))
+    if (JSID_IS_ATOM(id, cx->names().length))
         *attrsp = JSPROP_PERMANENT | JSPROP_READONLY;
     else
         *attrsp = JSPROP_PERMANENT | JSPROP_READONLY | JSPROP_ENUMERATE;
@@ -1810,7 +1801,7 @@ JSBool
 ParallelArrayObject::getPropertyAttributes(JSContext *cx, HandleObject obj, HandlePropertyName name,
                                            unsigned *attrsp)
 {
-    if (name == cx->runtime->atomState.lengthAtom)
+    if (name == cx->names().length)
         *attrsp = JSPROP_PERMANENT | JSPROP_READONLY;
     return true;
 }
@@ -1901,7 +1892,7 @@ ParallelArrayObject::enumerate(JSContext *cx, HandleObject obj, unsigned flags,
 {
     RootedParallelArrayObject source(cx, as(obj));
 
-    if (flags & JSITER_HIDDEN && !props->append(NameToId(cx->runtime->atomState.lengthAtom)))
+    if (flags & JSITER_HIDDEN && !props->append(NameToId(cx->names().length)))
         return false;
 
     // ParallelArray objects have no holes.

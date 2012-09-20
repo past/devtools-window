@@ -109,6 +109,11 @@ WyciwygChannelParent::RecvAsyncOpen(const URIParams& aOriginal,
 
   if (loadContext.IsNotNull())
     mLoadContext = new LoadContext(loadContext);
+  else if (loadContext.IsPrivateBitValid()) {
+    nsCOMPtr<nsIPrivateBrowsingChannel> pbChannel = do_QueryInterface(mChannel);
+    if (pbChannel)
+      pbChannel->SetPrivate(loadContext.mUsePrivateBrowsing);
+  }
 
   rv = mChannel->AsyncOpen(this, nullptr);
   if (NS_FAILED(rv))
@@ -233,7 +238,7 @@ NS_IMETHODIMP
 WyciwygChannelParent::OnDataAvailable(nsIRequest *aRequest,
                                       nsISupports *aContext,
                                       nsIInputStream *aInputStream,
-                                      uint32_t aOffset,
+                                      uint64_t aOffset,
                                       uint32_t aCount)
 {
   LOG(("WyciwygChannelParent::OnDataAvailable [this=%x]\n", this));

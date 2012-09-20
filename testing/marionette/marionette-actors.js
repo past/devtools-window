@@ -35,7 +35,7 @@ Services.prefs.setBoolPref("marionette.contentListener", false);
 let appName = Services.appinfo.name;
 
 // import logger
-Cu.import("resource://gre/modules/services-common/log4moz.js");
+Cu.import("resource:///modules/services-common/log4moz.js");
 let logger = Log4Moz.repository.getLogger("Marionette");
 logger.info('marionette-actors.js loaded');
 
@@ -490,7 +490,12 @@ MarionetteDriverActor.prototype = {
     _chromeSandbox.testUtils = utils;
 
     marionette.exports.forEach(function(fn) {
-      _chromeSandbox[fn] = marionette[fn].bind(marionette);
+      try {
+        _chromeSandbox[fn] = marionette[fn].bind(marionette);
+      }
+      catch(e) {
+        _chromeSandbox[fn] = marionette[fn];
+      }
     });
 
     if (specialPowers == true) {

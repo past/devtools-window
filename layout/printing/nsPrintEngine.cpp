@@ -120,6 +120,7 @@ static const char kPrintingPromptService[] = "@mozilla.org/embedcomp/printingpro
 #include "nsCDefaultURIFixup.h"
 #include "nsIURIFixup.h"
 #include "mozilla/dom/Element.h"
+#include "nsContentList.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -1952,12 +1953,12 @@ nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO)
                                                  aPO->mPresShell);
   }
 
-  rv = aPO->mPresShell->InitialReflow(adjSize.width, adjSize.height);
+  rv = aPO->mPresShell->Initialize(adjSize.width, adjSize.height);
 
   NS_ENSURE_SUCCESS(rv, rv);
   NS_ASSERTION(aPO->mPresShell, "Presshell should still be here");
 
-  // Process the reflow event InitialReflow posted
+  // Process the reflow event Initialize posted
   aPO->mPresShell->FlushPendingNotifications(Flush_Layout);
 
   nsCOMPtr<nsIPresShell> displayShell;
@@ -2403,8 +2404,8 @@ DocHasPrintCallbackCanvas(nsIDocument* aDoc, void* aData)
   nsRefPtr<nsContentList> canvases = NS_GetContentList(root,
                                                        kNameSpaceID_XHTML,
                                                        NS_LITERAL_STRING("canvas"));
-  PRUint32 canvasCount = canvases->Length(true);
-  for (PRUint32 i = 0; i < canvasCount; ++i) {
+  uint32_t canvasCount = canvases->Length(true);
+  for (uint32_t i = 0; i < canvasCount; ++i) {
     nsCOMPtr<nsIDOMHTMLCanvasElement> canvas = do_QueryInterface(canvases->Item(i, false));
     nsCOMPtr<nsIPrintCallback> printCallback;
     if (canvas && NS_SUCCEEDED(canvas->GetMozPrintCallback(getter_AddRefs(printCallback))) &&
@@ -3332,15 +3333,14 @@ nsresult
 nsPrintEngine::StartPagePrintTimer(nsPrintObject* aPO)
 {
   if (!mPagePrintTimer) {
-    nsresult rv = NS_NewPagePrintTimer(&mPagePrintTimer);
-    NS_ENSURE_SUCCESS(rv, rv);
-
     // Get the delay time in between the printing of each page
     // this gives the user more time to press cancel
     int32_t printPageDelay = 50;
     mPrt->mPrintSettings->GetPrintPageDelay(&printPageDelay);
 
-    mPagePrintTimer->Init(this, mDocViewerPrint, printPageDelay);
+    nsRefPtr<nsPagePrintTimer> timer =
+      new nsPagePrintTimer(this, mDocViewerPrint, printPageDelay);
+    timer.forget(&mPagePrintTimer);
   }
 
   return mPagePrintTimer->Start(aPO);

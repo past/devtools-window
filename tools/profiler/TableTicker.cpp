@@ -95,6 +95,8 @@ mozilla::ThreadLocal<TableTicker *> tlsTicker;
 bool stack_key_initialized;
 
 TimeStamp sLastTracerEvent;
+int sFrameNumber = 0;
+int sLastFrameNumber = 0;
 
 class ThreadProfile;
 
@@ -316,6 +318,13 @@ public:
           {
             if (sample) {
               b.DefineProperty(sample, "responsiveness", entry.mTagFloat);
+            }
+          }
+          break;
+        case 'f':
+          {
+            if (sample) {
+              b.DefineProperty(sample, "frameNumber", entry.mTagLine);
             }
           }
           break;
@@ -926,6 +935,11 @@ void TableTicker::Tick(TickSample* sample)
     TimeDuration delta = sample->timestamp - mStartTime;
     mPrimaryThreadProfile.addTag(ProfileEntry('t', delta.ToMilliseconds()));
   }
+
+  if (sLastFrameNumber != sFrameNumber) {
+    mPrimaryThreadProfile.addTag(ProfileEntry('f', sFrameNumber));
+    sLastFrameNumber = sFrameNumber;
+  }
 }
 
 std::ostream& operator<<(std::ostream& stream, const ThreadProfile& profile)
@@ -1075,8 +1089,9 @@ void mozilla_sampler_start(int aProfileEntries, int aInterval,
 
   mozilla_sampler_stop();
 
-  TableTicker *t = new TableTicker(aInterval, aProfileEntries, stack,
-                                   aFeatures, aFeatureCount);
+  TableTicker *t = new TableTicker(aInterval ? aInterval : PROFILE_DEFAULT_INTERVAL,
+                                   aProfileEntries ? aProfileEntries : PROFILE_DEFAULT_ENTRY,
+                                   stack, aFeatures, aFeatureCount);
   tlsTicker.set(t);
   t->Start();
   if (t->ProfileJS())
@@ -1143,3 +1158,7 @@ const double* mozilla_sampler_get_responsiveness()
   return sResponsivenessTimes;
 }
 
+void mozilla_sampler_frame_number(int frameNumber)
+{
+  sFrameNumber = frameNumber;
+}

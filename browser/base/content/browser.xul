@@ -230,7 +230,7 @@
                  aria-label="&social.sharePopup.portrait.arialabel;"/>
         </vbox>
         <vbox id="editSharePopupText">
-          <button id="socialUserDisplayName"
+          <button id="socialUserDisplayName" pack="start"
                   oncommand="SocialUI.showProfile();"/>
           <spacer flex="1"/>
           <label id="socialUserRecommendedText"
@@ -268,10 +268,16 @@
       </hbox>
     </panel>
 
-    <panel id="social-notification-panel" type="arrow" hidden="true" noautofocus="true">
+    <panel id="social-notification-panel"
+           class="social-panel"
+           type="arrow"
+           hidden="true"
+           consumeoutsideclicks="true"
+           noautofocus="true">
       <box id="social-notification-box" flex="1"></box>
     </panel>
     <panel id="social-flyout-panel"
+           class="social-panel"
            onpopupshown="SocialFlyout.onShown()"
            onpopuphidden="SocialFlyout.onHidden()"
            side="right"
@@ -398,10 +404,6 @@
         </vbox>
       </hbox>
     </panel>
-
-    <tooltip id="urlTooltip">
-      <label crop="center" flex="1" class="tooltip-label"/>
-    </tooltip>
 
     <panel id="ctrlTab-panel" class="KUI-panel" hidden="true" norestorefocus="true" level="top">
       <hbox>
@@ -1065,7 +1067,12 @@
           style="min-width: 18em; width: 22em; max-width: 42em;" persist="width">
       <toolbar id="devtools-sidebar-toolbar"
                class="devtools-toolbar"
-               nowindowdrag="true"/>
+               nowindowdrag="true">
+        <spacer flex="1"/>
+        <toolbarbutton tooltiptext="&inspectSidebarCloseButton.tooltiptext;"
+                       class="devtools-closebutton"
+                       command="Inspector:Sidebar"/>
+      </toolbar>
       <deck id="devtools-sidebar-deck" flex="1"/>
     </vbox>
     <splitter id="social-sidebar-splitter"

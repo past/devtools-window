@@ -2787,7 +2787,8 @@ nsBlockFrame::AttributeChanged(int32_t         aNameSpaceID,
   if (NS_FAILED(rv)) {
     return rv;
   }
-  if (nsGkAtoms::start == aAttribute) {
+  if (nsGkAtoms::start == aAttribute ||
+      (nsGkAtoms::reversed == aAttribute && mContent->IsHTML(nsGkAtoms::ol))) {
     nsPresContext* presContext = PresContext();
 
     // XXX Not sure if this is necessary anymore
@@ -4470,17 +4471,14 @@ nsBlockFrame::DrainOverflowLines()
 #ifdef DEBUG
   VerifyOverflowSituation();
 #endif
-  FrameLines* overflowLines = nullptr;
-  FrameLines* ourOverflowLines = nullptr;
 
-  // First grab the prev-in-flows overflow lines
-  nsBlockFrame* prevBlock = (nsBlockFrame*) GetPrevInFlow();
+  // Steal the prev-in-flow's overflow lines and prepend them.
+  bool didFindOverflow = false;
+  nsBlockFrame* prevBlock = static_cast<nsBlockFrame*>(GetPrevInFlow());
   if (prevBlock) {
     prevBlock->ClearLineCursor();
-    overflowLines = prevBlock->RemoveOverflowLines();
+    FrameLines* overflowLines = prevBlock->RemoveOverflowLines();
     if (overflowLines) {
-      NS_ASSERTION(!overflowLines->mLines.empty(),
-                   "overflow lines should never be set and empty");
       // Make all the frames on the overflow line list mine.
       ReparentFrames(overflowLines->mFrames, prevBlock, this);
 
@@ -4490,55 +4488,49 @@ nsBlockFrame::DrainOverflowLines()
         ReparentFrames(oofs.mList, prevBlock, this);
         mFloats.InsertFrames(nullptr, nullptr, oofs.mList);
       }
+
+      if (!mLines.empty()) {
+        // Remember to recompute the margins on the first line. This will
+        // also recompute the correct deltaY if necessary.
+        mLines.front()->MarkPreviousMarginDirty();
+      }
+      // The overflow lines have already been marked dirty and their previous
+      // margins marked dirty also.
+      
+      // Prepend the overflow frames/lines to our principal list.
+      mFrames.InsertFrames(nullptr, nullptr, overflowLines->mFrames);
+      mLines.splice(mLines.begin(), overflowLines->mLines);
+      NS_ASSERTION(overflowLines->mLines.empty(), "splice should empty list");
+      delete overflowLines;
+      didFindOverflow = true;
     }
-    
-    // The lines on the overflow list have already been marked dirty and their
-    // previous margins marked dirty also.
   }
 
-  // Don't need to reparent frames in our own overflow lines/oofs, because they're
+  // Now append our own overflow lines.
+  return DrainSelfOverflowList() || didFindOverflow;
+}
+
+bool
+nsBlockFrame::DrainSelfOverflowList()
+{
+  // No need to reparent frames in our own overflow lines/oofs, because they're
   // already ours. But we should put overflow floats back in mFloats.
-  ourOverflowLines = RemoveOverflowLines();
+  FrameLines* ourOverflowLines = RemoveOverflowLines();
   if (ourOverflowLines) {
     nsAutoOOFFrameList oofs(this);
     if (oofs.mList.NotEmpty()) {
-      // The overflow floats go after our regular floats
+      // The overflow floats go after our regular floats.
       mFloats.AppendFrames(nullptr, oofs.mList);
     }
-  }
-
-  if (!overflowLines && !ourOverflowLines) {
-    // nothing to do; always the case for non-constrained-height reflows
+  } else {
     return false;
   }
 
-  // Now join the line lists into mLines
-  if (overflowLines) {
-    if (!overflowLines->mLines.empty()) {
-      // Join the line lists
-      if (!mLines.empty()) {
-          // Remember to recompute the margins on the first line. This will
-          // also recompute the correct deltaY if necessary.
-          mLines.front()->MarkPreviousMarginDirty();
-      }
-      
-      // Join the sibling lists together
-      mFrames.InsertFrames(nullptr, nullptr, overflowLines->mFrames);
-
-      // Place overflow lines at the front of our line list
-      mLines.splice(mLines.begin(), overflowLines->mLines);
-      NS_ASSERTION(overflowLines->mLines.empty(), "splice should empty list");
-    }
-    delete overflowLines;
+  if (!ourOverflowLines->mLines.empty()) {
+    mFrames.AppendFrames(nullptr, ourOverflowLines->mFrames);
+    mLines.splice(mLines.end(), ourOverflowLines->mLines);
   }
-  if (ourOverflowLines) {
-    if (!ourOverflowLines->mLines.empty()) {
-      mFrames.AppendFrames(nullptr, ourOverflowLines->mFrames);
-      mLines.splice(mLines.end(), ourOverflowLines->mLines);
-    }
-    delete ourOverflowLines;
-  }
-
+  delete ourOverflowLines;
   return true;
 }
 
@@ -6716,29 +6708,50 @@ nsBlockFrame::RenumberLists(nsPresContext* aPresContext)
     return false;
   }
 
+  MOZ_ASSERT(mContent->IsHTML(),
+             "FrameStartsCounterScope should only return true for HTML elements");
+
   // Setup initial list ordinal value
   // XXX Map html's start property to counter-reset style
   int32_t ordinal = 1;
+  int32_t increment;
+  if (mContent->Tag() == nsGkAtoms::ol &&
+      mContent->HasAttr(kNameSpaceID_None, nsGkAtoms::reversed)) {
+    increment = -1;
+  } else {
+    increment = 1;
+  }
 
   nsGenericHTMLElement *hc = nsGenericHTMLElement::FromContent(mContent);
-
-  if (hc) {
-    const nsAttrValue* attr = hc->GetParsedAttr(nsGkAtoms::start);
-    if (attr && attr->Type() == nsAttrValue::eInteger) {
-      ordinal = attr->GetIntegerValue();
+  // Must be non-null, since FrameStartsCounterScope only returns true
+  // for HTML elements.
+  MOZ_ASSERT(hc, "How is mContent not HTML?");
+  const nsAttrValue* attr = hc->GetParsedAttr(nsGkAtoms::start);
+  if (attr && attr->Type() == nsAttrValue::eInteger) {
+    ordinal = attr->GetIntegerValue();
+  } else if (increment < 0) {
+    // <ol reversed> case, or some other case with a negative increment: count
+    // up the child list
+    ordinal = 0;
+    for (nsIContent* kid = mContent->GetFirstChild(); kid;
+         kid = kid->GetNextSibling()) {
+      if (kid->IsHTML(nsGkAtoms::li)) {
+        ordinal -= increment;
+      }
     }
   }
 
   // Get to first-in-flow
   nsBlockFrame* block = (nsBlockFrame*) GetFirstInFlow();
-  return RenumberListsInBlock(aPresContext, block, &ordinal, 0);
+  return RenumberListsInBlock(aPresContext, block, &ordinal, 0, increment);
 }
 
 bool
 nsBlockFrame::RenumberListsInBlock(nsPresContext* aPresContext,
                                    nsBlockFrame* aBlockFrame,
                                    int32_t* aOrdinal,
-                                   int32_t aDepth)
+                                   int32_t aDepth,
+                                   int32_t aIncrement)
 {
   // Examine each line in the block
   bool foundValidLine;
@@ -6754,7 +6767,8 @@ nsBlockFrame::RenumberListsInBlock(nsPresContext* aPresContext,
     nsIFrame* kid = line->mFirstChild;
     int32_t n = line->GetChildCount();
     while (--n >= 0) {
-      bool kidRenumberedABullet = RenumberListsFor(aPresContext, kid, aOrdinal, aDepth);
+      bool kidRenumberedABullet = RenumberListsFor(aPresContext, kid, aOrdinal,
+                                                   aDepth, aIncrement);
       if (kidRenumberedABullet) {
         line->MarkDirty();
         renumberedABullet = true;
@@ -6770,7 +6784,8 @@ bool
 nsBlockFrame::RenumberListsFor(nsPresContext* aPresContext,
                                nsIFrame* aKid,
                                int32_t* aOrdinal,
-                               int32_t aDepth)
+                               int32_t aDepth,
+                               int32_t aIncrement)
 {
   NS_PRECONDITION(aPresContext && aKid && aOrdinal, "null params are immoral!");
 
@@ -6802,7 +6817,7 @@ nsBlockFrame::RenumberListsFor(nsPresContext* aPresContext,
       nsBulletFrame* bullet = listItem->GetBullet();
       if (bullet) {
         bool changed;
-        *aOrdinal = bullet->SetListItemOrdinal(*aOrdinal, &changed);
+        *aOrdinal = bullet->SetListItemOrdinal(*aOrdinal, &changed, aIncrement);
         if (changed) {
           kidRenumberedABullet = true;
 
@@ -6814,7 +6829,8 @@ nsBlockFrame::RenumberListsFor(nsPresContext* aPresContext,
       // XXX temporary? if the list-item has child list-items they
       // should be numbered too; especially since the list-item is
       // itself (ASSUMED!) not to be a counter-resetter.
-      bool meToo = RenumberListsInBlock(aPresContext, listItem, aOrdinal, aDepth + 1);
+      bool meToo = RenumberListsInBlock(aPresContext, listItem, aOrdinal,
+                                        aDepth + 1, aIncrement);
       if (meToo) {
         kidRenumberedABullet = true;
       }
@@ -6831,7 +6847,9 @@ nsBlockFrame::RenumberListsFor(nsPresContext* aPresContext,
       // and recurse into it, as it might have child list-items.
       nsBlockFrame* kidBlock = nsLayoutUtils::GetAsBlock(kid);
       if (kidBlock) {
-        kidRenumberedABullet = RenumberListsInBlock(aPresContext, kidBlock, aOrdinal, aDepth + 1);
+        kidRenumberedABullet = RenumberListsInBlock(aPresContext, kidBlock,
+                                                    aOrdinal, aDepth + 1,
+                                                    aIncrement);
       }
     }
   }

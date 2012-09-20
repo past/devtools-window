@@ -22,6 +22,7 @@
 #include "jsgc.h"
 #include "jspropertycache.h"
 #include "jspropertytree.h"
+#include "jsprototypes.h"
 #include "jsutil.h"
 #include "prmjtime.h"
 
@@ -87,9 +88,15 @@ class JaegerRuntime;
 }
 
 class MathCache;
+
+namespace ion {
+class IonActivation;
+}
+
 class WeakMapBase;
 class InterpreterFrames;
 class DebugScopes;
+class WorkerThreadState;
 
 /*
  * GetSrcNote cache to avoid O(n^2) growth in finding a source note for a
@@ -372,6 +379,20 @@ namespace JS {
 struct RuntimeSizes;
 }
 
+/* Various built-in or commonly-used names pinned on first context. */
+struct JSAtomState
+{
+#define PROPERTYNAME_FIELD(idpart, id, text) js::FixedHeapPtr<js::PropertyName> id;
+    FOR_EACH_COMMON_PROPERTYNAME(PROPERTYNAME_FIELD)
+#undef PROPERTYNAME_FIELD
+#define PROPERTYNAME_FIELD(name, code, init) js::FixedHeapPtr<js::PropertyName> name;
+    JS_FOR_EACH_PROTOTYPE(PROPERTYNAME_FIELD)
+#undef PROPERTYNAME_FIELD
+};
+
+#define NAME_OFFSET(name)       offsetof(JSAtomState, name)
+#define OFFSET_TO_NAME(rt,off)  (*(js::FixedHeapPtr<js::PropertyName>*)((char*)&(rt)->atomState + (off)))
+
 struct JSRuntime : js::RuntimeFriendFields
 {
     /* Default compartment. */
@@ -649,13 +670,12 @@ struct JSRuntime : js::RuntimeFriendFields
         SavedGCRoot(void *thing, JSGCTraceKind kind) : thing(thing), kind(kind) {}
     };
     js::Vector<SavedGCRoot, 0, js::SystemAllocPolicy> gcSavedRoots;
+
+    bool                gcRelaxRootChecks;
+    int                 gcAssertNoGCDepth;
 #endif
 
     bool                gcPoke;
-
-#ifdef DEBUG
-    bool                relaxRootChecks;
-#endif
 
     enum HeapState {
         Idle,       // doing nothing with the GC heap
@@ -761,7 +781,7 @@ struct JSRuntime : js::RuntimeFriendFields
     js::Value           negativeInfinityValue;
     js::Value           positiveInfinityValue;
 
-    JSAtom              *emptyString;
+    js::PropertyName    *emptyString;
 
     /* List of active contexts sharing this runtime. */
     JSCList             contextList;
@@ -808,6 +828,10 @@ struct JSRuntime : js::RuntimeFriendFields
     js::GCHelperThread  gcHelperThread;
 
 #ifdef JS_THREADSAFE
+# ifdef JS_ION
+    js::WorkerThreadState *workerThreadState;
+# endif
+
     js::SourceCompressorThread sourceCompressorThread;
 #endif
 
@@ -875,8 +899,18 @@ struct JSRuntime : js::RuntimeFriendFields
     void setTrustedPrincipals(JSPrincipals *p) { trustedPrincipals_ = p; }
     JSPrincipals *trustedPrincipals() const { return trustedPrincipals_; }
 
-    /* Literal table maintained by jsatom.c functions. */
-    JSAtomState         atomState;
+    /* Set of all currently-living atoms. */
+    js::AtomSet         atoms;
+
+    union {
+        /*
+         * Cached pointers to various interned property names, initialized in
+         * order from first to last via the other union arm.
+         */
+        JSAtomState atomState;
+
+        js::FixedHeapPtr<js::PropertyName> firstCachedName;
+    };
 
     /* Tables of strings that are pre-allocated in the atomsCompartment. */
     js::StaticStrings   staticStrings;
@@ -900,6 +934,48 @@ struct JSRuntime : js::RuntimeFriendFields
     int32_t             inOOMReport;
 
     bool                jitHardening;
+
+    // If Ion code is on the stack, and has called into C++, this will be
+    // aligned to an Ion exit frame.
+    uint8_t             *ionTop;
+    JSContext           *ionJSContext;
+    uintptr_t            ionStackLimit;
+
+    void resetIonStackLimit() {
+        ionStackLimit = nativeStackLimit;
+    }
+
+    // This points to the most recent Ion activation running on the thread.
+    js::ion::IonActivation  *ionActivation;
+
+  private:
+    // In certain cases, we want to optimize certain opcodes to typed instructions,
+    // to avoid carrying an extra register to feed into an unbox. Unfortunately,
+    // that's not always possible. For example, a GetPropertyCacheT could return a
+    // typed double, but if it takes its out-of-line path, it could return an
+    // object, and trigger invalidation. The invalidation bailout will consider the
+    // return value to be a double, and create a garbage Value.
+    //
+    // To allow the GetPropertyCacheT optimization, we allow the ability for
+    // GetPropertyCache to override the return value at the top of the stack - the
+    // value that will be temporarily corrupt. This special override value is set
+    // only in callVM() targets that are about to return *and* have invalidated
+    // their callee.
+    js::Value            ionReturnOverride_;
+
+  public:
+    bool hasIonReturnOverride() const {
+        return !ionReturnOverride_.isMagic();
+    }
+    js::Value takeIonReturnOverride() {
+        js::Value v = ionReturnOverride_;
+        ionReturnOverride_ = js::MagicValue(JS_ARG_POISON);
+        return v;
+    }
+    void setIonReturnOverride(const js::Value &v) {
+        JS_ASSERT(!hasIonReturnOverride());
+        ionReturnOverride_ = v;
+    }
 
     JSRuntime();
     ~JSRuntime();
@@ -1021,24 +1097,8 @@ struct JSRuntime : js::RuntimeFriendFields
 };
 
 /* Common macros to access thread-local caches in JSRuntime. */
-#define JS_PROPERTY_CACHE(cx)   (cx->runtime->propertyCache)
-
 #define JS_KEEP_ATOMS(rt)   (rt)->gcKeepAtoms++;
 #define JS_UNKEEP_ATOMS(rt) (rt)->gcKeepAtoms--;
-
-#ifdef JS_ARGUMENT_FORMATTER_DEFINED
-/*
- * Linked list mapping format strings for JS_{Convert,Push}Arguments{,VA} to
- * formatter functions.  Elements are sorted in non-increasing format string
- * length order.
- */
-struct JSArgumentFormatMap {
-    const char          *format;
-    size_t              length;
-    JSArgumentFormatter formatter;
-    JSArgumentFormatMap *next;
-};
-#endif
 
 namespace js {
 
@@ -1192,10 +1252,6 @@ struct JSContext : js::ContextFriendFields
     /* True if generating an error, to prevent runaway recursion. */
     bool                generatingError;
 
-#ifdef DEBUG
-    bool                rootingUnnecessary;
-#endif
-
     /* The current compartment. */
     JSCompartment       *compartment;
 
@@ -1219,9 +1275,37 @@ struct JSContext : js::ContextFriendFields
   private:
     unsigned            enterCompartmentDepth_;
   public:
-    inline bool hasEnteredCompartment() const;
-    inline void enterCompartment(JSCompartment *c);
-    inline void leaveCompartment(JSCompartment *c);
+    bool hasEnteredCompartment() const {
+        return enterCompartmentDepth_ > 0;
+    }
+
+    void enterCompartment(JSCompartment *c) {
+        enterCompartmentDepth_++;
+        compartment = c;
+        if (throwing)
+            wrapPendingException();
+    }
+
+    inline void leaveCompartment(JSCompartment *oldCompartment) {
+        JS_ASSERT(hasEnteredCompartment());
+        enterCompartmentDepth_--;
+
+        /*
+         * Before we entered the current compartment, 'compartment' was
+         * 'oldCompartment', so we might want to simply set it back. However, we
+         * currently have this terrible scheme whereby defaultCompartmentObject_
+         * can be updated while enterCompartmentDepth_ > 0. In this case,
+         * oldCompartment != defaultCompartmentObject_->compartment and we must
+         * ignore oldCompartment.
+         */
+        if (hasEnteredCompartment() || !defaultCompartmentObject_)
+            compartment = oldCompartment;
+        else
+            compartment = defaultCompartmentObject_->compartment();
+
+        if (throwing)
+            wrapPendingException();
+    }
 
     /* See JS_SaveFrameChain/JS_RestoreFrameChain. */
   private:
@@ -1272,9 +1356,6 @@ struct JSContext : js::ContextFriendFields
   public:
     /* State for object and array toSource conversion. */
     js::ObjectSet       cycleDetectorSet;
-
-    /* Argument formatter support for JS_{Convert,Push}Arguments{,VA}. */
-    JSArgumentFormatMap *argumentFormatMap;
 
     /* Last message string and log file for debugging. */
     char                *lastMessage;
@@ -1376,6 +1457,8 @@ struct JSContext : js::ContextFriendFields
     inline js::LifoAlloc &typeLifoAlloc();
 
     inline js::PropertyTree &propertyTree();
+
+    js::PropertyCache &propertyCache() { return runtime->propertyCache; }
 
 #ifdef JS_THREADSAFE
     unsigned            outstandingRequests;/* number of JS_BeginRequest calls
@@ -1481,6 +1564,8 @@ struct JSContext : js::ContextFriendFields
         throwing = false;
         exception.setUndefined();
     }
+
+    JSAtomState & names() { return runtime->atomState; }
 
 #ifdef DEBUG
     /*

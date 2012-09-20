@@ -537,7 +537,7 @@ NS_IMETHODIMP
 nsEventSource::OnDataAvailable(nsIRequest *aRequest,
                                nsISupports *aContext,
                                nsIInputStream *aInputStream,
-                               uint32_t aOffset,
+                               uint64_t aOffset,
                                uint32_t aCount)
 {
   NS_ENSURE_ARG_POINTER(aInputStream);
@@ -1093,9 +1093,9 @@ nsEventSource::PrintErrorOnConsole(const char *aBundleURI,
   }
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = errObj->InitWithWindowID(message.get(),
-                                mScriptFile.get(),
-                                nullptr,
+  rv = errObj->InitWithWindowID(message,
+                                mScriptFile,
+                                EmptyString(),
                                 mScriptLine, 0,
                                 nsIScriptError::errorFlag,
                                 "Event Source", mInnerWindowID);
@@ -1367,13 +1367,13 @@ nsEventSource::DispatchAllMessageEvents()
 
   // Let's play get the JSContext
   nsCOMPtr<nsIScriptGlobalObject> sgo = do_QueryInterface(GetOwner());
-  NS_ENSURE_TRUE(sgo,);
+  NS_ENSURE_TRUE_VOID(sgo);
 
   nsIScriptContext* scriptContext = sgo->GetContext();
-  NS_ENSURE_TRUE(scriptContext,);
+  NS_ENSURE_TRUE_VOID(scriptContext);
 
   JSContext* cx = scriptContext->GetNativeContext();
-  NS_ENSURE_TRUE(cx,);
+  NS_ENSURE_TRUE_VOID(cx);
 
   while (mMessagesToDispatch.GetSize() > 0) {
     nsAutoPtr<Message>
@@ -1387,7 +1387,7 @@ nsEventSource::DispatchAllMessageEvents()
       jsString = JS_NewUCStringCopyN(cx,
                                      message->mData.get(),
                                      message->mData.Length());
-      NS_ENSURE_TRUE(jsString,);
+      NS_ENSURE_TRUE_VOID(jsString);
 
       jsData = STRING_TO_JSVAL(jsString);
     }

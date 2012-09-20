@@ -1044,7 +1044,6 @@ class JS_PUBLIC_API(AutoGCRooter) {
         VALARRAY =     -2, /* js::AutoValueArrayRooter */
         PARSER =       -3, /* js::frontend::Parser */
         SHAPEVECTOR =  -4, /* js::AutoShapeVector */
-        ENUMERATOR =   -5, /* js::AutoEnumStateRooter */
         IDARRAY =      -6, /* js::AutoIdArray */
         DESCRIPTORS =  -7, /* js::AutoPropDescArrayRooter */
         NAMESPACES =   -8, /* js::AutoNamespaceArray */
@@ -1062,11 +1061,12 @@ class JS_PUBLIC_API(AutoGCRooter) {
         SHAPERANGE =  -20, /* js::Shape::Range::AutoRooter */
         STACKSHAPE =  -21, /* js::StackShape::AutoRooter */
         STACKBASESHAPE=-22,/* js::StackBaseShape::AutoRooter */
-        BINDINGS =    -23, /* js::Bindings::AutoRooter */
         GETTERSETTER =-24, /* js::AutoRooterGetterSetter */
         REGEXPSTATICS=-25, /* js::RegExpStatics::AutoRooter */
         NAMEVECTOR =  -26, /* js::AutoNameVector */
-        HASHABLEVALUE=-27
+        HASHABLEVALUE=-27,
+        IONMASM =     -28, /* js::ion::MacroAssembler */
+        IONALLOC =    -29  /* js::ion::AutoTempAllocatorRooter */
     };
 
   private:
@@ -1216,36 +1216,6 @@ class AutoArrayRooter : private AutoGCRooter {
     JS_DECL_USE_GUARD_OBJECT_NOTIFIER
 
     SkipRoot skip;
-};
-
-/* The auto-root for enumeration object and its state. */
-class AutoEnumStateRooter : private AutoGCRooter
-{
-  public:
-    AutoEnumStateRooter(JSContext *cx, JSObject *obj
-                        JS_GUARD_OBJECT_NOTIFIER_PARAM)
-      : AutoGCRooter(cx, ENUMERATOR), obj(cx, obj), stateValue(), context(cx)
-    {
-        JS_GUARD_OBJECT_NOTIFIER_INIT;
-        JS_ASSERT(obj);
-    }
-
-    ~AutoEnumStateRooter();
-
-    friend void AutoGCRooter::trace(JSTracer *trc);
-
-    const Value &state() const { return stateValue; }
-    Value *addr() { return &stateValue; }
-
-  protected:
-    void trace(JSTracer *trc);
-
-    RootedObject obj;
-
-  private:
-    Value stateValue;
-    JSContext *context;
-    JS_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
 template<class T>
@@ -1642,10 +1612,11 @@ JS_STATIC_ASSERT(sizeof(jsval_layout) == sizeof(jsval));
 
 typedef JS::Handle<JSObject*> JSHandleObject;
 typedef JS::Handle<JSString*> JSHandleString;
-typedef JS::Handle<jsid> JSHandleId;
 typedef JS::Handle<JS::Value> JSHandleValue;
+typedef JS::Handle<jsid> JSHandleId;
 typedef JS::MutableHandle<JSObject*> JSMutableHandleObject;
 typedef JS::MutableHandle<JS::Value> JSMutableHandleValue;
+typedef JS::MutableHandle<jsid> JSMutableHandleId;
 typedef JS::RawObject JSRawObject;
 
 #else
@@ -1656,11 +1627,12 @@ typedef JS::RawObject JSRawObject;
  */
 
 typedef struct { JSObject **_; } JSHandleObject;
-typedef struct { jsval _; } JSHandleValue;
 typedef struct { JSString **_; } JSHandleString;
-typedef struct { JSObject **_; } JSMutableHandleObject;
+typedef struct { jsval *_; } JSHandleValue;
 typedef struct { jsid *_; } JSHandleId;
+typedef struct { JSObject **_; } JSMutableHandleObject;
 typedef struct { jsval *_; } JSMutableHandleValue;
+typedef struct { jsid *_; } JSMutableHandleId;
 typedef JSObject *JSRawObject;
 
 JSBool JS_CreateHandleObject(JSContext *cx, JSObject *obj, JSHandleObject *phandle);
@@ -1730,7 +1702,7 @@ typedef JSBool
  */
 typedef JSBool
 (* JSNewEnumerateOp)(JSContext *cx, JSHandleObject obj, JSIterateOp enum_op,
-                     jsval *statep, jsid *idp);
+                     JSMutableHandleValue statep, JSMutableHandleId idp);
 
 /*
  * The old-style JSClass.enumerate op should define all lazy properties not
@@ -1830,7 +1802,7 @@ struct JSStringFinalizer {
  */
 typedef JSBool
 (* JSCheckAccessOp)(JSContext *cx, JSHandleObject obj, JSHandleId id, JSAccessMode mode,
-                    jsval *vp);
+                    JSMutableHandleValue vp);
 
 /*
  * Check whether v is an instance of obj.  Return false on error or exception,
@@ -1838,7 +1810,7 @@ typedef JSBool
  * *bp otherwise.
  */
 typedef JSBool
-(* JSHasInstanceOp)(JSContext *cx, JSHandleObject obj, const jsval *v, JSBool *bp);
+(* JSHasInstanceOp)(JSContext *cx, JSHandleObject obj, JSMutableHandleValue vp, JSBool *bp);
 
 /*
  * Function type for trace operation of the class called to enumerate all
@@ -1868,7 +1840,7 @@ typedef void
 (* JSTraceNamePrinter)(JSTracer *trc, char *buf, size_t bufsize);
 
 typedef JSBool
-(* JSEqualityOp)(JSContext *cx, JSHandleObject obj, const jsval *v, JSBool *bp);
+(* JSEqualityOp)(JSContext *cx, JSHandleObject obj, JSHandleValue v, JSBool *bp);
 
 /*
  * Typedef for native functions called by the JS VM.
@@ -1971,14 +1943,6 @@ typedef struct JSErrorFormatString {
 typedef const JSErrorFormatString *
 (* JSErrorCallback)(void *userRef, const char *locale,
                     const unsigned errorNumber);
-
-#ifdef va_start
-#define JS_ARGUMENT_FORMATTER_DEFINED 1
-
-typedef JSBool
-(* JSArgumentFormatter)(JSContext *cx, const char *format, JSBool fromJS,
-                        jsval **vpp, va_list *app);
-#endif
 
 typedef JSBool
 (* JSLocaleToUpperCase)(JSContext *cx, JSString *src, jsval *rval);
@@ -2499,14 +2463,6 @@ class AutoIdRooter : private AutoGCRooter
 
 /************************************************************************/
 
-/* Lock and unlock the GC thing held by a jsval. */
-#define JSVAL_LOCK(cx,v)        (JSVAL_IS_GCTHING(v)                          \
-                                 ? JS_LockGCThing(cx, JSVAL_TO_GCTHING(v))    \
-                                 : JS_TRUE)
-#define JSVAL_UNLOCK(cx,v)      (JSVAL_IS_GCTHING(v)                          \
-                                 ? JS_UnlockGCThing(cx, JSVAL_TO_GCTHING(v))  \
-                                 : JS_TRUE)
-
 /* Property attributes, set in JSPropertySpec and passed to API functions. */
 #define JSPROP_ENUMERATE        0x01    /* property is visible to for/in loop */
 #define JSPROP_READONLY         0x02    /* not settable: assignment is no-op.
@@ -2641,56 +2597,6 @@ extern JS_PUBLIC_API(JSBool)
 JS_ConvertArgumentsVA(JSContext *cx, unsigned argc, jsval *argv,
                       const char *format, va_list ap);
 #endif
-
-#ifdef JS_ARGUMENT_FORMATTER_DEFINED
-
-/*
- * Add and remove a format string handler for JS_{Convert,Push}Arguments{,VA}.
- * The handler function has this signature:
- *
- *   JSBool MyArgumentFormatter(JSContext *cx, const char *format,
- *                              JSBool fromJS, jsval **vpp, va_list *app);
- *
- * It should return true on success, and return false after reporting an error
- * or detecting an already-reported error.
- *
- * For a given format string, for example "AA", the formatter is called from
- * JS_ConvertArgumentsVA like so:
- *
- *   formatter(cx, "AA...", JS_TRUE, &sp, &ap);
- *
- * sp points into the arguments array on the JS stack, while ap points into
- * the stdarg.h va_list on the C stack.  The JS_TRUE passed for fromJS tells
- * the formatter to convert zero or more jsvals at sp to zero or more C values
- * accessed via pointers-to-values at ap, updating both sp (via *vpp) and ap
- * (via *app) to point past the converted arguments and their result pointers
- * on the C stack.
- *
- * When called from JS_PushArgumentsVA, the formatter is invoked thus:
- *
- *   formatter(cx, "AA...", JS_FALSE, &sp, &ap);
- *
- * where JS_FALSE for fromJS means to wrap the C values at ap according to the
- * format specifier and store them at sp, updating ap and sp appropriately.
- *
- * The "..." after "AA" is the rest of the format string that was passed into
- * JS_{Convert,Push}Arguments{,VA}.  The actual format trailing substring used
- * in each Convert or PushArguments call is passed to the formatter, so that
- * one such function may implement several formats, in order to share code.
- *
- * Remove just forgets about any handler associated with format.  Add does not
- * copy format, it points at the string storage allocated by the caller, which
- * is typically a string constant.  If format is in dynamic storage, it is up
- * to the caller to keep the string alive until Remove is called.
- */
-extern JS_PUBLIC_API(JSBool)
-JS_AddArgumentFormatter(JSContext *cx, const char *format,
-                        JSArgumentFormatter formatter);
-
-extern JS_PUBLIC_API(void)
-JS_RemoveArgumentFormatter(JSContext *cx, const char *format);
-
-#endif /* JS_ARGUMENT_FORMATTER_DEFINED */
 
 extern JS_PUBLIC_API(JSBool)
 JS_ConvertValue(JSContext *cx, jsval v, JSType type, jsval *vp);
@@ -3256,10 +3162,12 @@ JS_StringToVersion(const char *string);
                                                    without requiring
                                                    "use strict" annotations. */
 
+#define JSOPTION_ION            JS_BIT(20)      /* IonMonkey */
+
 /* Options which reflect compile-time properties of scripts. */
 #define JSCOMPILEOPTION_MASK    (JSOPTION_ALLOW_XML | JSOPTION_MOAR_XML)
 
-#define JSRUNOPTION_MASK        (JS_BITMASK(20) & ~JSCOMPILEOPTION_MASK)
+#define JSRUNOPTION_MASK        (JS_BITMASK(21) & ~JSCOMPILEOPTION_MASK)
 #define JSALLOPTION_MASK        (JSCOMPILEOPTION_MASK | JSRUNOPTION_MASK)
 
 extern JS_PUBLIC_API(uint32_t)
@@ -3905,8 +3813,15 @@ JS_CallTracer(JSTracer *trc, void *thing, JSGCTraceKind kind);
         if (!(trc)->realLocation || !(location))                              \
             (trc)->realLocation = (location);                                 \
     JS_END_MACRO
+# define JS_UNSET_TRACING_LOCATION(trc)                                       \
+    JS_BEGIN_MACRO                                                            \
+        (trc)->realLocation = NULL;                                           \
+    JS_END_MACRO
 #else
 # define JS_SET_TRACING_LOCATION(trc, location)                               \
+    JS_BEGIN_MACRO                                                            \
+    JS_END_MACRO
+# define JS_UNSET_TRACING_LOCATION(trc)                                       \
     JS_BEGIN_MACRO                                                            \
     JS_END_MACRO
 #endif

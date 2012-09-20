@@ -7,6 +7,7 @@
 #include "mozilla/layers/ImageContainerParent.h"
 
 #include "ImageContainer.h" // for PlanarYCBCRImage
+#include "mozilla/layers/ShmemYCbCrImage.h"
 #include "ipc/AutoOpenSurface.h"
 #include "ImageLayerOGL.h"
 #include "gfxImageSurface.h"
@@ -349,10 +350,10 @@ ImageLayerOGL::RenderLayer(int,
     GLXPixmap pixmap;
 
     if (cairoImage->mSurface) {
-        pixmap = sGLXLibrary.CreatePixmap(cairoImage->mSurface);
+        pixmap = sDefGLXLib.CreatePixmap(cairoImage->mSurface);
         NS_ASSERTION(pixmap, "Failed to create pixmap!");
         if (pixmap) {
-            sGLXLibrary.BindTexImage(pixmap);
+            sDefGLXLib.BindTexImage(pixmap);
         }
     }
 #endif
@@ -376,8 +377,8 @@ ImageLayerOGL::RenderLayer(int,
 
 #if defined(MOZ_WIDGET_GTK2) && !defined(MOZ_PLATFORM_MAEMO)
     if (cairoImage->mSurface && pixmap) {
-        sGLXLibrary.ReleaseTexImage(pixmap);
-        sGLXLibrary.DestroyPixmap(pixmap);
+        sDefGLXLib.ReleaseTexImage(pixmap);
+        sDefGLXLib.DestroyPixmap(pixmap);
     }
 #endif
 #ifdef XP_MACOSX
@@ -582,7 +583,7 @@ ImageLayerOGL::AllocateTexturesCairo(CairoImage *aImage)
   SetClamping(gl, tex);
 
 #if defined(MOZ_WIDGET_GTK2) && !defined(MOZ_PLATFORM_MAEMO)
-  if (sGLXLibrary.SupportsTextureFromPixmap(aImage->mSurface)) {
+  if (sDefGLXLib.SupportsTextureFromPixmap(aImage->mSurface)) {
     if (aImage->mSurface->GetContentType() == gfxASurface::CONTENT_COLOR_ALPHA) {
       backendData->mLayerProgram = gl::RGBALayerProgramType;
     } else {
@@ -763,6 +764,7 @@ ShadowImageLayerOGL::Swap(const SharedImage& aNewFront,
                           SharedImage* aNewBack)
 {
   if (!mDestroyed) {
+
     if (aNewFront.type() == SharedImage::TSharedImageID) {
       // We are using ImageBridge protocol. The image data will be queried at render
       // time in the parent side.
@@ -873,6 +875,47 @@ void ShadowImageLayerOGL::UploadSharedYUVToTexture(const YUVImage& yuv)
   UploadYUVToTexture(gl(), data, &mYUVTexture[0], &mYUVTexture[1], &mYUVTexture[2]);
 }
 
+void ShadowImageLayerOGL::UploadSharedYCbCrToTexture(ShmemYCbCrImage& aImage,
+                                                     nsIntRect aPictureRect)
+{
+  mPictureRect = aPictureRect;
+
+  gfxIntSize size = aImage.GetYSize();
+  gfxIntSize CbCrSize = aImage.GetCbCrSize();
+  if (size != mSize || mCbCrSize != CbCrSize || !mYUVTexture[0].IsAllocated()) {
+
+    mSize = size;
+    mCbCrSize = CbCrSize;
+
+    if (!mYUVTexture[0].IsAllocated()) {
+        mYUVTexture[0].Allocate(gl());
+        mYUVTexture[1].Allocate(gl());
+        mYUVTexture[2].Allocate(gl());
+    }
+
+    NS_ASSERTION(mYUVTexture[0].IsAllocated() &&
+                 mYUVTexture[1].IsAllocated() &&
+                 mYUVTexture[2].IsAllocated(),
+                 "Texture allocation failed!");
+
+    gl()->MakeCurrent();
+    SetClamping(gl(), mYUVTexture[0].GetTextureID());
+    SetClamping(gl(), mYUVTexture[1].GetTextureID());
+    SetClamping(gl(), mYUVTexture[2].GetTextureID());
+  }
+
+  PlanarYCbCrImage::Data data;
+  data.mYChannel = aImage.GetYData();
+  data.mYStride = aImage.GetYStride();
+  data.mYSize = aImage.GetYSize();
+  data.mCbChannel = aImage.GetCbData();
+  data.mCrChannel = aImage.GetCrData();
+  data.mCbCrStride = aImage.GetCbCrStride();
+  data.mCbCrSize = aImage.GetCbCrSize();
+
+  UploadYUVToTexture(gl(), data, &mYUVTexture[0], &mYUVTexture[1], &mYUVTexture[2]);
+}
+
 
 void
 ShadowImageLayerOGL::RenderLayer(int aPreviousFrameBuffer,
@@ -892,6 +935,10 @@ ShadowImageLayerOGL::RenderLayer(int aPreviousFrameBuffer,
         UploadSharedYUVToTexture(img->get_YUVImage());
   
         mImageVersion = imgVersion;
+      } else if (img && (img->type() == SharedImage::TYCbCrImage)) {
+        ShmemYCbCrImage shmemImage(img->get_YCbCrImage().data(),
+                                   img->get_YCbCrImage().offset());
+        UploadSharedYCbCrToTexture(shmemImage, img->get_YCbCrImage().picture());
 #ifdef MOZ_WIDGET_GONK
       } else if (img
                  && (img->type() == SharedImage::TSurfaceDescriptor)

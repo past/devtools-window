@@ -48,7 +48,6 @@ HttpBaseChannel::HttpBaseChannel()
   , mTracingEnabled(true)
   , mTimingEnabled(false)
   , mAllowSpdy(true)
-  , mPrivateBrowsing(false)
   , mSuspendCount(0)
 {
   LOG(("Creating HttpBaseChannel @%x\n", this));
@@ -129,9 +128,7 @@ HttpBaseChannel::Init(nsIURI *aURI,
   if (NS_FAILED(rv)) return rv;
 
   rv = gHttpHandler->
-      AddStandardRequestHeaders(&mRequestHead.Headers(), aCaps,
-                                !mConnectionInfo->UsingConnect() &&
-                                mConnectionInfo->UsingHttpProxy());
+    AddStandardRequestHeaders(&mRequestHead.Headers(), aCaps);
 
   return rv;
 }
@@ -140,7 +137,7 @@ HttpBaseChannel::Init(nsIURI *aURI,
 // HttpBaseChannel::nsISupports
 //-----------------------------------------------------------------------------
 
-NS_IMPL_ISUPPORTS_INHERITED9( HttpBaseChannel,
+NS_IMPL_ISUPPORTS_INHERITED10(HttpBaseChannel,
                               nsHashPropertyBag,
                               nsIRequest,
                               nsIChannel,
@@ -150,7 +147,8 @@ NS_IMPL_ISUPPORTS_INHERITED9( HttpBaseChannel,
                               nsIUploadChannel,
                               nsIUploadChannel2,
                               nsISupportsPriority,
-                              nsITraceableChannel)
+                              nsITraceableChannel,
+                              nsIPrivateBrowsingChannel)
 
 //-----------------------------------------------------------------------------
 // HttpBaseChannel::nsIRequest
@@ -191,8 +189,13 @@ HttpBaseChannel::GetLoadGroup(nsILoadGroup **aLoadGroup)
 NS_IMETHODIMP
 HttpBaseChannel::SetLoadGroup(nsILoadGroup *aLoadGroup)
 {
+  if (!CanSetLoadGroup()) {
+    return NS_ERROR_FAILURE;
+  }
+
   mLoadGroup = aLoadGroup;
   mProgressSink = nullptr;
+  mPrivateBrowsing = NS_UsePrivateBrowsing(this);
   return NS_OK;
 }
 
@@ -270,10 +273,13 @@ HttpBaseChannel::GetNotificationCallbacks(nsIInterfaceRequestor **aCallbacks)
 NS_IMETHODIMP
 HttpBaseChannel::SetNotificationCallbacks(nsIInterfaceRequestor *aCallbacks)
 {
+  if (!CanSetCallbacks()) {
+    return NS_ERROR_FAILURE;
+  }
+
   mCallbacks = aCallbacks;
   mProgressSink = nullptr;
 
-  // Will never change unless SetNotificationCallbacks called again, so cache
   mPrivateBrowsing = NS_UsePrivateBrowsing(this);
   return NS_OK;
 }

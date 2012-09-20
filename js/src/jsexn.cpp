@@ -264,16 +264,12 @@ InitExnPrivate(JSContext *cx, HandleObject exnObject, HandleString message,
     {
         SuppressErrorsGuard seg(cx);
         for (NonBuiltinScriptFrameIter i(cx); !i.done(); ++i) {
-            StackFrame *fp = i.fp();
 
-            /*
-             * Ask the crystal CAPS ball whether we can see across compartments.
-             * NB: this means 'fp' may point to cross-compartment frames.
-             */
+            /* Ask the crystal CAPS ball whether we can see across compartments. */
             if (checkAccess && i.isNonEvalFunctionFrame()) {
-                Value v = NullValue();
-                RootedId callerid(cx, NameToId(cx->runtime->atomState.callerAtom));
-                Rooted<JSObject*> obj(cx, i.callee());
+                RootedValue v(cx);
+                RootedId callerid(cx, NameToId(cx->names().caller));
+                RootedObject obj(cx, i.callee());
                 if (!checkAccess(cx, obj, callerid, JSACC_READ, &v))
                     break;
             }
@@ -282,7 +278,7 @@ InitExnPrivate(JSContext *cx, HandleObject exnObject, HandleString message,
                 return false;
             JSStackTraceStackElem &frame = frames.back();
             if (i.isNonEvalFunctionFrame()) {
-                JSAtom *atom = fp->fun()->displayAtom();
+                JSAtom *atom = i.callee()->displayAtom();
                 if (atom == NULL)
                     atom = cx->runtime->emptyString;
                 frame.funName = atom;
@@ -414,7 +410,7 @@ exn_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
     if (priv && JSID_IS_ATOM(id)) {
         str = JSID_TO_STRING(id);
 
-        atom = cx->runtime->atomState.messageAtom;
+        atom = cx->names().message;
         if (str == atom) {
             prop = js_message_str;
 
@@ -431,7 +427,7 @@ exn_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
             goto define;
         }
 
-        atom = cx->runtime->atomState.fileNameAtom;
+        atom = cx->names().fileName;
         if (str == atom) {
             prop = js_fileName_str;
             v = STRING_TO_JSVAL(priv->filename);
@@ -439,7 +435,7 @@ exn_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
             goto define;
         }
 
-        atom = cx->runtime->atomState.lineNumberAtom;
+        atom = cx->names().lineNumber;
         if (str == atom) {
             prop = js_lineNumber_str;
             v = UINT_TO_JSVAL(priv->lineno);
@@ -447,7 +443,7 @@ exn_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
             goto define;
         }
 
-        atom = cx->runtime->atomState.columnNumberAtom;
+        atom = cx->names().columnNumber;
         if (str == atom) {
             prop = js_columnNumber_str;
             v = UINT_TO_JSVAL(priv->column);
@@ -455,7 +451,7 @@ exn_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
             goto define;
         }
 
-        atom = cx->runtime->atomState.stackAtom;
+        atom = cx->names().stack;
         if (str == atom) {
             stack = StackTraceToString(cx, priv);
             if (!stack)
@@ -550,7 +546,7 @@ Exception(JSContext *cx, unsigned argc, Value *vp)
      */
     RootedObject callee(cx, &args.callee());
     RootedValue protov(cx);
-    if (!JSObject::getProperty(cx, callee, callee, cx->runtime->atomState.classPrototypeAtom, &protov))
+    if (!JSObject::getProperty(cx, callee, callee, cx->names().classPrototype, &protov))
         return false;
 
     if (!protov.isObject()) {
@@ -633,13 +629,13 @@ exn_toString(JSContext *cx, unsigned argc, Value *vp)
 
     /* Step 3. */
     RootedValue nameVal(cx);
-    if (!JSObject::getProperty(cx, obj, obj, cx->runtime->atomState.nameAtom, &nameVal))
+    if (!JSObject::getProperty(cx, obj, obj, cx->names().name, &nameVal))
         return false;
 
     /* Step 4. */
     RootedString name(cx);
     if (nameVal.isUndefined()) {
-        name = CLASS_NAME(cx, Error);
+        name = cx->names().Error;
     } else {
         name = ToString(cx, nameVal);
         if (!name)
@@ -648,7 +644,7 @@ exn_toString(JSContext *cx, unsigned argc, Value *vp)
 
     /* Step 5. */
     RootedValue msgVal(cx);
-    if (!JSObject::getProperty(cx, obj, obj, cx->runtime->atomState.messageAtom, &msgVal))
+    if (!JSObject::getProperty(cx, obj, obj, cx->names().message, &msgVal))
         return false;
 
     /* Step 6. */
@@ -663,7 +659,7 @@ exn_toString(JSContext *cx, unsigned argc, Value *vp)
 
     /* Step 7. */
     if (name->empty() && message->empty()) {
-        args.rval().setString(CLASS_NAME(cx, Error));
+        args.rval().setString(cx->names().Error);
         return true;
     }
 
@@ -707,7 +703,7 @@ exn_toSource(JSContext *cx, unsigned argc, Value *vp)
 
     RootedValue nameVal(cx);
     RootedString name(cx);
-    if (!JSObject::getProperty(cx, obj, obj, cx->runtime->atomState.nameAtom, &nameVal) ||
+    if (!JSObject::getProperty(cx, obj, obj, cx->names().name, &nameVal) ||
         !(name = ToString(cx, nameVal)))
     {
         return false;
@@ -715,7 +711,7 @@ exn_toSource(JSContext *cx, unsigned argc, Value *vp)
 
     RootedValue messageVal(cx);
     RootedString message(cx);
-    if (!JSObject::getProperty(cx, obj, obj, cx->runtime->atomState.messageAtom, &messageVal) ||
+    if (!JSObject::getProperty(cx, obj, obj, cx->names().message, &messageVal) ||
         !(message = js_ValueToSource(cx, messageVal)))
     {
         return false;
@@ -723,7 +719,7 @@ exn_toSource(JSContext *cx, unsigned argc, Value *vp)
 
     RootedValue filenameVal(cx);
     RootedString filename(cx);
-    if (!JSObject::getProperty(cx, obj, obj, cx->runtime->atomState.fileNameAtom, &filenameVal) ||
+    if (!JSObject::getProperty(cx, obj, obj, cx->names().fileName, &filenameVal) ||
         !(filename = js_ValueToSource(cx, filenameVal)))
     {
         return false;
@@ -731,7 +727,7 @@ exn_toSource(JSContext *cx, unsigned argc, Value *vp)
 
     RootedValue linenoVal(cx);
     uint32_t lineno;
-    if (!JSObject::getProperty(cx, obj, obj, cx->runtime->atomState.lineNumberAtom, &linenoVal) ||
+    if (!JSObject::getProperty(cx, obj, obj, cx->names().lineNumber, &linenoVal) ||
         !ToUint32(cx, linenoVal, &lineno))
     {
         return false;
@@ -793,7 +789,7 @@ static JSObject *
 InitErrorClass(JSContext *cx, Handle<GlobalObject*> global, int type, HandleObject proto)
 {
     JSProtoKey key = GetExceptionProtoKey(type);
-    RootedAtom name(cx, cx->runtime->atomState.classAtoms[key]);
+    RootedAtom name(cx, ClassName(key, cx));
     RootedObject errorProto(cx, global->createBlankPrototypeInheriting(cx, &ErrorClass, *proto));
     if (!errorProto)
         return NULL;
@@ -801,11 +797,11 @@ InitErrorClass(JSContext *cx, Handle<GlobalObject*> global, int type, HandleObje
     RootedValue nameValue(cx, StringValue(name));
     RootedValue zeroValue(cx, Int32Value(0));
     RootedValue empty(cx, StringValue(cx->runtime->emptyString));
-    RootedId nameId(cx, NameToId(cx->runtime->atomState.nameAtom));
-    RootedId messageId(cx, NameToId(cx->runtime->atomState.messageAtom));
-    RootedId fileNameId(cx, NameToId(cx->runtime->atomState.fileNameAtom));
-    RootedId lineNumberId(cx, NameToId(cx->runtime->atomState.lineNumberAtom));
-    RootedId columnNumberId(cx, NameToId(cx->runtime->atomState.columnNumberAtom));
+    RootedId nameId(cx, NameToId(cx->names().name));
+    RootedId messageId(cx, NameToId(cx->names().message));
+    RootedId fileNameId(cx, NameToId(cx->names().fileName));
+    RootedId lineNumberId(cx, NameToId(cx->names().lineNumber));
+    RootedId columnNumberId(cx, NameToId(cx->names().columnNumber));
     if (!DefineNativeProperty(cx, errorProto, nameId, nameValue,
                               JS_PropertyStub, JS_StrictPropertyStub, 0, 0, 0) ||
         !DefineNativeProperty(cx, errorProto, messageId, empty,
@@ -898,7 +894,7 @@ GetErrorTypeName(JSContext* cx, int16_t exnType)
         return NULL;
     }
     JSProtoKey key = GetExceptionProtoKey(exnType);
-    return cx->runtime->atomState.classAtoms[key]->chars();
+    return ClassName(key, cx)->chars();
 }
 
 } /* namespace js */

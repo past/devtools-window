@@ -14,46 +14,28 @@ import android.graphics.Path;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.PorterDuff.Mode;
 import android.util.AttributeSet;
-import android.widget.ImageButton;
 
-public class TabsButton extends ImageButton 
-                        implements CanvasDelegate.DrawManager { 
-    Paint mPaint;
+public class TabsButton extends ShapedButton {
+    private Paint mPaint;
 
-    Path mPath;
-    Path mBackgroundPath;
-    Path mLeftCurve;
-    Path mRightCurve;
+    private Path mBackgroundPath;
+    private Path mLeftCurve;
+    private Path mRightCurve;
 
-    boolean mCropped;
-    int mFullWidth;
-    CurveTowards mSide;
-    CanvasDelegate mCanvasDelegate;
-
-    private enum CurveTowards { NONE, LEFT, RIGHT };
+    private boolean mCropped;
 
     public TabsButton(Context context, AttributeSet attrs) {
         super(context, attrs);
 
-        TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.BrowserToolbarCurve);
-        int curveTowards = a.getInt(R.styleable.BrowserToolbarCurve_curveTowards, 0x02);
-        a.recycle();
-
-        a = context.obtainStyledAttributes(attrs, R.styleable.TabsButton);
+        TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.TabsButton);
         mCropped = a.getBoolean(R.styleable.TabsButton_cropped, false);
         a.recycle();
-
-        if (curveTowards == 0x00)
-            mSide = CurveTowards.NONE;
-        else if (curveTowards == 0x01)
-            mSide = CurveTowards.LEFT;
-        else
-            mSide = CurveTowards.RIGHT;
 
         // Paint to draw the background.
         mPaint = new Paint();
         mPaint.setAntiAlias(true);
         mPaint.setColor(0xFF000000);
+        mPaint.setStrokeWidth(0.0f);
 
         // Path is masked.
         mPath = new Path();
@@ -61,9 +43,6 @@ public class TabsButton extends ImageButton
         mLeftCurve = new Path();
         mRightCurve = new Path();
         mCanvasDelegate = new CanvasDelegate(this, Mode.DST_IN);
-
-        // Path might extend beyond the screen for smaller tabs button.
-        mFullWidth = (int) context.getResources().getDimension(R.dimen.tabs_button_full_width);
     }
 
     @Override
@@ -82,11 +61,11 @@ public class TabsButton extends ImageButton
 
         if (mSide == CurveTowards.RIGHT) {
             left = 0;
-            right = mFullWidth;
+            right = width;
             top = 0;
             bottom = height;
         } else {
-            left = width - mFullWidth;
+            left = 0;
             right = width;
             top = height;
             bottom = 0;
@@ -96,9 +75,8 @@ public class TabsButton extends ImageButton
         mLeftCurve.moveTo(left, top);
 
         if (mCropped && mSide == CurveTowards.LEFT) {
-            mLeftCurve.cubicTo(left + curve, top,
-                               left, bottom,
-                               left + curve, bottom);
+            mLeftCurve.lineTo(left, top/2);
+            mLeftCurve.quadTo(left * 0.95f, top * 0.05f, left + curve/2, bottom);
         } else {
             mLeftCurve.cubicTo(left + (curve * 0.75f), top,
                                left + (curve * 0.25f), bottom,
@@ -109,9 +87,8 @@ public class TabsButton extends ImageButton
         mRightCurve.moveTo(right, bottom);
 
         if (mCropped && mSide == CurveTowards.RIGHT) {
-            mRightCurve.cubicTo(right - curve, bottom,
-                                right, top,
-                                right - curve, top);
+            mRightCurve.lineTo(right, bottom/2);
+            mRightCurve.quadTo(right * 0.95f, bottom * 0.05f, right - (curve/2), top);
         } else {
             mRightCurve.cubicTo(right - (curve * 0.75f), bottom,
                                 right - (curve * 0.25f), top,
@@ -168,10 +145,5 @@ public class TabsButton extends ImageButton
         // Additionally draw a black curve for cropped button's default level.
         if (mCropped && background.getLevel() != 2)
             canvas.drawPath(mBackgroundPath, mPaint);
-    }
-
-    @Override
-    public void defaultDraw(Canvas canvas) {
-        super.draw(canvas);
     }
 }

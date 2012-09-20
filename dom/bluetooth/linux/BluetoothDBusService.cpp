@@ -18,7 +18,7 @@
 
 #include "base/basictypes.h"
 #include "BluetoothDBusService.h"
-#include "BluetoothTypes.h"
+#include "BluetoothServiceUuid.h"
 #include "BluetoothReplyRunnable.h"
 
 #include <cstdio>
@@ -29,10 +29,12 @@
 #include "nsThreadUtils.h"
 #include "nsDebug.h"
 #include "nsDataHashtable.h"
+#include "mozilla/ipc/Socket.h"
 #include "mozilla/ipc/DBusThread.h"
 #include "mozilla/ipc/DBusUtils.h"
 #include "mozilla/ipc/RawDBusConnection.h"
 #include "mozilla/Util.h"
+#include "mozilla/dom/bluetooth/BluetoothTypes.h"
 
 /**
  * Some rules for dealing with memory in DBus:
@@ -139,6 +141,41 @@ static const char* sBluetoothDBusSignals[] =
 static nsAutoPtr<RawDBusConnection> gThreadConnection;
 static nsDataHashtable<nsStringHashKey, DBusMessage* > sPairingReqTable;
 static nsDataHashtable<nsStringHashKey, DBusMessage* > sAuthorizeReqTable;
+static nsString sDefaultAdapterPath;
+static nsTArray<uint32_t> sServiceHandles;
+
+typedef void (*UnpackFunc)(DBusMessage*, DBusError*, BluetoothValue&, nsAString&);
+
+static nsString
+GetObjectPathFromAddress(const nsAString& aAdapterPath,
+                         const nsAString& aDeviceAddress)
+{
+  // The object path would be like /org/bluez/2906/hci0/dev_00_23_7F_CB_B4_F1,
+  // and the adapter path would be the first part of the object path, according
+  // to the example above, it's /org/bluez/2906/hci0.
+  nsString devicePath(aAdapterPath);
+  devicePath.AppendLiteral("/dev_");
+  devicePath.Append(aDeviceAddress);
+  devicePath.ReplaceChar(':', '_');
+  return devicePath;
+}
+
+static nsString
+GetAddressFromObjectPath(const nsAString& aObjectPath)
+{
+  // The object path would be like /org/bluez/2906/hci0/dev_00_23_7F_CB_B4_F1,
+  // and the adapter path would be the first part of the object path, according
+  // to the example above, it's /org/bluez/2906/hci0.
+  nsString address(aObjectPath);
+  int addressHead = address.RFind("/") + 5;
+
+  MOZ_ASSERT(addressHead + BLUETOOTH_ADDRESS_LENGTH == address.Length());
+
+  address.Cut(0, addressHead);
+  address.ReplaceChar('_', ':');
+
+  return address;
+}
 
 class DistributeBluetoothSignalTask : public nsRunnable {
   BluetoothSignal mSignal;
@@ -156,15 +193,16 @@ public:
     if (!bs) {
       NS_WARNING("BluetoothService not available!");
       return NS_ERROR_FAILURE;
-    }    
-    return bs->DistributeSignal(mSignal);
-  }  
+    }
+    bs->DistributeSignal(mSignal);
+    return NS_OK;
+  }
 };
 
 static bool
 IsDBusMessageError(DBusMessage* aMsg, DBusError* aErr, nsAString& aErrorStr)
 {
-  if(aErr && dbus_error_is_set(aErr)) {
+  if (aErr && dbus_error_is_set(aErr)) {
     aErrorStr = NS_ConvertUTF8toUTF16(aErr->message);
     LOG_AND_FREE_DBUS_ERROR(aErr);
     return true;
@@ -203,12 +241,35 @@ DispatchBluetoothReply(BluetoothReplyRunnable* aRunnable,
     nsString err(aErrorStr);
     reply = new BluetoothReply(BluetoothReplyError(err));
   } else {
+    MOZ_ASSERT(aValue.type() != BluetoothValue::T__None);
     reply = new BluetoothReply(BluetoothReplySuccess(aValue));
   }
   
   aRunnable->SetReply(reply);
   if (NS_FAILED(NS_DispatchToMainThread(aRunnable))) {
     NS_WARNING("Failed to dispatch to main thread!");
+  }
+}
+
+static void
+UnpackIntMessage(DBusMessage* aMsg, DBusError* aErr,
+                 BluetoothValue& aValue, nsAString& aErrorStr)
+{
+  DBusError err;
+  dbus_error_init(&err);
+  if (!IsDBusMessageError(aMsg, aErr, aErrorStr)) {
+    NS_ASSERTION(dbus_message_get_type(aMsg) == DBUS_MESSAGE_TYPE_METHOD_RETURN,
+                 "Got dbus callback that's not a METHOD_RETURN!");
+    int i;
+    if (!dbus_message_get_args(aMsg, &err, DBUS_TYPE_INT32,
+                               &i, DBUS_TYPE_INVALID)) {
+      if (dbus_error_is_set(&err)) {
+        aErrorStr = NS_ConvertUTF8toUTF16(err.message);
+        LOG_AND_FREE_DBUS_ERROR(&err);
+      }
+    } else {
+      aValue = (uint32_t)i;
+    }
   }
 }
 
@@ -233,39 +294,6 @@ UnpackObjectPathMessage(DBusMessage* aMsg, DBusError* aErr,
       aValue = NS_ConvertUTF8toUTF16(object_path);
     }
   }
-}
-
-typedef void (*UnpackFunc)(DBusMessage*, DBusError*, BluetoothValue&, nsAString&);
-
-static nsString
-GetObjectPathFromAddress(const nsAString& aAdapterPath,
-                         const nsAString& aDeviceAddress)
-{
-  // The object path would be like /org/bluez/2906/hci0/dev_00_23_7F_CB_B4_F1,
-  // and the adapter path would be the first part of the object path, accoring
-  // to the example above, it's /org/bluez/2906/hci0.
-  nsString devicePath(aAdapterPath);
-  devicePath.AppendLiteral("/dev_");
-  devicePath.Append(aDeviceAddress);
-  devicePath.ReplaceChar(':', '_');
-  return devicePath;
-}
-
-static nsString
-GetAddressFromObjectPath(const nsAString& aObjectPath)
-{
-  // The object path would be like /org/bluez/2906/hci0/dev_00_23_7F_CB_B4_F1,
-  // and the adapter path would be the first part of the object path, accoring
-  // to the example above, it's /org/bluez/2906/hci0.
-  nsString address(aObjectPath);
-  int addressHead = address.RFind("/") + 5;
-
-  MOZ_ASSERT(addressHead + BLUETOOTH_ADDRESS_LENGTH == address.Length());
-
-  address.Cut(0, addressHead);
-  address.ReplaceChar('_', ':');
-
-  return address;
 }
 
 static void
@@ -311,6 +339,7 @@ AgentEventFilter(DBusConnection *conn, DBusMessage *msg, void *data)
     } else {
       dbus_connection_send(conn, reply, NULL);
       dbus_message_unref(reply);
+      v = parameters;
     }
   } else if (dbus_message_is_method_call(msg, DBUS_AGENT_IFACE, "Authorize")) {
     // This method gets called when the service daemon needs to authorize a
@@ -326,11 +355,11 @@ AgentEventFilter(DBusConnection *conn, DBusMessage *msg, void *data)
     } else {
       nsString deviceAddress = GetAddressFromObjectPath(NS_ConvertUTF8toUTF16(objectPath));
 
-      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("Device"), deviceAddress));
-      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("UUID"),
+      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("deviceAddress"), deviceAddress));
+      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("uuid"),
                                                    NS_ConvertUTF8toUTF16(uuid)));
 
-      // Because we may have authorization request and pairing request from the 
+      // Because we may have authorization request and pairing request from the
       // same remote device at the same time, we need two tables to keep these messages.
       sAuthorizeReqTable.Put(deviceAddress, msg);
 
@@ -353,10 +382,9 @@ AgentEventFilter(DBusConnection *conn, DBusMessage *msg, void *data)
       errorStr.AssignLiteral("Invalid arguments for RequestConfirmation() method");
     } else {
       nsString deviceAddress = GetAddressFromObjectPath(NS_ConvertUTF8toUTF16(objectPath));
+      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("deviceAddress"), deviceAddress));
+      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("passkey"), passkey));
 
-      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("Device"), deviceAddress));
-      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("Passkey"), passkey));
-      
       KeepDBusPairingMessage(deviceAddress, msg);
 
       v = parameters;
@@ -373,8 +401,7 @@ AgentEventFilter(DBusConnection *conn, DBusMessage *msg, void *data)
       errorStr.AssignLiteral("Invalid arguments for RequestPinCode() method");
     } else {
       nsString deviceAddress = GetAddressFromObjectPath(NS_ConvertUTF8toUTF16(objectPath));
-
-      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("Device"), deviceAddress));
+      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("deviceAddress"), deviceAddress));
 
       KeepDBusPairingMessage(deviceAddress, msg);
 
@@ -391,8 +418,7 @@ AgentEventFilter(DBusConnection *conn, DBusMessage *msg, void *data)
       errorStr.AssignLiteral("Invalid arguments for RequestPasskey() method");
     } else {
       nsString deviceAddress = GetAddressFromObjectPath(NS_ConvertUTF8toUTF16(objectPath));
-
-      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("Device"), deviceAddress));
+      parameters.AppendElement(BluetoothNamedValue(NS_LITERAL_STRING("deviceAddress"), deviceAddress));
 
       KeepDBusPairingMessage(deviceAddress, msg);
 
@@ -414,7 +440,10 @@ AgentEventFilter(DBusConnection *conn, DBusMessage *msg, void *data)
       return DBUS_HANDLER_RESULT_HANDLED;
     }
   } else {
+#ifdef DEBUG
     LOG("agent handler %s: Unhandled event. Ignore.", __FUNCTION__);
+#endif
+    return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
   }
 
   if (!errorStr.IsEmpty()) {
@@ -485,7 +514,7 @@ RegisterLocalAgent(const char* adapterPath,
 
   if (!reply) {
     if (dbus_error_is_set(&err)) {
-      if(!strcmp(err.name, "org.bluez.Error.AlreadyExists")) {
+      if (!strcmp(err.name, "org.bluez.Error.AlreadyExists")) {
         LOG_AND_FREE_DBUS_ERROR(&err);
 #ifdef DEBUG
         LOG("Agent already registered, still returning true");
@@ -531,6 +560,21 @@ RegisterAgent(const nsAString& aAdapterPath)
   return true;
 }
 
+static void
+AddReservedServices(const nsAString& aAdapterPath)
+{
+  MOZ_ASSERT(!NS_IsMainThread());
+
+  nsTArray<uint32_t> uuids;
+
+  uuids.AppendElement((uint32_t)(BluetoothServiceUuid::HandsfreeAG >> 32));
+  uuids.AppendElement((uint32_t)(BluetoothServiceUuid::HeadsetAG >> 32));
+
+  sServiceHandles.Clear();
+  BluetoothDBusService::AddReservedServicesInternal(aAdapterPath, uuids,
+                                                    sServiceHandles);
+}
+
 void
 RunDBusCallback(DBusMessage* aMsg, void* aBluetoothReplyRunnable,
                 UnpackFunc aFunc)
@@ -568,6 +612,10 @@ UnpackVoidMessage(DBusMessage* aMsg, DBusError* aErr, BluetoothValue& aValue,
       LOG_AND_FREE_DBUS_ERROR(&err);
     }
   }
+  // XXXbent Need to figure out something better than this here.
+  if (aErrorStr.IsEmpty()) {
+    aValue = true;
+  }
 }
 
 void
@@ -575,6 +623,13 @@ GetVoidCallback(DBusMessage* aMsg, void* aBluetoothReplyRunnable)
 {
   RunDBusCallback(aMsg, aBluetoothReplyRunnable,
                   UnpackVoidMessage);
+}
+
+void
+GetIntCallback(DBusMessage* aMsg, void* aBluetoothReplyRunnable)
+{
+  RunDBusCallback(aMsg, aBluetoothReplyRunnable,
+                  UnpackIntMessage);
 }
 
 bool
@@ -615,8 +670,18 @@ GetProperty(DBusMessageIter aIter, Properties* aPropertyTypes,
   dbus_message_iter_recurse(&aIter, &prop_val);
   type = aPropertyTypes[*aPropIndex].type;
 
-  NS_ASSERTION(dbus_message_iter_get_arg_type(&prop_val) == type,
-               "Iterator not type we expect!");
+  if (dbus_message_iter_get_arg_type(&prop_val) != type) {
+    NS_WARNING("Iterator not type we expect!");
+    nsAutoCString str;
+    str += "Property Name: ;";
+    str += NS_ConvertUTF16toUTF8(propertyName);
+    str += " Property Type Expected: ;";
+    str += type;
+    str += " Property Type Received: ";
+    str += dbus_message_iter_get_arg_type(&prop_val);
+    NS_WARNING(str.get());
+    return false;
+  }
   
   BluetoothValue propertyValue;
   switch (type) {
@@ -789,7 +854,7 @@ ParsePropertyChange(DBusMessage* aMsg, BluetoothValue& aValue,
   
   dbus_error_init(&err);
   if (!dbus_message_iter_init(aMsg, &iter)) {
-    LOG_AND_FREE_DBUS_ERROR_WITH_MSG(&err, aMsg);
+    NS_WARNING("Can't create iterator!");
     return;
   }
     
@@ -802,6 +867,82 @@ ParsePropertyChange(DBusMessage* aMsg, BluetoothValue& aValue,
   aValue = props;
 }
 
+bool
+GetPropertiesInternal(const nsAString& aPath, const char* aIface, BluetoothValue& aValue)
+{
+  MOZ_ASSERT(!NS_IsMainThread());
+
+  nsString replyError;
+  DBusError err;
+
+  dbus_error_init(&err);
+
+  DBusMessage* msg = dbus_func_args_timeout(gThreadConnection->GetConnection(),
+                                            1000,
+                                            &err,
+                                            NS_ConvertUTF16toUTF8(aPath).get(),
+                                            aIface,
+                                            "GetProperties",
+                                            DBUS_TYPE_INVALID);
+
+  if (!strcmp(aIface, DBUS_DEVICE_IFACE)) {
+    UnpackDevicePropertiesMessage(msg, &err, aValue, replyError);
+  } else if (!strcmp(aIface, DBUS_ADAPTER_IFACE)) {
+    UnpackAdapterPropertiesMessage(msg, &err, aValue, replyError);
+  } else if (!strcmp(aIface, DBUS_MANAGER_IFACE)) {
+    UnpackManagerPropertiesMessage(msg, &err, aValue, replyError);
+  } else {
+    NS_WARNING("Unknown interface for GetProperties!");
+    return false;
+  }
+
+  if (!replyError.IsEmpty()) {
+    NS_WARNING("Failed to get device properties");
+    return false;
+  }
+  if (msg) {
+    dbus_message_unref(msg);
+  }
+  return true;
+}
+
+class DevicePropertiesSignalHandler : public nsRunnable
+{
+public:
+  DevicePropertiesSignalHandler(const BluetoothValue& aValue,
+                                const nsAString& aPath) :
+    mValue(aValue),
+    mPath(aPath)
+  {
+  }
+
+  NS_IMETHODIMP
+  Run()
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+
+    // Get device properties and then send to BluetoothAdapter
+    BluetoothService* bs = BluetoothService::Get();
+    if (!bs) {
+      NS_WARNING("BluetoothService not available!");
+      return NS_ERROR_FAILURE;
+    }
+
+    // Due to the fact that we need to queue the dbus call to the command thread
+    // inside the bluetoothservice, we have to route the call down to the main
+    // thread and then back out to the command thread. There has to be a better
+    // way to do this.
+    if (NS_FAILED(bs->GetDevicePropertiesInternal(mValue, mPath))) {
+      NS_WARNING("get properties failed");
+      return NS_ERROR_FAILURE;
+    }
+    return NS_OK;
+  }
+private:
+  BluetoothValue mValue;
+  nsString mPath;
+};
+
 // Called by dbus during WaitForAndDispatchEventNative()
 // This function is called on the IOThread
 static
@@ -811,7 +952,8 @@ EventFilter(DBusConnection* aConn, DBusMessage* aMsg, void* aData)
   NS_ASSERTION(!NS_IsMainThread(), "Shouldn't be called from Main Thread!");
   
   if (dbus_message_get_type(aMsg) != DBUS_MESSAGE_TYPE_SIGNAL) {
-    LOG("%s: not interested (not a signal).\n", __FUNCTION__);
+    LOG("%s: event handler not interested in %s (not a signal).\n",
+        __FUNCTION__, dbus_message_get_member(aMsg));
     return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
   }  
 
@@ -868,8 +1010,9 @@ EventFilter(DBusConnection* aConn, DBusMessage* aMsg, void* aData)
                                DBUS_TYPE_INVALID)) {
       LOG_AND_FREE_DBUS_ERROR_WITH_MSG(&err, aMsg);
       errorStr.AssignLiteral("Cannot parse device address!");
+    } else {
+      v = NS_ConvertUTF8toUTF16(str);
     }
-    v = NS_ConvertUTF8toUTF16(str);
   } else if (dbus_message_is_signal(aMsg, DBUS_ADAPTER_IFACE, "DeviceCreated")) {
     const char* str;
     if (!dbus_message_get_args(aMsg, &err,
@@ -877,8 +1020,27 @@ EventFilter(DBusConnection* aConn, DBusMessage* aMsg, void* aData)
                                DBUS_TYPE_INVALID)) {
       LOG_AND_FREE_DBUS_ERROR_WITH_MSG(&err, aMsg);
       errorStr.AssignLiteral("Cannot parse device path!");
+    } else {
+      v = NS_ConvertUTF8toUTF16(str);
     }
-    v = NS_ConvertUTF8toUTF16(str);
+    // Fire a Device properties fetcher at the main thread
+    nsRefPtr<DevicePropertiesSignalHandler> b =
+      new DevicePropertiesSignalHandler(v, signalPath);
+    if (NS_FAILED(NS_DispatchToMainThread(b))) {
+      NS_WARNING("Failed to dispatch to main thread!");
+    }
+    // Since we're handling this in other threads, just fall out here
+    return DBUS_HANDLER_RESULT_HANDLED;
+  } else if (dbus_message_is_signal(aMsg, DBUS_ADAPTER_IFACE, "DeviceRemoved")) {
+    const char* str;
+    if (!dbus_message_get_args(aMsg, &err,
+                               DBUS_TYPE_OBJECT_PATH, &str,
+                               DBUS_TYPE_INVALID)) {
+      LOG_AND_FREE_DBUS_ERROR_WITH_MSG(&err, aMsg);
+      errorStr.AssignLiteral("Cannot parse device path!");
+    } else {
+      v = NS_ConvertUTF8toUTF16(str);
+    }
   } else if (dbus_message_is_signal(aMsg, DBUS_ADAPTER_IFACE, "PropertyChanged")) {
     ParsePropertyChange(aMsg,
                         v,
@@ -891,6 +1053,13 @@ EventFilter(DBusConnection* aConn, DBusMessage* aMsg, void* aData)
                         errorStr,
                         sDeviceProperties,
                         ArrayLength(sDeviceProperties));
+    if (v.get_ArrayOfBluetoothNamedValue()[0].name().EqualsLiteral("Paired")) {
+      // transfer signal to BluetoothService and 
+      // broadcast system message of bluetooth-pairingstatuschanged
+      signalName = NS_LITERAL_STRING("PairedStatusChagned");
+      signalPath = NS_LITERAL_STRING(LOCAL_AGENT_PATH);
+      v.get_ArrayOfBluetoothNamedValue()[0].name() = NS_LITERAL_STRING("paired");
+    }
   } else if (dbus_message_is_signal(aMsg, DBUS_MANAGER_IFACE, "AdapterAdded")) {
     const char* str;
     if (!dbus_message_get_args(aMsg, &err,
@@ -899,7 +1068,9 @@ EventFilter(DBusConnection* aConn, DBusMessage* aMsg, void* aData)
       LOG_AND_FREE_DBUS_ERROR_WITH_MSG(&err, aMsg);
       errorStr.AssignLiteral("Cannot parse manager path!");
     } else {
-      v = NS_ConvertUTF8toUTF16(str);
+      sDefaultAdapterPath = NS_ConvertUTF8toUTF16(str);
+      AddReservedServices(sDefaultAdapterPath);
+      v = sDefaultAdapterPath;
     }
   } else if (dbus_message_is_signal(aMsg, DBUS_MANAGER_IFACE, "PropertyChanged")) {
     ParsePropertyChange(aMsg,
@@ -914,6 +1085,7 @@ EventFilter(DBusConnection* aConn, DBusMessage* aMsg, void* aData)
     signalStr += " Signal not handled!";
     NS_WARNING(signalStr.get());
 #endif
+    return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
   }
 
   if (!errorStr.IsEmpty()) {
@@ -1037,14 +1209,6 @@ BluetoothDBusService::StopInternal()
   return NS_OK;
 }
 
-
-int
-BluetoothDBusService::IsEnabledInternal()
-{
-  // assume bluetooth is always enabled on desktop
-  return true;
-}
-
 class DefaultAdapterPropertiesRunnable : public nsRunnable
 {
 public:
@@ -1071,10 +1235,10 @@ public:
                                               "DefaultAdapter",
                                               DBUS_TYPE_INVALID);
     UnpackObjectPathMessage(msg, &err, v, replyError);
-    if(msg) {
+    if (msg) {
       dbus_message_unref(msg);
     }
-    if(!replyError.IsEmpty()) {
+    if (!replyError.IsEmpty()) {
       DispatchBluetoothReply(mRunnable, v, replyError);
       return NS_ERROR_FAILURE;
     }
@@ -1093,11 +1257,11 @@ public:
                                  DBUS_TYPE_INVALID);
     UnpackAdapterPropertiesMessage(msg, &err, v, replyError);
    
-    if(!replyError.IsEmpty()) {
+    if (!replyError.IsEmpty()) {
       DispatchBluetoothReply(mRunnable, v, replyError);
       return NS_ERROR_FAILURE;
     }
-    if(msg) {
+    if (msg) {
       dbus_message_unref(msg);
     }
     // We have to manually attach the path to the rest of the elements
@@ -1141,11 +1305,8 @@ BluetoothDBusService::SendDiscoveryMessage(const nsAString& aAdapterPath,
                                            const char* aMessageName,
                                            BluetoothReplyRunnable* aRunnable)
 {
-  if (!mConnection) {
-    NS_WARNING("Bluetooth service not started yet!");
-    return NS_ERROR_FAILURE;
-  }
   NS_ASSERTION(NS_IsMainThread(), "Must be called from main thread!");
+  NS_ASSERTION(mConnection, "Must have a connection here!");
 
   nsRefPtr<BluetoothReplyRunnable> runnable = aRunnable;
 
@@ -1169,6 +1330,10 @@ nsresult
 BluetoothDBusService::StopDiscoveryInternal(const nsAString& aAdapterPath,
                                             BluetoothReplyRunnable* aRunnable)
 {
+  if (!mConnection) {
+    NS_WARNING("Bluetooth service not started yet, no need to stop discovery.");
+    return NS_OK;
+  }
   return SendDiscoveryMessage(aAdapterPath, "StopDiscovery", aRunnable);
 }
  
@@ -1176,8 +1341,54 @@ nsresult
 BluetoothDBusService::StartDiscoveryInternal(const nsAString& aAdapterPath,
                                              BluetoothReplyRunnable* aRunnable)
 {
+  if (!mConnection) {
+    NS_WARNING("Bluetooth service not started yet, cannot start discovery!");
+    return NS_ERROR_FAILURE;
+  }
   return SendDiscoveryMessage(aAdapterPath, "StartDiscovery", aRunnable);
 }
+
+class BluetoothDevicePropertiesRunnable : public nsRunnable
+{
+public:
+  BluetoothDevicePropertiesRunnable(const nsAString& aDevicePath,
+                                    const nsAString& aSignalPath) :
+    mDevicePath(aDevicePath),
+    mSignalPath(aSignalPath)
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+  }
+
+  ~BluetoothDevicePropertiesRunnable()
+  {
+  }
+
+  NS_IMETHOD Run()
+  {
+    MOZ_ASSERT(!NS_IsMainThread());
+    BluetoothValue v;
+    if (!GetPropertiesInternal(mDevicePath, DBUS_DEVICE_IFACE, v)) {
+      NS_WARNING("Getting properties failed!");
+      return NS_ERROR_FAILURE;
+    }
+    BluetoothSignal signal(NS_LITERAL_STRING("DeviceCreated"),
+                           mSignalPath, v);
+
+    nsRefPtr<DistributeBluetoothSignalTask> t =
+      new DistributeBluetoothSignalTask(signal);
+
+    if (NS_FAILED(NS_DispatchToMainThread(t))) {
+       NS_WARNING("Failed to dispatch to main thread!");
+       return NS_ERROR_FAILURE;
+    }
+
+    return NS_OK;
+  }
+
+private:
+  nsString mDevicePath;
+  nsString mSignalPath;
+};
 
 class BluetoothPairedDevicePropertiesRunnable : public nsRunnable
 {
@@ -1196,33 +1407,28 @@ public:
     DBusError err;
     dbus_error_init(&err);
 
-    nsString replyError;
-    DBusMessage* msg;
     BluetoothValue values = InfallibleTArray<BluetoothNamedValue>();
 
     for (int i = 0; i < mDeviceAddresses.Length(); i++) {
-      BluetoothValue v = InfallibleTArray<BluetoothNamedValue>();
-      msg = dbus_func_args_timeout(gThreadConnection->GetConnection(),
-                                   1000,
-                                   &err,
-                                   NS_ConvertUTF16toUTF8(mDeviceAddresses[i]).get(),
-                                   DBUS_DEVICE_IFACE,
-                                   "GetProperties",
-                                   DBUS_TYPE_INVALID);
-      UnpackDevicePropertiesMessage(msg, &err, v, replyError);
-      if (!replyError.IsEmpty()) {
-        DispatchBluetoothReply(mRunnable, v, replyError);
-        return NS_ERROR_FAILURE;
-      }
-      if (msg) {
-        dbus_message_unref(msg);
+      BluetoothValue v;
+      if (!GetPropertiesInternal(mDeviceAddresses[i], DBUS_DEVICE_IFACE, v)) {
+        nsAutoString errorStr;
+        errorStr.AssignLiteral("Getting properties failed!");
+        NS_WARNING(NS_ConvertUTF16toUTF8(errorStr).get());
+        mRunnable->SetReply(new BluetoothReply(BluetoothReplyError(errorStr)));
+        if (NS_FAILED(NS_DispatchToMainThread(mRunnable))) {
+          NS_WARNING("Failed to dispatch to main thread!");
+        }
+        return NS_OK;
       }
       v.get_ArrayOfBluetoothNamedValue().AppendElement(
         BluetoothNamedValue(NS_LITERAL_STRING("Path"), mDeviceAddresses[i])
       );
 
-      InfallibleTArray<BluetoothNamedValue>& deviceProperties = v.get_ArrayOfBluetoothNamedValue();
-      for (uint32_t p = 0; p < v.get_ArrayOfBluetoothNamedValue().Length(); ++p) {
+      InfallibleTArray<BluetoothNamedValue>& deviceProperties =
+        v.get_ArrayOfBluetoothNamedValue();
+      for (uint32_t p = 0;
+           p < v.get_ArrayOfBluetoothNamedValue().Length(); ++p) {
         BluetoothNamedValue& property = v.get_ArrayOfBluetoothNamedValue()[p];
         // Only paired devices will be return back to main thread
         if (property.name().EqualsLiteral("Paired")) {
@@ -1276,6 +1482,26 @@ BluetoothDBusService::GetProperties(BluetoothObjectType aType,
     return NS_ERROR_FAILURE;
   }
   runnable.forget();
+  return NS_OK;
+}
+
+nsresult
+BluetoothDBusService::GetDevicePropertiesInternal(const nsAString& aDevicePath,
+                                                  const nsAString& aSignalPath)
+{
+  NS_ASSERTION(NS_IsMainThread(), "Must be called from main thread!");
+
+  if (!mConnection || !gThreadConnection) {
+    NS_ERROR("Bluetooth service not started yet!");
+    return NS_ERROR_FAILURE;
+  }
+
+  nsRefPtr<nsRunnable> func(new BluetoothDevicePropertiesRunnable(aDevicePath, aSignalPath));
+  if (NS_FAILED(mBluetoothCommandThread->Dispatch(func, NS_DISPATCH_NORMAL))) {
+    NS_WARNING("Cannot dispatch task!");
+    return NS_ERROR_FAILURE;
+  }
+
   return NS_OK;
 }
 
@@ -1385,9 +1611,9 @@ BluetoothDBusService::GetDevicePath(const nsAString& aAdapterPath,
 }
 
 int
-BluetoothDBusService::GetDeviceServiceChannelInternal(const nsAString& aObjectPath,
-                                                      const nsAString& aPattern,
-                                                      int aAttributeId)
+GetDeviceServiceChannel(const nsAString& aObjectPath,
+                        const nsAString& aPattern,
+                        int aAttributeId)
 {
   // This is a blocking call, should not be run on main thread.
   MOZ_ASSERT(!NS_IsMainThread());
@@ -1430,16 +1656,16 @@ ExtractHandles(DBusMessage *aReply, nsTArray<uint32_t>& aOutHandles)
   }
 }
 
-nsTArray<uint32_t>
+// static
+bool
 BluetoothDBusService::AddReservedServicesInternal(const nsAString& aAdapterPath,
-                                                  const nsTArray<uint32_t>& aServices)
+                                                  const nsTArray<uint32_t>& aServices, 
+                                                  nsTArray<uint32_t>& aServiceHandlesContainer)
 {
   MOZ_ASSERT(!NS_IsMainThread());
 
-  nsTArray<uint32_t> ret;
-
   int length = aServices.Length();
-  if (length == 0) return ret;
+  if (length == 0) return false;
 
   const uint32_t* services = aServices.Elements();
   DBusMessage* reply =
@@ -1451,13 +1677,14 @@ BluetoothDBusService::AddReservedServicesInternal(const nsAString& aAdapterPath,
 
   if (!reply) {
     LOG("Null DBus message. Couldn't extract handles.");
-    return ret;
+    return false;
   }
 
-  ExtractHandles(reply, ret);
-  return ret;
+  ExtractHandles(reply, aServiceHandlesContainer);
+  return true;
 }
 
+// static
 bool
 BluetoothDBusService::RemoveReservedServicesInternal(const nsAString& aAdapterPath,
                                                      const nsTArray<uint32_t>& aServiceHandles)
@@ -1689,4 +1916,134 @@ BluetoothDBusService::SetAuthorizationInternal(const nsAString& aDeviceAddress, 
   sAuthorizeReqTable.Remove(aDeviceAddress);
 
   return result;
+}
+
+class CreateBluetoothSocketRunnable : public nsRunnable
+{
+public:
+  CreateBluetoothSocketRunnable(BluetoothReplyRunnable* aRunnable,
+                                const nsAString& aObjectPath,
+                                const nsAString& aServiceUUID,
+                                int aType,
+                                bool aAuth,
+                                bool aEncrypt)
+    : mRunnable(dont_AddRef(aRunnable)),
+      mObjectPath(aObjectPath),
+      mServiceUUID(aServiceUUID),
+      mType(aType),
+      mAuth(aAuth),
+      mEncrypt(aEncrypt)
+  {
+  }
+
+  nsresult
+  Run()
+  {
+    NS_WARNING("Running create socket!\n");
+    MOZ_ASSERT(!NS_IsMainThread());
+
+    nsString address = GetAddressFromObjectPath(mObjectPath);
+    int channel = GetDeviceServiceChannel(mObjectPath, mServiceUUID, 0x0004);
+    int fd = mozilla::ipc::GetNewSocket(mType, NS_ConvertUTF16toUTF8(address).get(),
+                                        channel, mAuth, mEncrypt);
+    BluetoothValue v;
+    nsString replyError;
+    if (fd < 0) {
+      replyError.AssignLiteral("SocketConnectionError");
+      DispatchBluetoothReply(mRunnable, v, replyError);
+      return NS_ERROR_FAILURE;
+    }
+
+    v = (uint32_t)fd;
+
+    DispatchBluetoothReply(mRunnable, v, replyError);
+
+    return NS_OK;
+  }
+
+private:
+  nsRefPtr<BluetoothReplyRunnable> mRunnable;
+  nsString mObjectPath;
+  nsString mServiceUUID;
+  int mType;
+  bool mAuth;
+  bool mEncrypt;
+};
+
+nsresult
+BluetoothDBusService::GetSocketViaService(const nsAString& aObjectPath,
+                                          const nsAString& aService,
+                                          int aType,
+                                          bool aAuth,
+                                          bool aEncrypt,
+                                          BluetoothReplyRunnable* aRunnable)
+{
+  NS_ASSERTION(NS_IsMainThread(), "Must be called from main thread!");
+  if (!mConnection || !gThreadConnection) {
+    NS_ERROR("Bluetooth service not started yet!");
+    return NS_ERROR_FAILURE;
+  }
+  nsRefPtr<BluetoothReplyRunnable> runnable = aRunnable;
+
+  nsRefPtr<nsRunnable> func(new CreateBluetoothSocketRunnable(runnable, aObjectPath,
+                                                              aService, aType,
+                                                              aAuth, aEncrypt));
+  if (NS_FAILED(mBluetoothCommandThread->Dispatch(func, NS_DISPATCH_NORMAL))) {
+    NS_WARNING("Cannot dispatch firmware loading task!");
+    return NS_ERROR_FAILURE;
+  }
+
+  runnable.forget();
+  return NS_OK;
+}
+
+class CloseBluetoothSocketRunnable : public nsRunnable
+{
+public:
+  CloseBluetoothSocketRunnable(BluetoothReplyRunnable* aRunnable,
+                               int aFd)
+    : mRunnable(dont_AddRef(aRunnable)),
+      mFd(aFd)
+  {
+  }
+
+  nsresult
+  Run()
+  {
+    BluetoothValue v;
+    nsString replyError;
+    if (mozilla::ipc::CloseSocket(mFd) != 0) {
+      replyError.AssignLiteral("SocketConnectionError");
+      DispatchBluetoothReply(mRunnable, v, replyError);
+      return NS_ERROR_FAILURE;
+    }
+
+    DispatchBluetoothReply(mRunnable, v, replyError);
+
+    return NS_OK;
+  }
+
+private:
+  nsRefPtr<BluetoothReplyRunnable> mRunnable;
+  int mFd;
+};
+
+bool
+BluetoothDBusService::CloseSocket(int aFd, BluetoothReplyRunnable* aRunnable)
+{
+  NS_ASSERTION(NS_IsMainThread(), "Must be called from main thread!");
+  if (!mConnection || !gThreadConnection) {
+    NS_ERROR("Bluetooth service not started yet!");
+    return false;
+  }
+  nsRefPtr<BluetoothReplyRunnable> runnable = aRunnable;
+
+  nsRefPtr<nsRunnable> func(new CloseBluetoothSocketRunnable(runnable, aFd));
+  if (NS_FAILED(mBluetoothCommandThread->Dispatch(func, NS_DISPATCH_NORMAL))) {
+    NS_WARNING("Cannot dispatch firmware loading task!");
+    return false;
+  }
+
+  runnable.forget();
+  return true;
 }
