@@ -97,7 +97,6 @@ DevTools.prototype = {
    * - build: Function that takes a single parameter, a frame, which has been
    *          populated with the markup from |url|. And returns an instance of
    *          ToolInstance (function|required)
-   * - showInContextMenu: Should the tool be added to the context menu? (boolean|optional)
    */
   registerTool: function DT_registerTool(aToolDefinition) {
     this._tools.set(aToolDefinition.id, aToolDefinition);
@@ -129,20 +128,18 @@ DevTools.prototype = {
     }
 
     let tb = new Toolbox(aTarget, aHost, aDefaultToolId);
-    if (tb) {
-      this._toolboxes.set(aTarget, tb);
-      toolbox.open();
-    }
+    this._toolboxes.set(aTarget, tb);
+    tb.open();
   },
 
   /**
    * Return a map(DevToolsTarget, DevToolBox) of all the Toolboxes
    * map is a copy, not reference (can't be altered)
    */
-  getToolBoxes: function DT_getToolBoxes() {
+  getToolBoxes: function DT_getToolBoxes(x) {
     let toolboxes = new Map();
 
-    for (let [key, value] in this._toolboxes) {
+    for (let [key, value] of this._toolboxes) {
       toolboxes.set(key, value);
     }
     return toolboxes;
@@ -172,11 +169,12 @@ function Toolbox(aTarget, aHost, aDefaultToolId) {
   this._target = aTarget;
   this._host = aHost;
   this._defaultToolId = aDefaultToolId;
+  this._currentToolId = this._defaultToolId;
   this._toolInstances = new Map();
 
-  for (let tool of gDevTools.getToolDefinitions()) {
+  for (let [toolId, tool] of gDevTools.getToolDefinitions()) {
     let instance = tool.build();
-    this._toolInstances.set(tool.id, instance);
+    this._toolInstances.set(toolId, instance);
   }
 }
 
@@ -187,7 +185,7 @@ Toolbox.prototype = {
   getToolInstances: function TB_getToolInstances() {
     let instances = new Map();
 
-    for (let [key, value] in this._toolInstances) {
+    for (let [key, value] of this._toolInstances) {
       instances.set(key, value);
     }
     return instances;
@@ -247,13 +245,13 @@ Toolbox.prototype = {
 //------------------------------------------------------------------------------
 
 /**
- * When a Toolbox is started it creates a DevToolInstance for each of the tools
- * by calling toolDefinition.build(). The returned object should
- * at least implement these functions. They will be used by the ToolBox.
- *
- * There may be no benefit in doing this as an abstract type, but if nothing
- * else gives us a place to write documentation.
- */
+* When a Toolbox is started it creates a DevToolInstance for each of the tools
+* by calling toolDefinition.build(). The returned object should
+* at least implement these functions. They will be used by the ToolBox.
+*
+* There may be no benefit in doing this as an abstract type, but if nothing
+* else gives us a place to write documentation.
+*/
 function DevToolInstance(aTarget, aId) {
   this._target = aTarget;
   this._id = aId;
@@ -261,14 +259,14 @@ function DevToolInstance(aTarget, aId) {
 
 DevToolInstance.prototype = {
   /**
-   * Get the target of a Tool so we're debugging something different.
-   * TODO: Not sure about that. Maybe it's the ToolBox's job to destroy the tool
-   * and start it again with a new target.
-   *   JOE: If we think that, does the same go for Toolbox? I'm leaning towards
-   *        Keeping these in both cases. Either way I like symmetry.
-   *        Certainly target should be read-only to the public or we could have
-   *        one tool in a toolbox having a different target to the others
-   */
+* Get the target of a Tool so we're debugging something different.
+* TODO: Not sure about that. Maybe it's the ToolBox's job to destroy the tool
+* and start it again with a new target.
+* JOE: If we think that, does the same go for Toolbox? I'm leaning towards
+* Keeping these in both cases. Either way I like symmetry.
+* Certainly target should be read-only to the public or we could have
+* one tool in a toolbox having a different target to the others
+*/
   get target() {
     return this._target;
   },
@@ -278,9 +276,9 @@ DevToolInstance.prototype = {
   },
 
   /**
-   * Get the type of this tool.
-   * TODO: If this function isn't used then it should be removed
-   */
+* Get the type of this tool.
+* TODO: If this function isn't used then it should be removed
+*/
   get id() {
     return this._id;
   },
@@ -290,24 +288,24 @@ DevToolInstance.prototype = {
   },
 
   /**
-   * The Toolbox in which this Tool was hosted has been closed, possibly due to
-   * the target being closed. We should clear-up.
-   */
+* The Toolbox in which this Tool was hosted has been closed, possibly due to
+* the target being closed. We should clear-up.
+*/
   destroy: function DTI_destroy() {
 
   },
 
   /**
-   * This tool is being hidden.
-   * TODO: What is the definition of hidden?
-   */
+* This tool is being hidden.
+* TODO: What is the definition of hidden?
+*/
   hide: function DTI_hide() {
 
   },
 
   /**
-   * This tool is being shown.
-   */
+* This tool is being shown.
+*/
   show: function DTI_show() {
 
   },
