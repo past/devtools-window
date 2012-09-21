@@ -7471,6 +7471,17 @@ var Scratchpad = {
 
 var DevTools = {
   openForCurrentTab: function DT_openForCurrentTab() {
+    // test registration
+    gDevTools.registerTool({
+      id: "test",
+      label: "Test Tool",
+      url: "chrome://browser/content/devtools/toolbox/test.html",
+      build: function(tabFrame) {
+        dump("build called for test tool\n");
+        return {};
+      }
+    });
+
     let target = {
       type: gDevTools.TargetType.TAB,
       value: gBrowser.selectedTab
@@ -7479,7 +7490,7 @@ var DevTools = {
       type: gDevTools.HostType.IN_BROWSER,
       element: gBrowser
     }
-    gDevTools.openToolbox(target, host);
+    gDevTools.openToolbox(target, host, "test");
   }
 }
 
