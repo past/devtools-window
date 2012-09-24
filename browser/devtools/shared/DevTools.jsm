@@ -323,6 +323,9 @@ Toolbox.prototype = {
     }
   },
 
+  /**
+   * Onload handler for the toolbox's iframe
+   */
   _onLoad: function TBOX_onLoad() {
     this._frame.removeEventListener("DOMContentLoaded", this._onLoad, true);
 
@@ -332,6 +335,9 @@ Toolbox.prototype = {
     this.selectTool(this._defaultToolId);
   },
 
+  /**
+   * Add tabs to the toolbox UI for registered tools
+   */
   _buildTabs: function TBOX_buildTabs() {
     let tabs = this._doc.getElementById("toolbox-tabs");
     let deck = this._doc.getElementById("toolbox-deck");
@@ -361,6 +367,9 @@ Toolbox.prototype = {
     }
   },
 
+  /**
+   * Switch to the tool with the given id
+   */
   selectTool: function(id) {
     let tab = this._doc.getElementById("toolbox-tab-" + id);
     let tabstrip = this._doc.getElementById("toolbox-tabs");
