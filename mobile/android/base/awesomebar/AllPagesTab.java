@@ -125,6 +125,10 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
         AwesomeBarCursorAdapter adapter = getCursorAdapter();
         adapter.filter(searchTerm);
 
+        filterSuggestions(searchTerm);
+    }
+
+    private void filterSuggestions(String searchTerm) {
         // cancel previous query
         if (mSuggestTask != null) {
             mSuggestTask.cancel(true);
@@ -184,11 +188,6 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
                 return;
 
             String url = mCursor.getString(mCursor.getColumnIndexOrThrow(URLColumns.URL));
-
-            int display = mCursor.getInt(mCursor.getColumnIndexOrThrow(Combined.DISPLAY));
-            if (display == Combined.DISPLAY_READER) {
-                url = getReaderForUrl(url);
-            }
             listener.onUrlOpen(url);
         }
 
@@ -205,7 +204,8 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
                                           mCursor.getString(mCursor.getColumnIndexOrThrow(URLColumns.URL)),
                                           mCursor.getBlob(mCursor.getColumnIndexOrThrow(URLColumns.FAVICON)),
                                           mCursor.getString(mCursor.getColumnIndexOrThrow(URLColumns.TITLE)),
-                                          keyword);
+                                          keyword,
+                                          mCursor.getInt(mCursor.getColumnIndexOrThrow(Combined.DISPLAY)));
         }
     }
 
@@ -481,7 +481,7 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
             Log.e(LOGTAG, "Error getting search engine JSON", e);
         }
 
-        filter(mSearchTerm);
+        filterSuggestions(mSearchTerm);
     }
 
     private Drawable getDrawableFromDataURI(String dataURI) {
@@ -555,6 +555,7 @@ public class AllPagesTab extends AwesomeBarTab implements GeckoEventListener {
         inflater.inflate(R.menu.awesomebar_contextmenu, menu);
         menu.findItem(R.id.remove_bookmark).setVisible(false);
         menu.findItem(R.id.edit_bookmark).setVisible(false);
+        menu.findItem(R.id.open_in_reader).setVisible(subject.display == Combined.DISPLAY_READER);
 
         // Hide "Remove" item if there isn't a valid history ID
         if (subject.id < 0)

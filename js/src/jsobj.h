@@ -279,7 +279,7 @@ struct JSObject : public js::ObjectImpl
      * Update the last property, keeping the number of allocated slots in sync
      * with the object's new slot span.
      */
-    bool setLastProperty(JSContext *cx, js::Shape *shape);
+    static bool setLastProperty(JSContext *cx, js::HandleObject obj, js::Shape *shape);
 
     /* As above, but does not change the slot span. */
     inline void setLastPropertyInfallible(js::Shape *shape);
@@ -319,14 +319,6 @@ struct JSObject : public js::ObjectImpl
     inline bool setDelegate(JSContext *cx);
 
     inline bool isBoundFunction() const;
-
-    /*
-     * The meaning of the system object bit is defined by the API client. It is
-     * set in JS_NewSystemObject and is queried by JS_IsSystemObject, but it
-     * has no intrinsic meaning to SpiderMonkey.
-     */
-    inline bool isSystem() const;
-    inline bool setSystem(JSContext *cx);
 
     inline bool hasSpecialEquality() const;
 
@@ -380,6 +372,8 @@ struct JSObject : public js::ObjectImpl
                                     size_t *slotsSize, size_t *elementsSize,
                                     size_t *miscSize) const;
 
+    bool hasIdempotentProtoChain() const;
+
     static const uint32_t MAX_FIXED_SLOTS = 16;
 
   public:
@@ -400,13 +394,16 @@ struct JSObject : public js::ObjectImpl
      * The number of allocated slots is not stored explicitly, and changes to
      * the slots must track changes in the slot span.
      */
-    bool growSlots(JSContext *cx, uint32_t oldCount, uint32_t newCount);
-    void shrinkSlots(JSContext *cx, uint32_t oldCount, uint32_t newCount);
+    static bool growSlots(JSContext *cx, js::HandleObject obj, uint32_t oldCount,
+                          uint32_t newCount);
+    static void shrinkSlots(JSContext *cx, js::HandleObject obj, uint32_t oldCount,
+                            uint32_t newCount);
 
     bool hasDynamicSlots() const { return slots != NULL; }
 
   protected:
-    inline bool updateSlotsForSpan(JSContext *cx, size_t oldSpan, size_t newSpan);
+    static inline bool updateSlotsForSpan(JSContext *cx, js::HandleObject obj, size_t oldSpan,
+                                          size_t newSpan);
 
   public:
     /*
@@ -419,7 +416,8 @@ struct JSObject : public js::ObjectImpl
     void rollbackProperties(JSContext *cx, uint32_t slotSpan);
 
     inline void nativeSetSlot(unsigned slot, const js::Value &value);
-    inline void nativeSetSlotWithType(JSContext *cx, js::Shape *shape, const js::Value &value);
+    static inline void nativeSetSlotWithType(JSContext *cx, js::HandleObject, js::Shape *shape,
+                                             const js::Value &value);
 
     inline const js::Value &getReservedSlot(unsigned index) const;
     inline js::HeapSlot &getReservedSlotRef(unsigned index);
@@ -462,7 +460,7 @@ struct JSObject : public js::ObjectImpl
     bool setNewTypeUnknown(JSContext *cx);
 
     /* Set a new prototype for an object with a singleton type. */
-    bool splicePrototype(JSContext *cx, JSObject *proto);
+    bool splicePrototype(JSContext *cx, js::HandleObject proto);
 
     /*
      * For bootstrapping, whether to splice a prototype for Function.prototype
@@ -561,7 +559,7 @@ struct JSObject : public js::ObjectImpl
     bool allocateSlowArrayElements(JSContext *cx);
 
     inline uint32_t getArrayLength() const;
-    inline void setArrayLength(JSContext *cx, uint32_t length);
+    static inline void setArrayLength(JSContext *cx, js::HandleObject obj, uint32_t length);
 
     inline uint32_t getDenseArrayCapacity();
     inline void setDenseArrayLength(uint32_t length);
@@ -569,8 +567,10 @@ struct JSObject : public js::ObjectImpl
     inline void ensureDenseArrayInitializedLength(JSContext *cx, unsigned index, unsigned extra);
     inline void setDenseArrayElement(unsigned idx, const js::Value &val);
     inline void initDenseArrayElement(unsigned idx, const js::Value &val);
-    inline void setDenseArrayElementWithType(JSContext *cx, unsigned idx, const js::Value &val);
-    inline void initDenseArrayElementWithType(JSContext *cx, unsigned idx, const js::Value &val);
+    static inline void setDenseArrayElementWithType(JSContext *cx, js::HandleObject obj,
+                                                    unsigned idx, const js::Value &val);
+    static inline void initDenseArrayElementWithType(JSContext *cx, js::HandleObject obj,
+                                                     unsigned idx, const js::Value &val);
     inline void copyDenseArrayElements(unsigned dstStart, const js::Value *src, unsigned count);
     inline void initDenseArrayElements(unsigned dstStart, const js::Value *src, unsigned count);
     inline void moveDenseArrayElements(unsigned dstStart, unsigned srcStart, unsigned count);
@@ -788,7 +788,7 @@ struct JSObject : public js::ObjectImpl
     bool removeProperty(JSContext *cx, jsid id);
 
     /* Clear the scope, making it empty. */
-    void clear(JSContext *cx);
+    static void clear(JSContext *cx, js::HandleObject obj);
 
     static inline JSBool lookupGeneric(JSContext *cx, js::HandleObject obj,
                                        js::HandleId id,
@@ -891,8 +891,8 @@ struct JSObject : public js::ObjectImpl
     static bool deleteByValue(JSContext *cx, js::HandleObject obj,
                               const js::Value &property, js::MutableHandleValue rval, bool strict);
 
-    static inline bool enumerate(JSContext *cx, js::HandleObject obj,
-                                 JSIterateOp iterop, js::Value *statep, jsid *idp);
+    static inline bool enumerate(JSContext *cx, JS::HandleObject obj, JSIterateOp iterop,
+                                 JS::MutableHandleValue statep, JS::MutableHandleId idp);
     static inline bool defaultValue(JSContext *cx, js::HandleObject obj,
                                     JSType hint, js::MutableHandleValue vp);
     static inline JSType typeOf(JSContext *cx, js::HandleObject obj);
@@ -1322,7 +1322,7 @@ HasDataProperty(JSContext *cx, HandleObject obj, PropertyName *name, Value *vp)
 
 extern JSBool
 CheckAccess(JSContext *cx, JSObject *obj, HandleId id, JSAccessMode mode,
-            js::Value *vp, unsigned *attrsp);
+            MutableHandleValue v, unsigned *attrsp);
 
 } /* namespace js */
 

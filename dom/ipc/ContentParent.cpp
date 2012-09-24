@@ -26,6 +26,7 @@
 #include "mozilla/dom/ExternalHelperAppParent.h"
 #include "mozilla/dom/PMemoryReportRequestParent.h"
 #include "mozilla/dom/StorageParent.h"
+#include "mozilla/dom/bluetooth/PBluetoothParent.h"
 #include "mozilla/dom/devicestorage/DeviceStorageRequestParent.h"
 #include "mozilla/dom/sms/SmsParent.h"
 #include "mozilla/hal_sandbox/PHalParent.h"
@@ -105,10 +106,16 @@
 #include "nsIVolumeService.h"
 #endif
 
+#ifdef MOZ_B2G_BT
+#include "BluetoothParent.h"
+#include "BluetoothService.h"
+#endif
+
 static NS_DEFINE_CID(kCClipboardCID, NS_CLIPBOARD_CID);
 static const char* sClipboardTextFlavors[] = { kUnicodeMime };
 
 using base::KillProcess;
+using namespace mozilla::dom::bluetooth;
 using namespace mozilla::dom::devicestorage;
 using namespace mozilla::dom::sms;
 using namespace mozilla::dom::indexedDB;
@@ -279,14 +286,25 @@ ContentParent::GetNewOrUsed(bool aForBrowserElement)
 static bool
 AppNeedsInheritedOSPrivileges(mozIApplication* aApp)
 {
-    bool needsInherit = false;
-    // FIXME/bug 785592: implement a CameraBridge so we don't have to
-    // hack around with OS permissions
-    if (NS_FAILED(aApp->HasPermission("camera", &needsInherit))) {
-        NS_WARNING("Unable to check permissions.  Breakage may follow.");
-        return false;
+    const char* const needInheritPermissions[] = {
+        // FIXME/bug 785592: implement a CameraBridge so we don't have
+        // to hack around with OS permissions
+        "camera",
+        // FIXME/bug 793034: change our video architecture so that we
+        // can stream video from remote processes
+        "deprecated-hwvideo",
+    };
+    for (size_t i = 0; i < ArrayLength(needInheritPermissions); ++i) {
+        const char* const permission = needInheritPermissions[i];
+        bool needsInherit = false;
+        if (NS_FAILED(aApp->HasPermission(permission, &needsInherit))) {
+            NS_WARNING("Unable to check permissions.  Breakage may follow.");
+            return false;
+        } else if (needsInherit) {
+            return true;
+        }
     }
-    return needsInherit;
+    return false;
 }
 
 /*static*/ TabParent*
@@ -481,7 +499,7 @@ ContentParent::MarkAsDead()
 }
 
 void
-ContentParent::OnChannelConnected(int32 pid)
+ContentParent::OnChannelConnected(int32_t pid)
 {
     ProcessHandle handle;
     if (!base::OpenPrivilegedProcessHandle(pid, &handle)) {
@@ -523,17 +541,8 @@ ContentParent::ProcessingError(Result what)
         // Messages sent after crashes etc. are not a big deal.
         return;
     }
-    // Other errors are big deals.  This ensures the process is
-    // eventually killed, but doesn't immediately KILLITWITHFIRE
-    // because we want to get a minidump if possible.  After a timeout
-    // though, the process is forceably killed.
-    if (!KillProcess(OtherProcess(), 1, false)) {
-        NS_WARNING("failed to kill subprocess!");
-    }
-    XRE_GetIOMessageLoop()->PostTask(
-        FROM_HERE,
-        NewRunnableFunction(&ProcessWatcher::EnsureProcessTerminated,
-                            OtherProcess(), /*force=*/true));
+    // Other errors are big deals.
+    KillHard();
 }
 
 namespace {
@@ -686,9 +695,10 @@ ContentParent::ContentParent(const nsAString& aAppManifestURL,
     , mGeolocationWatchID(-1)
     , mRunToCompletionDepth(0)
     , mShouldCallUnblockChild(false)
+    , mAppManifestURL(aAppManifestURL)
     , mIsAlive(true)
     , mSendPermissionUpdates(false)
-    , mAppManifestURL(aAppManifestURL)
+    , mIsForBrowser(aIsForBrowser)
 {
     // From this point on, NS_WARNING, NS_ASSERTION, etc. should print out the
     // PID along with the warning.
@@ -707,8 +717,6 @@ ContentParent::ContentParent(const nsAString& aAppManifestURL,
         mSubprocess->AsyncLaunch();
     }
     Open(mSubprocess->GetChannel(), mSubprocess->GetChildProcessHandle());
-    unused << SendSetProcessAttributes(gContentChildID++,
-                                       IsForApp(), aIsForBrowser);
 
     // NB: internally, this will send an IPC message to the child
     // process to get it to create the CompositorChild.  This
@@ -1087,6 +1095,18 @@ ContentParent::AllocPImageBridge(mozilla::ipc::Transport* aTransport,
     return ImageBridgeParent::Create(aTransport, aOtherProcess);
 }
 
+bool
+ContentParent::RecvGetProcessAttributes(uint64_t* aId, bool* aStartBackground,
+                                        bool* aIsForApp, bool* aIsForBrowser)
+{
+    *aId = gContentChildID++;
+    *aStartBackground =
+        (mAppManifestURL == MAGIC_PREALLOCATED_APP_MANIFEST_URL);
+    *aIsForApp = IsForApp();
+    *aIsForBrowser = mIsForBrowser;
+    return true;
+}
+
 PBrowserParent*
 ContentParent::AllocPBrowser(const uint32_t& aChromeFlags,
                              const bool& aIsBrowserElement, const AppId& aApp)
@@ -1218,6 +1238,22 @@ ContentParent::GetOrCreateActorForBlob(nsIDOMBlob* aBlob)
   }
 
   return actor;
+}
+
+void
+ContentParent::KillHard()
+{
+    // This ensures the process is eventually killed, but doesn't
+    // immediately KILLITWITHFIRE because we want to get a minidump if
+    // possible.  After a timeout though, the process is forceably
+    // killed.
+    if (!KillProcess(OtherProcess(), 1, false)) {
+        NS_WARNING("failed to kill subprocess!");
+    }
+    XRE_GetIOMessageLoop()->PostTask(
+        FROM_HERE,
+        NewRunnableFunction(&ProcessWatcher::EnsureProcessTerminated,
+                            OtherProcess(), /*force=*/true));
 }
 
 PCrashReporterParent*
@@ -1438,6 +1474,46 @@ ContentParent::DeallocPStorage(PStorageParent* aActor)
 {
     delete aActor;
     return true;
+}
+
+PBluetoothParent*
+ContentParent::AllocPBluetooth()
+{
+#ifdef MOZ_B2G_BT
+    if (!AppProcessHasPermission(this, "bluetooth")) {
+        return nullptr;
+    }
+    return new mozilla::dom::bluetooth::BluetoothParent();
+#else
+    MOZ_NOT_REACHED("No support for bluetooth on this platform!");
+    return nullptr;
+#endif
+}
+
+bool
+ContentParent::DeallocPBluetooth(PBluetoothParent* aActor)
+{
+#ifdef MOZ_B2G_BT
+    delete aActor;
+    return true;
+#else
+    MOZ_NOT_REACHED("No support for bluetooth on this platform!");
+    return false;
+#endif
+}
+
+bool
+ContentParent::RecvPBluetoothConstructor(PBluetoothParent* aActor)
+{
+#ifdef MOZ_B2G_BT
+    nsRefPtr<BluetoothService> btService = BluetoothService::Get();
+    NS_ENSURE_TRUE(btService, false);
+
+    return static_cast<BluetoothParent*>(aActor)->InitWithService(btService);
+#else
+    MOZ_NOT_REACHED("No support for bluetooth on this platform!");
+    return false;
+#endif
 }
 
 void
@@ -1779,7 +1855,7 @@ ContentParent::RecvScriptError(const nsString& aMessage,
       return true;
 
   nsCOMPtr<nsIScriptError> msg(do_CreateInstance(NS_SCRIPTERROR_CONTRACTID));
-  nsresult rv = msg->Init(aMessage.get(), aSourceName.get(), aSourceLine.get(),
+  nsresult rv = msg->Init(aMessage, aSourceName, aSourceLine,
                           aLineNumber, aColNumber, aFlags, aCategory.get());
   if (NS_FAILED(rv))
     return true;

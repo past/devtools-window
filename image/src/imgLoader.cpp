@@ -4,7 +4,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/Attributes.h"
-#include "mozilla/FunctionTimer.h"
 #include "mozilla/Preferences.h"
 
 #include "ImageLogging.h"
@@ -88,7 +87,7 @@ public:
     AllSizes chrome;
     AllSizes content;
 
-    for (PRUint32 i = 0; i < mKnownLoaders.Length(); i++) {
+    for (uint32_t i = 0; i < mKnownLoaders.Length(); i++) {
       mKnownLoaders[i]->mChromeCache.EnumerateRead(EntryAllSizes, &chrome);
       mKnownLoaders[i]->mCache.EnumerateRead(EntryAllSizes, &content);
     }
@@ -158,7 +157,7 @@ public:
   NS_IMETHOD GetExplicitNonHeap(int64_t *n)
   {
     size_t n2 = 0;
-    for (PRUint32 i = 0; i < mKnownLoaders.Length(); i++) {
+    for (uint32_t i = 0; i < mKnownLoaders.Length(); i++) {
       mKnownLoaders[i]->mChromeCache.EnumerateRead(EntryExplicitNonHeapSize, &n2);
       mKnownLoaders[i]->mCache.EnumerateRead(EntryExplicitNonHeapSize, &n2);
     }
@@ -169,7 +168,7 @@ public:
   static int64_t GetImagesContentUsedUncompressed()
   {
     size_t n = 0;
-    for (PRUint32 i = 0; i < imgLoader::sMemReporter->mKnownLoaders.Length(); i++) {
+    for (uint32_t i = 0; i < imgLoader::sMemReporter->mKnownLoaders.Length(); i++) {
       imgLoader::sMemReporter->mKnownLoaders[i]->mCache.EnumerateRead(EntryUsedUncompressedSize, &n);
     }
     return n;
@@ -868,8 +867,6 @@ void imgLoader::GlobalInit()
 
 nsresult imgLoader::InitCache()
 {
-  NS_TIME_FUNCTION;
-
   nsCOMPtr<nsIObserverService> os = mozilla::services::GetObserverService();
   if (!os)
     return NS_ERROR_FAILURE;
@@ -1250,8 +1247,9 @@ bool imgLoader::ValidateRequestWithNewChannel(imgRequest *request,
 
     if (aCORSMode != imgIRequest::CORS_NONE) {
       bool withCredentials = aCORSMode == imgIRequest::CORS_USE_CREDENTIALS;
-      nsCOMPtr<nsIStreamListener> corsproxy =
-        new nsCORSListenerProxy(hvc, aLoadingPrincipal, newChannel, withCredentials, &rv);
+      nsRefPtr<nsCORSListenerProxy> corsproxy =
+        new nsCORSListenerProxy(hvc, aLoadingPrincipal, withCredentials);
+      rv = corsproxy->Init(newChannel);
       if (NS_FAILED(rv)) {
         return false;
       }
@@ -1704,9 +1702,9 @@ NS_IMETHODIMP imgLoader::LoadImage(nsIURI *aURI,
               this));
       bool withCredentials = corsmode == imgIRequest::CORS_USE_CREDENTIALS;
 
-      nsCOMPtr<nsIStreamListener> corsproxy =
-        new nsCORSListenerProxy(pl, aLoadingPrincipal, newChannel,
-                                withCredentials, &rv);
+      nsRefPtr<nsCORSListenerProxy> corsproxy =
+        new nsCORSListenerProxy(pl, aLoadingPrincipal, withCredentials);
+      rv = corsproxy->Init(newChannel);
       if (NS_FAILED(rv)) {
         PR_LOG(gImgLog, PR_LOG_DEBUG,
                ("[this=%p] imgLoader::LoadImage -- nsCORSListenerProxy "
@@ -2083,8 +2081,11 @@ NS_IMETHODIMP ProxyListener::OnStopRequest(nsIRequest *aRequest, nsISupports *ct
 
 /** nsIStreamListener methods **/
 
-/* void onDataAvailable (in nsIRequest request, in nsISupports ctxt, in nsIInputStream inStr, in unsigned long sourceOffset, in unsigned long count); */
-NS_IMETHODIMP ProxyListener::OnDataAvailable(nsIRequest *aRequest, nsISupports *ctxt, nsIInputStream *inStr, uint32_t sourceOffset, uint32_t count)
+/* void onDataAvailable (in nsIRequest request, in nsISupports ctxt, in nsIInputStream inStr, in unsigned long long sourceOffset, in unsigned long count); */
+NS_IMETHODIMP
+ProxyListener::OnDataAvailable(nsIRequest *aRequest, nsISupports *ctxt,
+                               nsIInputStream *inStr, uint64_t sourceOffset,
+                               uint32_t count)
 {
   if (!mDestListener)
     return NS_ERROR_FAILURE;
@@ -2249,8 +2250,11 @@ NS_IMETHODIMP imgCacheValidator::OnStopRequest(nsIRequest *aRequest, nsISupports
 /** nsIStreamListener methods **/
 
 
-/* void onDataAvailable (in nsIRequest request, in nsISupports ctxt, in nsIInputStream inStr, in unsigned long sourceOffset, in unsigned long count); */
-NS_IMETHODIMP imgCacheValidator::OnDataAvailable(nsIRequest *aRequest, nsISupports *ctxt, nsIInputStream *inStr, uint32_t sourceOffset, uint32_t count)
+/* void onDataAvailable (in nsIRequest request, in nsISupports ctxt, in nsIInputStream inStr, in unsigned long long sourceOffset, in unsigned long count); */
+NS_IMETHODIMP
+imgCacheValidator::OnDataAvailable(nsIRequest *aRequest, nsISupports *ctxt,
+                                   nsIInputStream *inStr,
+                                   uint64_t sourceOffset, uint32_t count)
 {
   if (!mDestListener) {
     // XXX see bug 113959

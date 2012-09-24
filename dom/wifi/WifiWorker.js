@@ -1735,7 +1735,7 @@ function WifiWorker() {
       self.setWifiEnabled({enabled: true});
     },
   };
-  gSettingsService.getLock().get("wifi.enabled", initWifiEnabledCb);
+  gSettingsService.createLock().get("wifi.enabled", initWifiEnabledCb);
 }
 
 function translateState(state) {
@@ -1948,8 +1948,15 @@ WifiWorker.prototype = {
 
   _domManagers: [],
   _fireEvent: function(message, data) {
-    this._domManagers.forEach(function(obj) {
-      obj.manager.sendAsyncMessage("WifiManager:" + message, data);
+    // TODO (bug 791911): Managers don't correctly tell us when they're getting
+    // destroyed, so prune dead managers here.
+    this._domManagers = this._domManagers.filter(function(obj) {
+      try {
+        obj.manager.sendAsyncMessage("WifiManager:" + message, data);
+        return true;
+      } catch(e) {
+        return false;
+      }
     });
   },
 
@@ -2318,7 +2325,7 @@ WifiWorker.prototype = {
     // To avoid WifiWorker setting the wifi again, we mark the
     // "fromInternalSetting" so WifiWorker won't deal with such
     // an internal "mozsettings-changed" event when receiving it.
-    gSettingsService.getLock().set(
+    gSettingsService.createLock().set(
       "wifi.enabled", enabled, null, "fromInternalSetting");
   },
 

@@ -13,10 +13,13 @@ Cu.import('resource://gre/modules/XPCOMUtils.jsm');
 Cu.import('resource://gre/modules/Services.jsm');
 Cu.import('resource://gre/modules/ContactService.jsm');
 Cu.import('resource://gre/modules/SettingsChangeNotifier.jsm');
-Cu.import('resource://gre/modules/Webapps.jsm');
+#ifdef MOZ_B2G_FM
+Cu.import('resource://gre/modules/DOMFMRadioParent.jsm');
+#endif
 Cu.import('resource://gre/modules/AlarmService.jsm');
 Cu.import('resource://gre/modules/ActivitiesService.jsm');
 Cu.import('resource://gre/modules/PermissionPromptHelper.jsm');
+Cu.import('resource://gre/modules/PermissionSettings.jsm');
 Cu.import('resource://gre/modules/ObjectWrapper.jsm');
 Cu.import('resource://gre/modules/accessibility/AccessFu.jsm');
 Cu.import('resource://gre/modules/Payment.jsm');
@@ -245,7 +248,7 @@ var shell = {
       case 'keypress':
         return;
     }
-  
+
     // On my device, the physical hardware buttons (sleep and volume)
     // send multiple events (press press release release), but the
     // soft home button just sends one.  This hack is to manually
@@ -296,6 +299,9 @@ var shell = {
 
         let chromeWindow = window.QueryInterface(Ci.nsIDOMChromeWindow);
         chromeWindow.browserDOMWindow = new nsBrowserAccess();
+
+        Cu.import('resource://gre/modules/Webapps.jsm');
+        DOMApplicationRegistry.allAppsLaunchable = true;
 
         this.sendEvent(window, 'ContentStart');
         break;
@@ -352,8 +358,7 @@ var shell = {
     this.sendChromeEvent({
       type: 'open-app',
       url: msg.uri,
-      origin: origin,
-      manifest: msg.manifest,
+      manifestURL: msg.manifest,
       isActivity: (msg.type == 'activity'),
       target: msg.target
     });
@@ -421,6 +426,10 @@ Services.obs.addObserver(function(aSubject, aTopic, aData) {
   shell.sendChromeEvent({ type: "fullscreenoriginchange",
                           fullscreenorigin: aData });
 }, "fullscreen-origin-change", false);
+
+Services.obs.addObserver(function onWebappsReady(subject, topic, data) {
+  shell.sendChromeEvent({ type: 'webapps-registry-ready' });
+}, 'webapps-registry-ready', false);
 
 (function Repl() {
   if (!Services.prefs.getBoolPref('b2g.remote-js.enabled')) {
@@ -509,6 +518,9 @@ var CustomEventManager = {
       case 'select-choicechange':
         FormsHelper.handleEvent(detail);
         break;
+      case 'system-message-listener-ready':
+        Services.obs.notifyObservers(null, 'system-message-listener-ready', null);
+        break;
     }
   }
 }
@@ -562,7 +574,6 @@ var WebappsHelper = {
   init: function webapps_init() {
     Services.obs.addObserver(this, "webapps-launch", false);
     Services.obs.addObserver(this, "webapps-ask-install", false);
-    DOMApplicationRegistry.allAppsLaunchable = true;
   },
 
   registerInstaller: function webapps_registerInstaller(data) {
@@ -588,6 +599,8 @@ var WebappsHelper = {
 
   observe: function webapps_observe(subject, topic, data) {
     let json = JSON.parse(data);
+    json.mm = subject;
+
     switch(topic) {
       case "webapps-launch":
         DOMApplicationRegistry.getManifestFor(json.origin, function(aManifest) {
@@ -598,7 +611,7 @@ var WebappsHelper = {
           shell.sendChromeEvent({
             "type": "webapps-launch",
             "url": manifest.fullLaunchPath(json.startPoint),
-            "origin": json.origin
+            "manifestURL": json.manifestURL
           });
         });
         break;
@@ -706,10 +719,10 @@ window.addEventListener('ContentStart', function ss_onContentStart() {
 (function headphonesStatusTracker() {
   Services.obs.addObserver(function(aSubject, aTopic, aData) {
     shell.sendChromeEvent({
-      type: 'headphones-status',
+      type: 'headphones-status-changed',
       state: aData
     });
-}, "headphones-status", false);
+}, "headphones-status-changed", false);
 })();
 
 (function recordingStatusTracker() {

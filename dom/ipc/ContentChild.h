@@ -135,6 +135,9 @@ public:
     virtual PStorageChild* AllocPStorage(const StorageConstructData& aData);
     virtual bool DeallocPStorage(PStorageChild* aActor);
 
+    virtual PBluetoothChild* AllocPBluetooth();
+    virtual bool DeallocPBluetooth(PBluetoothChild* aActor);
+
     virtual bool RecvRegisterChrome(const InfallibleTArray<ChromePackage>& packages,
                                     const InfallibleTArray<ResourceMapping>& resources,
                                     const InfallibleTArray<OverrideMapping>& overrides,
@@ -167,9 +170,6 @@ public:
     virtual bool RecvCycleCollect();
 
     virtual bool RecvAppInfo(const nsCString& version, const nsCString& buildID);
-    virtual bool RecvSetProcessAttributes(const uint64_t& id,
-                                          const bool& aIsForApp,
-                                          const bool& aIsForBrowser);
 
     virtual bool RecvLastPrivateDocShellDestroyed();
 

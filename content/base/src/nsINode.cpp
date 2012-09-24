@@ -1575,6 +1575,10 @@ nsINode::ReplaceOrInsertBefore(bool aReplace, nsINode* aNewChild,
     if (nodeType == nsIDOMNode::DOCUMENT_FRAGMENT_NODE) {
       static_cast<nsGenericElement*>(aNewChild)->FireNodeRemovedForChildren();
     }
+    // Verify that our aRefChild is still sensible
+    if (aRefChild && aRefChild->GetNodeParent() != this) {
+      return NS_ERROR_DOM_NOT_FOUND_ERR;
+    }
   }
 
   nsIDocument* doc = OwnerDoc();
@@ -2071,7 +2075,12 @@ nsNodeSelectorTearoff::QuerySelector(const nsAString& aSelector,
 {
   nsresult rv;
   nsIContent* result = mNode->QuerySelector(aSelector, &rv);
-  return result ? CallQueryInterface(result, aReturn) : rv;
+  if (!result) {
+    *aReturn = nullptr;
+    return rv;
+  }
+
+  return CallQueryInterface(result, aReturn);
 }
 
 NS_IMETHODIMP

@@ -295,6 +295,66 @@ SetProcessPriority(int aPid, ProcessPriority aPriority)
   Hal()->SendSetProcessPriority(aPid, aPriority);
 }
 
+void
+EnableFMRadio(const hal::FMRadioSettings& aSettings)
+{
+  Hal()->SendEnableFMRadio(aSettings);
+}
+
+void
+DisableFMRadio()
+{
+  Hal()->SendDisableFMRadio();
+}
+
+void
+FMRadioSeek(const hal::FMRadioSeekDirection& aDirection)
+{
+  Hal()->SendFMRadioSeek(aDirection);
+}
+
+void
+GetFMRadioSettings(FMRadioSettings* aSettings)
+{
+  Hal()->SendGetFMRadioSettings(aSettings);
+}
+
+void
+SetFMRadioFrequency(const uint32_t aFrequency)
+{
+  Hal()->SendSetFMRadioFrequency(aFrequency);
+}
+
+uint32_t
+GetFMRadioFrequency()
+{
+  uint32_t frequency;
+  Hal()->SendGetFMRadioFrequency(&frequency);
+  return frequency;
+}
+
+bool
+IsFMRadioOn()
+{
+  bool FMRadioOn;
+  Hal()->SendIsFMRadioOn(&FMRadioOn);
+  return FMRadioOn;
+}
+
+uint32_t
+GetFMRadioSignalStrength()
+{
+  uint32_t strength;
+  Hal()->SendGetFMRadioSignalStrength(&strength);
+  return strength;
+}
+
+void
+CancelFMRadioSeek()
+{
+  Hal()->SendCancelFMRadioSeek();
+}
+
 class HalParent : public PHalParent
                 , public BatteryObserver
                 , public NetworkObserver
@@ -304,29 +364,28 @@ class HalParent : public PHalParent
                 , public SwitchObserver
 {
 public:
+  virtual void
+  ActorDestroy(ActorDestroyReason aWhy) MOZ_OVERRIDE
+  {
+    // NB: you *must* unconditionally unregister your observer here,
+    // if it *may* be registered below.
+    hal::UnregisterBatteryObserver(this);
+    hal::UnregisterNetworkObserver(this);
+    hal::UnregisterScreenConfigurationObserver(this);
+    for (int32_t sensor = SENSOR_UNKNOWN + 1;
+         sensor < NUM_SENSOR_TYPE; ++sensor) {
+      hal::UnregisterSensorObserver(SensorType(sensor), this);
+    }
+    hal::UnregisterWakeLockObserver(this);
+  }
+
   virtual bool
   RecvVibrate(const InfallibleTArray<unsigned int>& pattern,
               const InfallibleTArray<uint64_t> &id,
               PBrowserParent *browserParent) MOZ_OVERRIDE
   {
     // We give all content vibration permission.
-
-    // Check whether browserParent is active.  We should have already
-    // checked that the corresponding window is active, but this check
-    // isn't redundant.  A window may be inactive in an active
-    // browser.  And a window is not notified synchronously when it's
-    // deactivated, so the window may think it's active when the tab
-    // is actually inactive.  This also mitigates user annoyance that
-    // buggy/malicious processes could cause.
     TabParent *tabParent = static_cast<TabParent*>(browserParent);
-    if (!tabParent->Active()) {
-      HAL_LOG(("RecvVibrate: Tab is not active. Cancelling."));
-      return true;
-    }
-
-    // Forward to hal::, not hal_impl::, because we might be a
-    // subprocess of another sandboxed process.  The hal:: entry point
-    // will do the right thing.
     nsCOMPtr<nsIDOMWindow> window =
       do_QueryInterface(tabParent->GetBrowserDOMWindow());
     WindowIdentifier newID(id, window);
@@ -522,7 +581,7 @@ public:
   virtual bool
   RecvAdjustSystemClock(const int32_t &aDeltaMilliseconds) MOZ_OVERRIDE
   {
-    if (!AppProcessHasPermission(this, "systemclock-write")) {
+    if (!AppProcessHasPermission(this, "time")) {
       return false;
     }
     hal::AdjustSystemClock(aDeltaMilliseconds);
@@ -532,7 +591,7 @@ public:
   virtual bool 
   RecvSetTimezone(const nsCString& aTimezoneSpec) MOZ_OVERRIDE
   {
-    if (!AppProcessHasPermission(this, "systemclock-write")) {
+    if (!AppProcessHasPermission(this, "time")) {
       return false;
     }
     hal::SetTimezone(aTimezoneSpec);
@@ -542,7 +601,7 @@ public:
   virtual bool
   RecvGetTimezone(nsCString *aTimezoneSpec) MOZ_OVERRIDE
   {
-    if (!AppProcessHasPermission(this, "systemclock-read")) {
+    if (!AppProcessHasPermission(this, "time")) {
       return false;
     }
     *aTimezoneSpec = hal::GetTimezone();
@@ -661,6 +720,79 @@ public:
     hal::SetProcessPriority(aPid, aPriority);
     return true;
   }
+
+  void Notify(const SystemTimeChange& aReason)
+  {
+    unused << SendNotifySystemTimeChange(aReason);
+  }
+
+  virtual bool
+  RecvEnableFMRadio(const hal::FMRadioSettings& aSettings)
+  {
+    hal::EnableFMRadio(aSettings);
+    return true;
+  }
+
+  virtual bool
+  RecvDisableFMRadio()
+  {
+    hal::DisableFMRadio();
+    return true;
+  }
+
+  virtual bool
+  RecvFMRadioSeek(const hal::FMRadioSeekDirection& aDirection)
+  {
+    hal::FMRadioSeek(aDirection);
+    return true;
+  }
+
+  virtual bool
+  RecvGetFMRadioSettings(hal::FMRadioSettings* aSettings)
+  {
+    hal::GetFMRadioSettings(aSettings);
+    return true;
+  }
+
+  virtual bool
+  RecvSetFMRadioFrequency(const uint32_t& aFrequency)
+  {
+    hal::SetFMRadioFrequency(aFrequency);
+    return true;
+  }
+
+  virtual bool
+  RecvGetFMRadioFrequency(uint32_t* aFrequency)
+  {
+    *aFrequency = hal::GetFMRadioFrequency();
+    return true;
+  }
+
+  void Notify(const hal::FMRadioOperationInformation& aRadioStatus)
+  {
+    unused << SendNotifyFMRadioStatus(aRadioStatus);
+  }
+
+  virtual bool
+  RecvIsFMRadioOn(bool* radioOn)
+  {
+    *radioOn = hal::IsFMRadioOn();
+    return true;
+  }
+
+  virtual bool
+  RecvGetFMRadioSignalStrength(uint32_t* strength)
+  {
+    *strength = hal::GetFMRadioSignalStrength();
+    return true;
+  }
+
+  virtual bool
+  RecvCancelFMRadioSeek()
+  {
+    hal::CancelFMRadioSeek();
+    return true;
+  }
 };
 
 class HalChild : public PHalChild {
@@ -695,6 +827,18 @@ public:
   virtual bool
   RecvNotifySwitchChange(const mozilla::hal::SwitchEvent& aEvent) MOZ_OVERRIDE {
     hal::NotifySwitchChange(aEvent);
+    return true;
+  }
+
+  virtual bool
+  RecvNotifySystemTimeChange(const SystemTimeChange& aReason) {
+    hal::NotifySystemTimeChange(aReason);
+    return true;
+  }
+
+  virtual bool
+  RecvNotifyFMRadioStatus(const FMRadioOperationInformation& aRadioStatus) {
+    hal::NotifyFMRadioStatus(aRadioStatus);
     return true;
   }
 };

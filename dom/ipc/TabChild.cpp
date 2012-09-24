@@ -23,11 +23,13 @@
 #include "mozilla/layout/RenderFrameChild.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/unused.h"
+#include "mozIApplication.h"
 #include "nsComponentManagerUtils.h"
 #include "nsComponentManagerUtils.h"
 #include "nsContentUtils.h"
 #include "nsEmbedCID.h"
 #include "nsEventListenerManager.h"
+#include "nsIAppsService.h"
 #include "nsIBaseWindow.h"
 #include "nsIComponentManager.h"
 #include "nsIDOMClassInfo.h"
@@ -203,13 +205,13 @@ TabChild::Init()
   nsCOMPtr<nsIBaseWindow> baseWindow = do_QueryInterface(mWebNav);
   if (!baseWindow) {
     NS_ERROR("mWebNav doesn't QI to nsIBaseWindow");
-    return false;
+    return NS_ERROR_FAILURE;
   }
 
   mWidget = nsIWidget::CreatePuppetWidget(this);
   if (!mWidget) {
     NS_ERROR("couldn't create fake widget");
-    return false;
+    return NS_ERROR_FAILURE;
   }
   mWidget->Create(
     nullptr, 0,              // no parents
@@ -677,10 +679,62 @@ TabChild::~TabChild()
     }
 }
 
+void
+TabChild::SetProcessNameToAppName()
+{
+  if (mIsBrowserElement || (mAppId == nsIScriptSecurityManager::NO_APP_ID)) {
+    return;
+  }
+  nsCOMPtr<nsIAppsService> appsService =
+    do_GetService(APPS_SERVICE_CONTRACTID);
+  if (!appsService) {
+    NS_WARNING("No AppsService");
+    return;
+  }
+  nsresult rv;
+  nsCOMPtr<mozIDOMApplication> domApp;
+  rv = appsService->GetAppByLocalId(mAppId, getter_AddRefs(domApp));
+  if (NS_FAILED(rv) || !domApp) {
+    NS_WARNING("GetAppByLocalId failed");
+    return;
+  }
+  nsCOMPtr<mozIApplication> app = do_QueryInterface(domApp);
+  if (!app) {
+    NS_WARNING("app isn't a mozIApplication");
+    return;
+  }
+  nsAutoString appName;
+  rv = app->GetName(appName);
+  if (NS_FAILED(rv)) {
+    NS_WARNING("Failed to retrieve app name");
+    return;
+  }
+  SetThisProcessName(NS_LossyConvertUTF16toASCII(appName).get());
+}
+
+bool
+TabChild::IsRootContentDocument()
+{
+    if (mIsBrowserElement || mAppId == nsIScriptSecurityManager::NO_APP_ID) {
+        // We're the child side of a browser element.  This always
+        // behaves like a root content document.
+        return true;
+    }
+
+    // Otherwise, we're the child side of an <html:app remote=true>
+    // embedded in an outer <html:app>.  These don't behave like root
+    // content documents in nested contexts.  Because of bug 761935,
+    // <html:browser remote> and <html:app remote> can't nest, so we
+    // assume this isn't the root.  When that bug is fixed, we need to
+    // revisit that assumption.
+    return false;
+}
+
 bool
 TabChild::RecvLoadURL(const nsCString& uri)
 {
     printf("loading %s, %d\n", uri.get(), NS_IsMainThread());
+    SetProcessNameToAppName();
 
     nsresult rv = mWebNav->LoadURI(NS_ConvertUTF8toUTF16(uri).get(),
                                    nsIWebNavigation::LOAD_FLAGS_NONE,
@@ -835,6 +889,19 @@ TabChild::RecvHandleDoubleTap(const nsIntPoint& aPoint)
 }
 
 bool
+TabChild::RecvHandleSingleTap(const nsIntPoint& aPoint)
+{
+  if (!mCx || !mTabChildGlobal) {
+    return true;
+  }
+
+  RecvMouseEvent(NS_LITERAL_STRING("mousedown"), aPoint.x, aPoint.y, 0, 1, 0, false);
+  RecvMouseEvent(NS_LITERAL_STRING("mouseup"), aPoint.x, aPoint.y, 0, 1, 0, false);
+
+  return true;
+}
+
+bool
 TabChild::RecvActivate()
 {
   nsCOMPtr<nsIWebBrowserFocus> browser = do_QueryInterface(mWebNav);
@@ -882,61 +949,67 @@ TabChild::RecvMouseWheelEvent(const WheelEvent& event)
   return true;
 }
 
+void
+TabChild::DispatchSynthesizedMouseEvent(const nsTouchEvent& aEvent)
+{
+  // Synthesize a phony mouse event.
+  uint32_t msg;
+  switch (aEvent.message) {
+    case NS_TOUCH_START:
+      msg = NS_MOUSE_BUTTON_DOWN;
+      break;
+    case NS_TOUCH_MOVE:
+      msg = NS_MOUSE_MOVE;
+      break;
+    case NS_TOUCH_END:
+    case NS_TOUCH_CANCEL:
+      msg = NS_MOUSE_BUTTON_UP;
+      break;
+    default:
+      MOZ_NOT_REACHED("Unknown touch event message");
+  }
+
+  nsIntPoint refPoint(0, 0);
+  if (aEvent.touches.Length()) {
+    refPoint = aEvent.touches[0]->mRefPoint;
+  }
+
+  nsMouseEvent event(true, msg, NULL,
+      nsMouseEvent::eReal, nsMouseEvent::eNormal);
+  event.refPoint = refPoint;
+  event.time = aEvent.time;
+  event.button = nsMouseEvent::eLeftButton;
+  if (msg != NS_MOUSE_MOVE) {
+    event.clickCount = 1;
+  }
+
+  DispatchWidgetEvent(event);
+}
+
 bool
 TabChild::RecvRealTouchEvent(const nsTouchEvent& aEvent)
 {
-    nsTouchEvent localEvent(aEvent);
-    nsEventStatus status = DispatchWidgetEvent(localEvent);
+  nsTouchEvent localEvent(aEvent);
+  nsEventStatus status = DispatchWidgetEvent(localEvent);
 
+  if (IsAsyncPanZoomEnabled()) {
     nsCOMPtr<nsPIDOMWindow> outerWindow = do_GetInterface(mWebNav);
     nsCOMPtr<nsPIDOMWindow> innerWindow = outerWindow->GetCurrentInnerWindow();
+
     if (innerWindow && innerWindow->HasTouchEventListeners()) {
       SendContentReceivedTouch(nsIPresShell::gPreventMouseEvents);
     }
+  } else if (status != nsEventStatus_eConsumeNoDefault) {
+    DispatchSynthesizedMouseEvent(aEvent);
+  }
 
-    if (status == nsEventStatus_eConsumeNoDefault) {
-        return true;
-    }
-
-    // Synthesize a phony mouse event.
-    uint32_t msg;
-    switch (aEvent.message) {
-    case NS_TOUCH_START:
-        msg = NS_MOUSE_BUTTON_DOWN;
-        break;
-    case NS_TOUCH_MOVE:
-        msg = NS_MOUSE_MOVE;
-        break;
-    case NS_TOUCH_END:
-    case NS_TOUCH_CANCEL:
-        msg = NS_MOUSE_BUTTON_UP;
-        break;
-    default:
-        MOZ_NOT_REACHED("Unknown touch event message");
-    }
-
-    nsIntPoint refPoint(0, 0);
-    if (aEvent.touches.Length()) {
-        refPoint = aEvent.touches[0]->mRefPoint;
-    }
-
-    nsMouseEvent event(true, msg, NULL,
-                       nsMouseEvent::eReal, nsMouseEvent::eNormal);
-    event.refPoint = refPoint;
-    event.time = aEvent.time;
-    event.button = nsMouseEvent::eLeftButton;
-    if (msg != NS_MOUSE_MOVE) {
-        event.clickCount = 1;
-    }
-
-    DispatchWidgetEvent(event);
-    return true;
+  return true;
 }
 
 bool
 TabChild::RecvRealTouchMoveEvent(const nsTouchEvent& aEvent)
 {
-    return RecvRealTouchEvent(aEvent);
+  return RecvRealTouchEvent(aEvent);
 }
 
 bool

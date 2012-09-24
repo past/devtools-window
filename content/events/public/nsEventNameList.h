@@ -463,6 +463,10 @@ WINDOW_ONLY_EVENT(devicelight,
                   NS_DEVICE_LIGHT,
                   EventNameType_None,
                   NS_EVENT)
+WINDOW_ONLY_EVENT(moztimechange,
+                  NS_MOZ_TIME_CHANGE_EVENT,
+                  EventNameType_None,
+                  NS_EVENT)
 
 TOUCH_EVENT(touchstart,
             NS_TOUCH_START,
@@ -757,19 +761,6 @@ NON_IDL_EVENT(MozEdgeUIGesture,
               NS_SIMPLE_GESTURE_EDGEUI,
               EventNameType_None,
               NS_SIMPLE_GESTURE_EVENT)
-
-NON_IDL_EVENT(MozTouchDown,
-              NS_MOZTOUCH_DOWN,
-              EventNameType_None,
-              NS_MOZTOUCH_EVENT)
-NON_IDL_EVENT(MozTouchMove,
-              NS_MOZTOUCH_MOVE,
-              EventNameType_None,
-              NS_MOZTOUCH_EVENT)
-NON_IDL_EVENT(MozTouchUp,
-              NS_MOZTOUCH_UP,
-              EventNameType_None,
-              NS_MOZTOUCH_EVENT)
 
 NON_IDL_EVENT(transitionend,
               NS_TRANSITION_END,

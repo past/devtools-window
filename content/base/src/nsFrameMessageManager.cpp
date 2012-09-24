@@ -287,7 +287,10 @@ nsFrameMessageManager::DispatchAsyncMessageInternal(const nsAString& aMessage,
 {
   if (mAsyncCallback) {
     NS_ENSURE_TRUE(mCallbackData, NS_ERROR_NOT_INITIALIZED);
-    mAsyncCallback(mCallbackData, aMessage, aData);
+
+    if (!mAsyncCallback(mCallbackData, aMessage, aData)) {
+      return NS_ERROR_FAILURE;
+    }
   }
   if (aBroadcast == BROADCAST) {
     int32_t len = mChildManagers.Count();
@@ -683,10 +686,10 @@ ContentScriptErrorReporter(JSContext* aCx,
 
   if (aReport) {
     if (aReport->ucmessage) {
-      message.Assign(reinterpret_cast<const PRUnichar*>(aReport->ucmessage));
+      message.Assign(static_cast<const PRUnichar*>(aReport->ucmessage));
     }
     filename.AssignWithConversion(aReport->filename);
-    line.Assign(reinterpret_cast<const PRUnichar*>(aReport->uclinebuf));
+    line.Assign(static_cast<const PRUnichar*>(aReport->uclinebuf));
     lineNumber = aReport->lineno;
     columnNumber = aReport->uctokenptr - aReport->uclinebuf;
     flags = aReport->flags;
@@ -700,7 +703,7 @@ ContentScriptErrorReporter(JSContext* aCx,
     message.AssignWithConversion(aMessage);
   }
 
-  rv = scriptError->Init(message.get(), filename.get(), line.get(),
+  rv = scriptError->Init(message, filename, line,
                          lineNumber, columnNumber, flags,
                          "Message manager content script");
   if (NS_FAILED(rv)) {
@@ -731,7 +734,7 @@ ContentScriptErrorReporter(JSContext* aCx,
   error.AppendInt(lineNumber, 10);
   error.Append(": ");
   if (aReport->ucmessage) {
-    AppendUTF16toUTF8(reinterpret_cast<const PRUnichar*>(aReport->ucmessage),
+    AppendUTF16toUTF8(static_cast<const PRUnichar*>(aReport->ucmessage),
                       error);
   } else {
     error.Append(aMessage);
@@ -958,8 +961,7 @@ nsFrameScriptExecutor::InitTabChildGlobalInternal(nsISupports* aScope)
 
   JSAutoRequest ar(cx);
   nsIXPConnect* xpc = nsContentUtils::XPConnect();
-  const uint32_t flags = nsIXPConnect::INIT_JS_STANDARD_CLASSES |
-                         nsIXPConnect::FLAG_SYSTEM_GLOBAL_OBJECT;
+  const uint32_t flags = nsIXPConnect::INIT_JS_STANDARD_CLASSES;
 
   
   JS_SetContextPrivate(cx, aScope);

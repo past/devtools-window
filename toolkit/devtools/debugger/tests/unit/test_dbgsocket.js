@@ -7,7 +7,7 @@ Cu.import("resource:///modules/devtools/dbg-client.jsm");
 function run_test()
 {
   // Allow incoming connections.
-  DebuggerServer.init(function () { return true; });
+  DebuggerServer.init(function () true);
   DebuggerServer.addActors("resource://test/testactors.js");
 
   add_test(test_socket_conn);
@@ -27,7 +27,12 @@ function really_long() {
 
 function test_socket_conn()
 {
-  DebuggerServer.openListener(2929);
+  do_check_eq(DebuggerServer._socketConnections, 0);
+  do_check_true(DebuggerServer.openListener(2929));
+  do_check_eq(DebuggerServer._socketConnections, 1);
+  // Make sure opening the listener twice does nothing.
+  do_check_true(DebuggerServer.openListener(2929));
+  do_check_eq(DebuggerServer._socketConnections, 1);
 
   let unicodeString = "(╯°□°）╯︵ ┻━┻";
   let transport = debuggerSocketConnect("127.0.0.1", 2929);
@@ -54,7 +59,37 @@ function test_socket_conn()
 
 function test_socket_shutdown()
 {
-  DebuggerServer.closeListener();
+  let count = 0;
+  wait_for_server_shutdown(count);
+}
+
+function wait_for_server_shutdown(aCount)
+{
+  do_timeout(100, function() {
+    dump("count: "+aCount+" ");
+    if (++aCount > 20) {
+      do_throw("Timed out waiting for the server to shut down.");
+      return;
+    }
+    if (DebuggerServer.initialized) {
+      wait_for_server_shutdown(aCount);
+      return;
+    }
+    real_test_socket_shutdown(aCount);
+  });
+}
+
+function real_test_socket_shutdown()
+{
+  // After the last conection was closed, the server must be initialized again.
+  // Allow incoming connections.
+  DebuggerServer.init(function () true);
+  DebuggerServer.addActors("resource://test/testactors.js");
+
+  do_check_eq(DebuggerServer._socketConnections, 0);
+  // Make sure closing a non-started listener does nothing.
+  do_check_false(DebuggerServer.closeListener());
+  do_check_eq(DebuggerServer._socketConnections, 0);
 
   let transport = debuggerSocketConnect("127.0.0.1", 2929);
   transport.hooks = {

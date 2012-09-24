@@ -18,6 +18,7 @@
 #include "nsIChildChannel.h"
 
 #include "nsIStreamListener.h"
+#include "PrivateBrowsingChannel.h"
 
 namespace mozilla {
 namespace net {
@@ -34,6 +35,7 @@ class FTPChannelChild : public PFTPChannelChild
                       , public nsIResumableChannel
                       , public nsIProxiedChannel
                       , public nsIChildChannel
+                      , public mozilla::net::PrivateBrowsingChannel<FTPChannelChild>
 {
 public:
   typedef ::nsIStreamListener nsIStreamListener;
@@ -74,7 +76,7 @@ protected:
                           const nsCString& aEntityID,
                           const URIParams& aURI) MOZ_OVERRIDE;
   bool RecvOnDataAvailable(const nsCString& data,
-                           const uint32_t& offset,
+                           const uint64_t& offset,
                            const uint32_t& count) MOZ_OVERRIDE;
   bool RecvOnStopRequest(const nsresult& statusCode) MOZ_OVERRIDE;
   bool RecvFailedAsyncOpen(const nsresult& statusCode) MOZ_OVERRIDE;
@@ -86,17 +88,21 @@ protected:
                         const nsCString& aEntityID,
                         const URIParams& aURI);
   void DoOnDataAvailable(const nsCString& data,
-                         const uint32_t& offset,
+                         const uint64_t& offset,
                          const uint32_t& count);
   void DoOnStopRequest(const nsresult& statusCode);
   void DoFailedAsyncOpen(const nsresult& statusCode);
   void DoDeleteSelf();
+
+  NS_IMETHOD SetNotificationCallbacks(nsIInterfaceRequestor* aCallbacks);
+  NS_IMETHOD SetLoadGroup(nsILoadGroup* aLoadGroup);
 
   friend class FTPStartRequestEvent;
   friend class FTPDataAvailableEvent;
   friend class FTPStopRequestEvent;
   friend class FTPFailedAsyncOpenEvent;
   friend class FTPDeleteSelfEvent;
+  friend class mozilla::net::PrivateBrowsingChannel<FTPChannelChild>;
 
 private:
   // Called asynchronously from Resume: continues any pending calls into client.

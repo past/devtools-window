@@ -374,6 +374,7 @@ nsDOMFileBase::GetFileInfo(indexedDB::FileManager* aFileManager)
 
 NS_IMETHODIMP
 nsDOMFileBase::GetSendInfo(nsIInputStream** aBody,
+                           uint64_t* aContentLength,
                            nsACString& aContentType,
                            nsACString& aCharset)
 {
@@ -381,6 +382,9 @@ nsDOMFileBase::GetSendInfo(nsIInputStream** aBody,
 
   nsCOMPtr<nsIInputStream> stream;
   rv = this->GetInternalStream(getter_AddRefs(stream));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = this->GetSize(aContentLength);
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsString contentType;
@@ -682,13 +686,13 @@ nsDOMFileList::WrapObject(JSContext *cx, JSObject *scope,
 nsIDOMFile*
 nsDOMFileList::GetItemAt(uint32_t aIndex)
 {
-  return mFiles.SafeObjectAt(aIndex);
+  return Item(aIndex);
 }
 
 NS_IMETHODIMP
 nsDOMFileList::GetLength(uint32_t* aLength)
 {
-  *aLength = mFiles.Count();
+  *aLength = Length();
 
   return NS_OK;
 }
@@ -696,7 +700,7 @@ nsDOMFileList::GetLength(uint32_t* aLength)
 NS_IMETHODIMP
 nsDOMFileList::Item(uint32_t aIndex, nsIDOMFile **aFile)
 {
-  NS_IF_ADDREF(*aFile = nsDOMFileList::GetItemAt(aIndex));
+  NS_IF_ADDREF(*aFile = Item(aIndex));
 
   return NS_OK;
 }

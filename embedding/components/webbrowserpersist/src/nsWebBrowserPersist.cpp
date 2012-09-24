@@ -779,9 +779,10 @@ NS_IMETHODIMP nsWebBrowserPersist::OnStopRequest(
 // nsWebBrowserPersist::nsIStreamListener
 //*****************************************************************************
 
-NS_IMETHODIMP nsWebBrowserPersist::OnDataAvailable(
+NS_IMETHODIMP
+nsWebBrowserPersist::OnDataAvailable(
     nsIRequest* request, nsISupports *aContext, nsIInputStream *aIStream,
-    uint32_t aOffset, uint32_t aLength)
+    uint64_t aOffset, uint32_t aLength)
 {
     bool cancel = mCancel;
     if (!cancel)
@@ -2212,7 +2213,13 @@ nsWebBrowserPersist::CalculateAndAppendFileExt(nsIURI *aURI, nsIChannel *aChanne
                     uint32_t newLength = newFileName.Length() + fileExt.Length() + 1;
                     if (newLength > kDefaultMaxFilenameLength)
                     {
-                        newFileName.Truncate(newFileName.Length() - (newLength - kDefaultMaxFilenameLength));
+                        if (fileExt.Length() > kDefaultMaxFilenameLength/2)
+                            fileExt.Truncate(kDefaultMaxFilenameLength/2);
+
+                        uint32_t diff = kDefaultMaxFilenameLength - 1 -
+                                        fileExt.Length();
+                        if (newFileName.Length() > diff)
+                            newFileName.Truncate(diff);
                     }
                     newFileName.Append(".");
                     newFileName.Append(fileExt);

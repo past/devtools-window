@@ -34,8 +34,10 @@ const nsIRadioInterfaceLayer = Ci.nsIRadioInterfaceLayer;
 
 const kNetworkInterfaceStateChangedTopic = "network-interface-state-changed";
 const kSmsReceivedObserverTopic          = "sms-received";
+const kSmsSentObserverTopic              = "sms-sent";
 const kSmsDeliveredObserverTopic         = "sms-delivered";
 const kMozSettingsChangedObserverTopic   = "mozsettings-changed";
+const kSysMsgListenerReadyObserverTopic  = "system-message-listener-ready";
 const DOM_SMS_DELIVERY_RECEIVED          = "received";
 const DOM_SMS_DELIVERY_SENT              = "sent";
 
@@ -180,18 +182,21 @@ function RadioInterfaceLayer() {
                      relSignalStrength: null},
   };
 
+  this.callWaitingStatus = null;
+
   // Read the 'ril.radio.disabled' setting in order to start with a known
   // value at boot time.
-  gSettingsService.getLock().get("ril.radio.disabled", this);
+  let lock = gSettingsService.createLock();
+  lock.get("ril.radio.disabled", this);
 
   // Read the APN data form the setting DB.
-  gSettingsService.getLock().get("ril.data.apn", this);
-  gSettingsService.getLock().get("ril.data.user", this);
-  gSettingsService.getLock().get("ril.data.passwd", this);
-  gSettingsService.getLock().get("ril.data.httpProxyHost", this);
-  gSettingsService.getLock().get("ril.data.httpProxyPort", this);
-  gSettingsService.getLock().get("ril.data.roaming_enabled", this);
-  gSettingsService.getLock().get("ril.data.enabled", this);
+  lock.get("ril.data.apn", this);
+  lock.get("ril.data.user", this);
+  lock.get("ril.data.passwd", this);
+  lock.get("ril.data.httpProxyHost", this);
+  lock.get("ril.data.httpProxyPort", this);
+  lock.get("ril.data.roaming_enabled", this);
+  lock.get("ril.data.enabled", this);
   this._dataCallSettingsToRead = ["ril.data.enabled",
                                   "ril.data.roaming_enabled",
                                   "ril.data.apn",
@@ -200,6 +205,9 @@ function RadioInterfaceLayer() {
                                   "ril.data.httpProxyHost",
                                   "ril.data.httpProxyPort"];
 
+  // Read the desired setting of call waiting from the settings DB.
+  lock.get("ril.callwaiting.enabled", this);
+
   this._messageManagerByRequest = {};
 
   for each (let msgname in RIL_IPC_MSG_NAMES) {
@@ -207,6 +215,7 @@ function RadioInterfaceLayer() {
   }
   Services.obs.addObserver(this, "xpcom-shutdown", false);
   Services.obs.addObserver(this, kMozSettingsChangedObserverTopic, false);
+  Services.obs.addObserver(this, kSysMsgListenerReadyObserverTopic, false);
 
   this._sentSmsEnvelopes = {};
 
@@ -390,6 +399,9 @@ RadioInterfaceLayer.prototype = {
         this.rilContext.cardState = message.cardState;
         ppmm.broadcastAsyncMessage("RIL:CardStateChanged", message);
         break;
+      case "setCallWaiting":
+        this.handleCallWaitingStatusChange(message);
+        break;
       case "sms-received":
         this.handleSmsReceived(message);
         return;
@@ -515,6 +527,9 @@ RadioInterfaceLayer.prototype = {
       }
     }
 
+    this.checkRoamingBetweenOperators(voice);
+    this.checkRoamingBetweenOperators(data);
+
     if (voiceMessage || operatorMessage) {
       ppmm.broadcastAsyncMessage("RIL:VoiceInfoChanged", voice);
     }
@@ -525,6 +540,32 @@ RadioInterfaceLayer.prototype = {
     if (selectionMessage) {
       this.updateNetworkSelectionMode(selectionMessage);
     }
+  },
+
+  /**
+    * Fix the roaming. RIL can report roaming in some case it is not
+    * really the case. See bug 787967
+    *
+    * @param registration  The voiceMessage or dataMessage from which the
+    *                      roaming state will be changed (maybe, if needed).
+    */
+  checkRoamingBetweenOperators: function checkRoamingBetweenOperators(registration) {
+    let icc = this.rilContext.icc;
+    if (!icc || !registration.connected) {
+      return;
+    }
+
+    let spn = icc.spn;
+    let operator = registration.network;
+    let longName = operator.longName;
+    let shortName = operator.shortName;
+
+    let equalsLongName = longName && (spn == longName);
+    let equalsShortName = shortName && (spn == shortName);
+    let equalsMcc = icc.mcc == operator.mcc;
+
+    registration.roaming = registration.roaming &&
+                           !(equalsMcc && (equalsLongName || equalsShortName));
   },
 
   /**
@@ -544,6 +585,12 @@ RadioInterfaceLayer.prototype = {
     // no (useful) radio tech information, so we have to manually set
     // this here. (TODO GSM only for now, see bug 726098.)
     voiceInfo.type = "gsm";
+
+    // Ensure the call waiting status once the voice network connects.
+    if (voiceInfo.connected && this.callWaitingStatus == null) {
+      // The call waiting status has not been updated yet. Update that.
+      this.setCallWaitingEnabled(this._callWaitingEnabled);
+    }
 
     // Make sure we also reset the operator and signal strength information
     // if we drop off the network.
@@ -657,6 +704,11 @@ RadioInterfaceLayer.prototype = {
       // Wait for that.
       return;
     }
+    if (!this._sysMsgListenerReady) {
+      // The UI's system app isn't ready yet for us to receive any
+      // events (e.g. incoming SMS, etc.). Wait for that.
+      return;
+    }
     if (this.rilContext.radioState == RIL.GECKO_RADIOSTATE_UNKNOWN) {
       // We haven't received a radio state notification from the RIL
       // yet. Wait for that.
@@ -670,6 +722,41 @@ RadioInterfaceLayer.prototype = {
     if (this.rilContext.radioState == RIL.GECKO_RADIOSTATE_READY &&
         !this._radioEnabled) {
       this.setRadioEnabled(false);
+    }
+  },
+
+  handleCallWaitingStatusChange: function handleCallWaitingStatusChange(message) {
+    let newStatus = message.enabled;
+
+    // RIL fails in setting call waiting status. Reset "ril.callwaiting.enabled"
+    // in the settings DB.
+    if (!message.success) {
+      newStatus = !newStatus;
+      let lock = gSettingsService.createLock();
+      lock.set("ril.callwaiting.enabled", newStatus, null);
+      return;
+    }
+
+    this.callWaitingStatus = newStatus;
+  },
+
+  setCallWaitingEnabled: function setCallWaitingEnabled(value) {
+    debug("Current call waiting status is " + this.callWaitingStatus +
+          ", desired call waiting status is " + value);
+    if (!this.rilContext.voice.connected) {
+      // The voice network is not connected. Wait for that.
+      return;
+    }
+
+    if (value == null) {
+      // We haven't read the initial value from the settings DB yet.
+      // Wait for that.
+      return;
+    }
+
+    if (this.callWaitingStatus != value) {
+      debug("Setting call waiting status to " + value);
+      this.worker.postMessage({rilMessageType: "setCallWaiting", enabled: value});
     }
   },
 
@@ -961,6 +1048,8 @@ RadioInterfaceLayer.prototype = {
     }
 
     gSmsRequestManager.notifySmsSent(options.requestId, sms);
+
+    Services.obs.notifyObservers(options.sms, kSmsSentObserverTopic, null);
   },
 
   handleSmsDelivered: function handleSmsDelivered(message) {
@@ -1020,7 +1109,12 @@ RadioInterfaceLayer.prototype = {
   handleICCInfoChange: function handleICCInfoChange(message) {
     let oldIcc = this.rilContext.icc;
     this.rilContext.icc = message;
-    if (oldIcc && (oldIcc.mcc == message.mcc || oldIcc.mnc == message.mnc)) {
+   
+    let iccInfoChanged = !oldIcc ||
+                         oldIcc.iccid != message.iccid ||
+                         oldIcc.mcc != message.mcc || 
+                         oldIcc.mnc != message.mnc;
+    if (!iccInfoChanged) {
       return;
     }
     // RIL:IccInfoChanged corresponds to a DOM event that gets fired only
@@ -1061,6 +1155,11 @@ RadioInterfaceLayer.prototype = {
 
   observe: function observe(subject, topic, data) {
     switch (topic) {
+      case kSysMsgListenerReadyObserverTopic:
+        Services.obs.removeObserver(this, kSysMsgListenerReadyObserverTopic);
+        this._sysMsgListenerReady = true;
+        this._ensureRadioState();
+        break;
       case kMozSettingsChangedObserverTopic:
         let setting = JSON.parse(data);
         this.handle(setting.key, setting.value);
@@ -1077,17 +1176,26 @@ RadioInterfaceLayer.prototype = {
     }
   },
 
-  // nsISettingsServiceCallback
+  // Flag to determine whether the UI's system app is ready to receive
+  // events yet.
+  _sysMsgListenerReady: false,
 
   // Flag to determine the radio state to start with when we boot up. It
   // corresponds to the 'ril.radio.disabled' setting from the UI.
   _radioEnabled: null,
 
+  // Flag to determine whether we reject a waiting call directly or we
+  // notify the UI of a waiting call. It corresponds to the
+  // 'ril.callwaiting.enbled' setting from the UI.
+  _callWaitingEnabled: null,
+
   // APN data for making data calls.
   dataCallSettings: {},
   _dataCallSettingsToRead: [],
   _oldRilDataEnabledState: null,
-  
+
+  // nsISettingsServiceCallback
+
   handle: function handle(aName, aResult) {
     switch(aName) {
       case "ril.radio.disabled":
@@ -1113,9 +1221,13 @@ RadioInterfaceLayer.prototype = {
         }
         this.updateRILNetworkInterface();
         break;
+      case "ril.callwaiting.enabled":
+        this._callWaitingEnabled = aResult;
+        this.setCallWaitingEnabled(this._callWaitingEnabled);
+        break;
     };
   },
-    
+
   handleError: function handleError(aErrorMessage) {
     debug("There was an error while reading RIL settings.");
 
@@ -1244,9 +1356,6 @@ RadioInterfaceLayer.prototype = {
     if (value == this.microphoneMuted) {
       return;
     }
-    gAudioManager.phoneState = value ?
-      nsIAudioManager.PHONE_STATE_IN_COMMUNICATION :
-      nsIAudioManager.PHONE_STATE_IN_CALL;  //XXX why is this needed?
     gAudioManager.microphoneMuted = value;
 
     if (!this._activeCall) {
@@ -1262,7 +1371,6 @@ RadioInterfaceLayer.prototype = {
     if (value == this.speakerEnabled) {
       return;
     }
-    gAudioManager.phoneState = nsIAudioManager.PHONE_STATE_IN_CALL; // XXX why is this needed?
     let force = value ? nsIAudioManager.FORCE_SPEAKER :
                         nsIAudioManager.FORCE_NONE;
     gAudioManager.setForceForUse(nsIAudioManager.USE_COMMUNICATION, force);
@@ -1745,14 +1853,14 @@ RadioInterfaceLayer.prototype = {
   },
 
   _contactsCallbacks: null,
-  getICCContacts: function getICCContacts(type, callback) {
+  getICCContacts: function getICCContacts(contactType, callback) {
     if (!this._contactsCallbacks) {
       this._contactsCallbacks = {};
     } 
     let requestId = Math.floor(Math.random() * 1000);
     this._contactsCallbacks[requestId] = callback;
     this.worker.postMessage({rilMessageType: "getICCContacts",
-                             type: type,
+                             contactType: contactType,
                              requestId: requestId});
   }
 };

@@ -8,7 +8,6 @@
 /*
  * JS symbol tables.
  */
-#include <new>
 #include <stdlib.h>
 #include <string.h>
 #include "jstypes.h"
@@ -362,7 +361,7 @@ JSObject::getChildProperty(JSContext *cx, Shape *parent, StackShape &child)
             return NULL;
         //JS_ASSERT(shape->parent == parent);
         //JS_ASSERT_IF(parent != lastProperty(), parent == lastProperty()->parent);
-        if (!self->setLastProperty(cx, shape))
+        if (!JSObject::setLastProperty(cx, self, shape))
             return NULL;
     }
 
@@ -889,25 +888,25 @@ JSObject::removeProperty(JSContext *cx, jsid id_)
     return true;
 }
 
-void
-JSObject::clear(JSContext *cx)
+/* static */ void
+JSObject::clear(JSContext *cx, HandleObject obj)
 {
-    Shape *shape = lastProperty();
-    JS_ASSERT(inDictionaryMode() == shape->inDictionary());
+    Shape *shape = obj->lastProperty();
+    JS_ASSERT(obj->inDictionaryMode() == shape->inDictionary());
 
     while (shape->parent) {
         shape = shape->parent;
-        JS_ASSERT(inDictionaryMode() == shape->inDictionary());
+        JS_ASSERT(obj->inDictionaryMode() == shape->inDictionary());
     }
     JS_ASSERT(shape->isEmptyShape());
 
-    if (inDictionaryMode())
-        shape->listp = &shape_;
+    if (obj->inDictionaryMode())
+        shape->listp = &obj->shape_;
 
-    JS_ALWAYS_TRUE(setLastProperty(cx, shape));
+    JS_ALWAYS_TRUE(JSObject::setLastProperty(cx, obj, shape));
 
     JS_ATOMIC_INCREMENT(&cx->runtime->propertyRemovals);
-    checkShapeConsistency();
+    obj->checkShapeConsistency();
 }
 
 void
@@ -928,6 +927,7 @@ JSObject::rollbackProperties(JSContext *cx, uint32_t slotSpan)
 Shape *
 JSObject::replaceWithNewEquivalentShape(JSContext *cx, Shape *oldShape, Shape *newShape)
 {
+    JS_ASSERT(cx->compartment == oldShape->compartment());
     JS_ASSERT_IF(oldShape != lastProperty(),
                  inDictionaryMode() &&
                  nativeLookupNoAllocation(oldShape->propidRef()) == oldShape);
@@ -1202,6 +1202,9 @@ InitialShapeEntry::match(const InitialShapeEntry &key, const Lookup &lookup)
 EmptyShape::getInitialShape(JSContext *cx, Class *clasp, JSObject *proto, JSObject *parent,
                             AllocKind kind, uint32_t objectFlags)
 {
+    JS_ASSERT_IF(proto, cx->compartment == proto->compartment());
+    JS_ASSERT_IF(parent, cx->compartment == parent->compartment());
+
     InitialShapeSet &table = cx->compartment->initialShapes;
 
     if (!table.initialized() && !table.init())
@@ -1304,7 +1307,7 @@ JSCompartment::sweepInitialShapeTable()
                 e.removeFront();
             } else {
 #ifdef DEBUG
-                JSObject *parent = shape->getObjectParent();
+                DebugOnly<JSObject *> parent = shape->getObjectParent();
                 JS_ASSERT(!parent || IsObjectMarked(&parent));
                 JS_ASSERT(parent == shape->getObjectParent());
 #endif

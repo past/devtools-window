@@ -12,6 +12,7 @@
 #include "mozilla/dom/DOMJSClass.h"
 #include "mozilla/dom/EventTargetBinding.h"
 #include "mozilla/dom/BindingUtils.h"
+#include "mozilla/dom/FileReaderSyncBinding.h"
 #include "mozilla/dom/XMLHttpRequestBinding.h"
 #include "mozilla/dom/XMLHttpRequestUploadBinding.h"
 #include "mozilla/OSFileConstants.h"
@@ -865,8 +866,7 @@ DOMJSClass DedicatedWorkerGlobalScope::sClass = {
       prototypes::id::_ID_Count },
     false,
     &sNativePropertyHooks
-  },
-  -1
+  }
 };
 
 JSPropertySpec DedicatedWorkerGlobalScope::sProperties[] = {
@@ -976,7 +976,6 @@ CreateDedicatedWorkerGlobalScope(JSContext* aCx)
   // Init other classes we care about.
   if (!events::InitClasses(aCx, global, false) ||
       !file::InitClasses(aCx, global) ||
-      !filereadersync::InitClass(aCx, global) ||
       !exceptions::InitClasses(aCx, global) ||
       !location::InitClass(aCx, global) ||
       !imagedata::InitClass(aCx, global) ||
@@ -984,11 +983,14 @@ CreateDedicatedWorkerGlobalScope(JSContext* aCx)
     return NULL;
   }
 
-  // Init other paris-bindings.
-  if (!XMLHttpRequestBinding_workers::CreateInterfaceObjects(aCx, global,
-                                                             global) ||
-      !XMLHttpRequestUploadBinding_workers::CreateInterfaceObjects(aCx, global,
-                                                                   global)) {
+  // Init other paris-bindings.  Use GetProtoObject so the proto will
+  // be correctly cached in the proto cache.  Otherwise we'll end up
+  // double-calling CreateInterfaceObjects when we actually create an
+  // object which has these protos, which breaks things like
+  // instanceof.
+  if (!FileReaderSyncBinding_workers::GetProtoObject(aCx, global, global) ||
+      !XMLHttpRequestBinding_workers::GetProtoObject(aCx, global, global) ||
+      !XMLHttpRequestUploadBinding_workers::GetProtoObject(aCx, global, global)) {
     return NULL;
   }
 

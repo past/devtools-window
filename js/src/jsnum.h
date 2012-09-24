@@ -42,19 +42,18 @@ extern const char js_parseFloat_str[];
 extern const char js_parseInt_str[];
 
 class JSString;
-class JSFixedString;
 
 /*
  * When base == 10, this function implements ToString() as specified by
  * ECMA-262-5 section 9.8.1; but note that it handles integers specially for
  * performance.  See also js::NumberToCString().
  */
-extern JSString * JS_FASTCALL
+extern JSString *
 js_NumberToString(JSContext *cx, double d);
 
 namespace js {
 
-extern JSFixedString *
+extern JSFlatString *
 Int32ToString(JSContext *cx, int32_t i);
 
 /*
@@ -65,10 +64,10 @@ extern bool JS_FASTCALL
 NumberValueToStringBuffer(JSContext *cx, const Value &v, StringBuffer &sb);
 
 /* Same as js_NumberToString, different signature. */
-extern JSFixedString *
+extern JSFlatString *
 NumberToString(JSContext *cx, double d);
 
-extern JSFixedString *
+extern JSFlatString *
 IndexToString(JSContext *cx, uint32_t index);
 
 /*
@@ -228,6 +227,30 @@ ToInteger(JSContext *cx, const js::Value &v, double *dp)
     }
     *dp = ToInteger(*dp);
     return true;
+}
+
+inline bool
+SafeAdd(int32_t one, int32_t two, int32_t *res)
+{
+    *res = one + two;
+    int64_t ores = (int64_t)one + (int64_t)two;
+    return ores == (int64_t)*res;
+}
+
+inline bool
+SafeSub(int32_t one, int32_t two, int32_t *res)
+{
+    *res = one - two;
+    int64_t ores = (int64_t)one - (int64_t)two;
+    return ores == (int64_t)*res;
+}
+
+inline bool
+SafeMul(int32_t one, int32_t two, int32_t *res)
+{
+    *res = one * two;
+    int64_t ores = (int64_t)one * (int64_t)two;
+    return ores == (int64_t)*res;
 }
 
 } /* namespace js */

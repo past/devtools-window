@@ -4,6 +4,11 @@
 
 "use strict";
 
+const Cu = Components.utils;
+
+Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource:///modules/devtools/EventEmitter.jsm");
+
 const EXPORTED_SYMBOLS = [ "gDevTools" ];
 
 /**
@@ -16,14 +21,8 @@ const EXPORTED_SYMBOLS = [ "gDevTools" ];
 function DevTools() {
   this._tools = new Map();
   this._toolboxes = new Map();
-  this._listeners = {};
 
-/*
-  let emitter = new EventEmitter();
-  this.on = emitter.on.bind(emitter);
-  this.off = emitter.off.bind(emitter);
-  this.once = emitter.once.bind(emitter);
-  this._emit = emitter.emit.bind(emitter); */
+  new EventEmitter(this);
 }
 
 DevTools.prototype = {
@@ -94,18 +93,29 @@ DevTools.prototype = {
    * - build: Function that takes a single parameter, a frame, which has been
    *          populated with the markup from |url|. And returns an instance of
    *          ToolInstance (function|required)
-   * - showInContextMenu: Should the tool be added to the context menu? (boolean|optional)
    */
   registerTool: function DT_registerTool(aToolDefinition) {
-    this._tools.set(aToolDefinition.id, aToolDefinition);
+    let toolId = aToolDefinition.id;
+
+    aToolDefinition.killswitch = aToolDefinition.killswitch ||
+      "devtools." + toolId + ".enabled";
+    this._tools.set(toolId, aToolDefinition);
+
+    for (let [key, toolbox] of this._toolboxes) {
+      toolbox.emit("tool-registered", toolId);
+    }
   },
 
   /**
-   * Removes all tools that match the given |aId|
+   * Removes all tools that match the given |aToolId|
    * Needed so that add-ons can remove themselves when they are deactivated
    */
-  unregisterTool: function DT_unregisterTool(aId) {
-    this._tools.delete(aId);
+  unregisterTool: function DT_unregisterTool(aToolId) {
+    this._tools.delete(aToolId);
+
+    for (let [key, toolbox] of this._toolboxes) {
+      toolbox.emit("tool-unregistered", aToolId);
+    }
   },
 
   /**
@@ -113,7 +123,22 @@ DevTools.prototype = {
    * themselves with
    */
   getToolDefinitions: function DT_getToolDefinitions() {
-    return this._tools;
+    let tools = new Map();
+
+    for (let [key, value] of this._tools) {
+      let enabled;
+
+      try {
+        enabled = Services.prefs.getBoolPref(value.killswitch);
+      } catch(e) {
+        enabled = true;
+      }
+
+      if (enabled) {
+        tools.set(key, value);
+      }
+    }
+    return tools;
   },
 
   /**
@@ -127,20 +152,20 @@ DevTools.prototype = {
     }
 
     let tb = new Toolbox(aTarget, aHost, aDefaultToolId);
-    if (tb) {
-      this._toolboxes.set(aTarget.value, tb);
-      tb.open();
-    }
+    this._toolboxes.set(aTarget, tb);
+    tb.open();
+
+    return tb;
   },
 
   /**
    * Return a map(DevToolsTarget, DevToolBox) of all the Toolboxes
    * map is a copy, not reference (can't be altered)
    */
-  getToolBoxes: function DT_getToolBoxes() {
+  getToolBoxes: function DT_getToolBoxes(x) {
     let toolboxes = new Map();
 
-    for (let [key, value] in this._toolboxes) {
+    for (let [key, value] of this._toolboxes) {
       toolboxes.set(key, value);
     }
     return toolboxes;
@@ -149,7 +174,6 @@ DevTools.prototype = {
   destroy: function DT_destroy() {
     delete this._tools;
     delete this._toolboxes;
-    delete this._listeners;
   },
 };
 
@@ -170,13 +194,62 @@ function Toolbox(aTarget, aHost, aDefaultToolId) {
   this._target = aTarget;
   this._host = aHost;
   this._defaultToolId = aDefaultToolId;
+  this._currentToolId = this._defaultToolId;
   this._toolInstances = new Map();
 
   this._onLoad = this._onLoad.bind(this);
+  this._handleEvent = this._handleEvent.bind(this);
+
+  new EventEmitter(this);
+
+  this.on("tool-registered", this._handleEvent);
+  this.on("tool-unregistered", this._handleEvent);
+
+  for (let [toolId, tool] of gDevTools.getToolDefinitions()) {
+    let instance = tool.build();
+    this._toolInstances.set(toolId, instance);
+  }
 }
 
 Toolbox.prototype = {
   URL: "chrome://browser/content/devtools/toolbox/toolbox.xul",
+
+  _handleEvent: function TB_handleEvent(aEventId, ...args) {
+    let toolId;
+
+    switch(aEventId) {
+      /**
+       * Handler for the tool-registered event.
+       * @param  {String} aToolId
+       *         The ID of the registered tool.
+       */
+      case "tool-registered":
+        let defs = gDevTools.getToolDefinitions();
+        let tool = defs.get(toolId);
+
+        toolId = args[0];
+
+        // tool may not exist if the killswitch is set to false.
+        if (tool) {
+          let instance = tool.build();
+          this._toolInstances.set(toolId, instance);
+        }
+        break;
+
+      /**
+       * Handler for the tool-unregistered event.
+       * @param  {String} aToolId
+       *         The ID of the unregistered tool.
+       */
+      case "tool-unregistered":
+        toolId = args[0];
+
+        if (this._toolInstances.has(toolId)) {
+          this._toolInstances.delete(toolId);
+        }
+        break;
+    }
+  },
 
   /**
    * Returns a *copy* of the _toolInstances collection.
@@ -184,7 +257,7 @@ Toolbox.prototype = {
   getToolInstances: function TB_getToolInstances() {
     let instances = new Map();
 
-    for (let [key, value] in this._toolInstances) {
+    for (let [key, value] of this._toolInstances) {
       instances.set(key, value);
     }
     return instances;
@@ -354,10 +427,10 @@ DevToolInstance.prototype = {
    * Get the target of a Tool so we're debugging something different.
    * TODO: Not sure about that. Maybe it's the ToolBox's job to destroy the tool
    * and start it again with a new target.
-   *   JOE: If we think that, does the same go for Toolbox? I'm leaning towards
-   *        Keeping these in both cases. Either way I like symmetry.
-   *        Certainly target should be read-only to the public or we could have
-   *        one tool in a toolbox having a different target to the others
+   * JOE: If we think that, does the same go for Toolbox? I'm leaning towards
+   * Keeping these in both cases. Either way I like symmetry.
+   * Certainly target should be read-only to the public or we could have
+   * one tool in a toolbox having a different target to the others
    */
   get target() {
     return this._target;
@@ -384,21 +457,6 @@ DevToolInstance.prototype = {
    * the target being closed. We should clear-up.
    */
   destroy: function DTI_destroy() {
-
-  },
-
-  /**
-   * This tool is being hidden.
-   * TODO: What is the definition of hidden?
-   */
-  hide: function DTI_hide() {
-
-  },
-
-  /**
-   * This tool is being shown.
-   */
-  show: function DTI_show() {
 
   },
 };

@@ -156,6 +156,17 @@ var gPlayTests = [
   { name:"bogus.duh", type:"bogus/duh", duration:Number.NaN }
 ];
 
+// A file for each type we can support.
+var gSnifferTests = [
+  { name:"big.wav", type:"audio/x-wav", duration:9.278981, size:102444 },
+  { name:"320x240.ogv", type:"video/ogg", width:320, height:240, duration:0.233, size:28942 },
+  { name:"seek.webm", type:"video/webm", duration:3.966, size:215529 },
+  { name:"short.mp4", type:"video/mp4", duration:0.2, size:29435},
+  // A mp3 file with id3 tags.
+  { name:"id3tags.mp3", type:"audio/mpeg", duration:0.28, size:3530},
+  { name:"bogus.duh", type:"bogus/duh" }
+];
+
 // Converts a path/filename to a file:// URI which we can load from disk.
 // Optionally checks whether the file actually exists on disk at the location
 // we've specified.
@@ -335,7 +346,27 @@ var gMetadataTests = [
       COMMENTS:"Audio Description"
     }
   },
-  { name:"sound.ogg", tags: { } }
+  { name:"detodos.opus", tags: {
+      title:"De todos. Para todos.",
+      artist:"Mozilla.org"
+    }
+  },
+  { name:"sound.ogg", tags: { } },
+  { name:"badtags.ogg", tags: {
+      // We list only the valid tags here, and verify
+      // the invalid ones are filtered out.
+      title:"Invalid comments test file",
+      empty:"",
+      "":"empty",
+      "{- [(`!@\"#$%^&')] -}":"valid tag name, surprisingly"
+      // The file also includes the following invalid tags.
+      // "A description with no separator is a common problem.",
+      // "雨":"Likely, but an invalid key (non-ascii).",
+      // "not\nval\x1fid":"invalid tag name",
+      // "not~valid":"this isn't a valid name either",
+      // "not-utf-8":"invalid sequences: \xff\xfe\xfa\xfb\0eol"
+    }
+  }
 ];
 
 function checkMetadata(msg, e, test) {

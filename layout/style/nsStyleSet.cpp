@@ -28,6 +28,7 @@
 #include "nsAnimationManager.h"
 #include "nsEventStates.h"
 #include "mozilla/dom/Element.h"
+#include "sampler.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -573,13 +574,13 @@ nsStyleSet::GetContext(nsStyleContext* aParentContext,
 
   if (!result) {
     result = NS_NewStyleContext(aParentContext, aPseudoTag, aPseudoType,
-                                aRuleNode, PresContext());
+                                aRuleNode);
     if (!result)
       return nullptr;
     if (aVisitedRuleNode) {
       nsRefPtr<nsStyleContext> resultIfVisited =
         NS_NewStyleContext(parentIfVisited, aPseudoTag, aPseudoType,
-                           aVisitedRuleNode, PresContext());
+                           aVisitedRuleNode);
       if (!resultIfVisited) {
         return nullptr;
       }
@@ -714,6 +715,8 @@ nsStyleSet::FileRules(nsIStyleRuleProcessor::EnumFunc aCollectorFunc,
                       void* aData, nsIContent* aContent,
                       nsRuleWalker* aRuleWalker)
 {
+  SAMPLE_LABEL("nsStyleSet", "FileRules");
+
   // Cascading order:
   // [least important]
   //  - UA normal rules                    = Agent        normal

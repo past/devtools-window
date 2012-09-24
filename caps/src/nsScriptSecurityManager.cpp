@@ -532,7 +532,7 @@ nsScriptSecurityManager::ContentSecurityPolicyPermitsJSAction(JSContext *cx)
 JSBool
 nsScriptSecurityManager::CheckObjectAccess(JSContext *cx, JSHandleObject obj,
                                            JSHandleId id, JSAccessMode mode,
-                                           jsval *vp)
+                                           JSMutableHandleValue vp)
 {
     // Get the security manager
     nsScriptSecurityManager *ssm =
@@ -548,9 +548,9 @@ nsScriptSecurityManager::CheckObjectAccess(JSContext *cx, JSHandleObject obj,
     //    a different trust domain.
     // 2. A user-defined getter or setter function accessible on another
     //    trust domain's window or document object.
-    // *vp can be a primitive, in that case, we use obj as the target
+    // vp can be a primitive, in that case, we use obj as the target
     // object.
-    JSObject* target = JSVAL_IS_PRIMITIVE(*vp) ? obj : JSVAL_TO_OBJECT(*vp);
+    JSObject* target = JSVAL_IS_PRIMITIVE(vp) ? obj : JSVAL_TO_OBJECT(vp);
 
     // Do the same-origin check -- this sets a JS exception if the check fails.
     // Pass the parent object's class name, as we have no class-info for it.
@@ -1306,7 +1306,8 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
     NS_ENSURE_FALSE(aFlags & ~(nsIScriptSecurityManager::LOAD_IS_AUTOMATIC_DOCUMENT_REPLACEMENT |
                                nsIScriptSecurityManager::ALLOW_CHROME |
                                nsIScriptSecurityManager::DISALLOW_SCRIPT |
-                               nsIScriptSecurityManager::DISALLOW_INHERIT_PRINCIPAL),
+                               nsIScriptSecurityManager::DISALLOW_INHERIT_PRINCIPAL |
+                               nsIScriptSecurityManager::DONT_REPORT_ERRORS),
                     NS_ERROR_UNEXPECTED);
     NS_ENSURE_ARG_POINTER(aPrincipal);
     NS_ENSURE_ARG_POINTER(aTargetURI);
@@ -1374,6 +1375,7 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
     }
 
     NS_NAMED_LITERAL_STRING(errorTag, "CheckLoadURIError");
+    bool reportErrors = !(aFlags & nsIScriptSecurityManager::DONT_REPORT_ERRORS);
 
     // Check for uris that are only loadable by principals that subsume them
     bool hasFlags;
@@ -1417,7 +1419,9 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
                                  nsIProtocolHandler::URI_DANGEROUS_TO_LOAD);
     if (NS_FAILED(rv)) {
         // Deny access, since the origin principal is not system
-        ReportError(nullptr, errorTag, sourceURI, aTargetURI);
+        if (reportErrors) {
+            ReportError(nullptr, errorTag, sourceURI, aTargetURI);
+        }
         return rv;
     }
 
@@ -1456,7 +1460,9 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
         if (sourceIsChrome) {
             return NS_OK;
         }
-        ReportError(nullptr, errorTag, sourceURI, aTargetURI);
+        if (reportErrors) {
+            ReportError(nullptr, errorTag, sourceURI, aTargetURI);
+        }
         return NS_ERROR_DOM_BAD_URI;
     }
 
@@ -1492,7 +1498,9 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
             return NS_OK;
         }
 
-        ReportError(nullptr, errorTag, sourceURI, aTargetURI);
+        if (reportErrors) {
+            ReportError(nullptr, errorTag, sourceURI, aTargetURI);
+        }
         return NS_ERROR_DOM_BAD_URI;
     }
 
@@ -2253,8 +2261,8 @@ nsScriptSecurityManager::GetPrincipalAndFrame(JSContext *cx,
     if (cx)
     {
         // Get principals from innermost JavaScript frame.
-        JSStackFrame *fp = nullptr; // tell JS_FrameIterator to start at innermost
-        for (fp = JS_FrameIterator(cx, &fp); fp; fp = JS_FrameIterator(cx, &fp))
+        JSStackFrame *fp = nullptr; // tell JS_BrokenFrameIterator to start at innermost
+        for (fp = JS_BrokenFrameIterator(cx, &fp); fp; fp = JS_BrokenFrameIterator(cx, &fp))
         {
             nsIPrincipal* result = GetFramePrincipal(cx, fp, rv);
             if (result)
@@ -2282,7 +2290,7 @@ nsScriptSecurityManager::GetPrincipalAndFrame(JSContext *cx,
             if (result)
             {
                 JSStackFrame *inner = nullptr;
-                *frameResult = JS_FrameIterator(cx, &inner);
+                *frameResult = JS_BrokenFrameIterator(cx, &inner);
                 return result;
             }
         }
@@ -2592,7 +2600,7 @@ nsScriptSecurityManager::EnableCapability(const char *capability)
     }
     if (NS_FAILED(principal->EnableCapability(capability, &annotation)))
         return NS_ERROR_FAILURE;
-    JS_SetFrameAnnotation(cx, fp, annotation);
+    JS_SetTopFrameAnnotation(cx, annotation);
     return NS_OK;
 }
 

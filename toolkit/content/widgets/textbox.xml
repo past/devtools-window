@@ -92,12 +92,9 @@
                 onset="if (val) this.setAttribute('clickSelectsAll', 'true');
                        else this.removeAttribute('clickSelectsAll'); return val;" />
 
-      <property name="editor" readonly="true">
-        <getter><![CDATA[
-          const nsIDOMNSEditableElement = Components.interfaces.nsIDOMNSEditableElement;
-          return this.inputField.QueryInterface(nsIDOMNSEditableElement).editor;
-        ]]></getter>
-      </property>
+      <field name="editor" readonly="true">
+        this.inputField.QueryInterface(Components.interfaces.nsIDOMNSEditableElement).editor;
+      </field>
 
       <method name="reset">
         <body><![CDATA[
@@ -148,6 +145,15 @@
               }
             }
           }
+        ]]></body>
+      </method>
+
+      <method name="_maybeSelectAll">
+        <body><![CDATA[
+          if (!this.mIgnoreClick && this.clickSelectsAll &&
+              document.activeElement == this.inputField &&
+              this.inputField.selectionStart == this.inputField.selectionEnd)
+            this.editor.selectAll();
         ]]></body>
       </method>
 
@@ -208,7 +214,7 @@
 
       <handler event="blur" phase="capturing">
         <![CDATA[
-          this.removeAttribute('focused');
+          this.removeAttribute("focused");
 
           // don't trigger clickSelectsAll when switching application windows
           if (window == window.top &&
@@ -232,22 +238,19 @@
         ]]>
       </handler>
 
-      <handler event="click">
-        <![CDATA[
-          if (!this.mIgnoreClick && this.clickSelectsAll &&
-              document.activeElement == this.inputField &&
-              this.inputField.selectionStart == this.inputField.selectionEnd) {
-            this.editor.selectAll();
+      <handler event="click" action="this._maybeSelectAll();"/>
+
 #ifndef XP_WIN
-            // see bug 576135 comment 4
-            let box = this.inputField.parentNode;
-            let menu = document.getAnonymousElementByAttribute(box, "anonid", "input-box-contextmenu");
-            if ((menu.state == "open" || menu.state == "showing") && box._doPopupItemEnabling)
-              box._doPopupItemEnabling(menu);
-#endif
-          }
-        ]]>
+      <handler event="contextmenu">
+        if (!event.button) // context menu opened via keyboard shortcut
+          return;
+        this._maybeSelectAll();
+        // see bug 576135 comment 4
+        let box = this.inputField.parentNode;
+        let menu = document.getAnonymousElementByAttribute(box, "anonid", "input-box-contextmenu");
+        box._doPopupItemEnabling(menu);
       </handler>
+#endif
     </handlers>
   </binding>
 

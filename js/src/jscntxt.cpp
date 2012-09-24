@@ -11,7 +11,6 @@
 
 #include <limits.h> /* make sure that <features.h> is included and we can use
                        __GLIBC__ to detect glibc presence */
-#include <new>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +41,9 @@
 #include "jsscope.h"
 #include "jsscript.h"
 #include "jsstr.h"
+#include "jsworkers.h"
+#include "ion/Ion.h"
+#include "ion/IonFrames.h"
 
 #ifdef JS_METHODJIT
 # include "assembler/assembler/MacroAssembler.h"
@@ -112,40 +114,44 @@ void CompartmentCallback(JSRuntime *rt, void *vdata, JSCompartment *compartment)
 }
 
 void
-JSRuntime::sizeOfIncludingThis(JSMallocSizeOfFun mallocSizeOf, RuntimeSizes *runtime)
+JSRuntime::sizeOfIncludingThis(JSMallocSizeOfFun mallocSizeOf, RuntimeSizes *rtSizes)
 {
-    runtime->object = mallocSizeOf(this);
+    rtSizes->object = mallocSizeOf(this);
 
-    runtime->atomsTable = atomState.atoms.sizeOfExcludingThis(mallocSizeOf);
+    rtSizes->atomsTable = atoms.sizeOfExcludingThis(mallocSizeOf);
 
-    runtime->contexts = 0;
+    rtSizes->contexts = 0;
     for (ContextIter acx(this); !acx.done(); acx.next())
-        runtime->contexts += acx->sizeOfIncludingThis(mallocSizeOf);
+        rtSizes->contexts += acx->sizeOfIncludingThis(mallocSizeOf);
 
-    runtime->dtoa = mallocSizeOf(dtoaState);
+    rtSizes->dtoa = mallocSizeOf(dtoaState);
 
-    runtime->temporary = tempLifoAlloc.sizeOfExcludingThis(mallocSizeOf);
+    rtSizes->temporary = tempLifoAlloc.sizeOfExcludingThis(mallocSizeOf);
 
-    if (execAlloc_)
-        execAlloc_->sizeOfCode(&runtime->mjitCode, &runtime->regexpCode,
-                               &runtime->unusedCodeMemory);
-    else
-        runtime->mjitCode = runtime->regexpCode = runtime->unusedCodeMemory = 0;
+    if (execAlloc_) {
+        execAlloc_->sizeOfCode(&rtSizes->jaegerCode, &rtSizes->ionCode, &rtSizes->regexpCode,
+                               &rtSizes->unusedCode);
+    } else {
+        rtSizes->jaegerCode = 0;
+        rtSizes->ionCode    = 0;
+        rtSizes->regexpCode = 0;
+        rtSizes->unusedCode = 0;
+    }
 
-    runtime->stackCommitted = stackSpace.sizeOfCommitted();
+    rtSizes->stackCommitted = stackSpace.sizeOfCommitted();
 
-    runtime->gcMarker = gcMarker.sizeOfExcludingThis(mallocSizeOf);
+    rtSizes->gcMarker = gcMarker.sizeOfExcludingThis(mallocSizeOf);
 
-    runtime->mathCache = mathCache_ ? mathCache_->sizeOfIncludingThis(mallocSizeOf) : 0;
+    rtSizes->mathCache = mathCache_ ? mathCache_->sizeOfIncludingThis(mallocSizeOf) : 0;
 
-    runtime->scriptFilenames = scriptFilenameTable.sizeOfExcludingThis(mallocSizeOf);
+    rtSizes->scriptFilenames = scriptFilenameTable.sizeOfExcludingThis(mallocSizeOf);
     for (ScriptFilenameTable::Range r = scriptFilenameTable.all(); !r.empty(); r.popFront())
-        runtime->scriptFilenames += mallocSizeOf(r.front());
+        rtSizes->scriptFilenames += mallocSizeOf(r.front());
 
-    runtime->compartmentObjects = 0;
+    rtSizes->compartmentObjects = 0;
     CallbackData data(mallocSizeOf);
     JS_IterateCompartments(this, &data, CompartmentCallback);
-    runtime->compartmentObjects = data.n;
+    rtSizes->compartmentObjects = data.n;
 }
 
 size_t
@@ -154,14 +160,22 @@ JSRuntime::sizeOfExplicitNonHeap()
     if (!execAlloc_)
         return 0;
 
-    size_t mjitCode, regexpCode, unusedCodeMemory;
-    execAlloc_->sizeOfCode(&mjitCode, &regexpCode, &unusedCodeMemory);
-    return mjitCode + regexpCode + unusedCodeMemory + stackSpace.sizeOfCommitted();
+    size_t jaegerCode, ionCode, regexpCode, unusedCode;
+    execAlloc_->sizeOfCode(&jaegerCode, &ionCode, &regexpCode, &unusedCode);
+    return jaegerCode + ionCode + regexpCode + unusedCode + stackSpace.sizeOfCommitted();
 }
 
 void
 JSRuntime::triggerOperationCallback()
 {
+    /*
+     * Invalidate ionTop to trigger its over-recursion check. Note this must be
+     * set before interrupt, to avoid racing with js_InvokeOperationCallback,
+     * into a weird state where interrupt is stuck at 0 but ionStackLimit is
+     * MAXADDR.
+     */
+    ionStackLimit = -1;
+
     /*
      * Use JS_ATOMIC_SET in the hope that it ensures the write will become
      * immediately visible to other processors polling the flag.
@@ -368,7 +382,7 @@ js::NewContext(JSRuntime *rt, size_t stackChunkSize)
 #endif
         bool ok = rt->staticStrings.init(cx);
         if (ok)
-            ok = InitCommonAtoms(cx);
+            ok = InitCommonNames(cx);
         if (ok)
             ok = rt->initSelfHosting(cx);
 
@@ -424,8 +438,12 @@ js::DestroyContext(JSContext *cx, DestroyContextMode mode)
         for (CompartmentsIter c(rt); !c.done(); c.next())
             c->types.print(cx, false);
 
-        /* Unpin all common atoms before final GC. */
-        FinishCommonAtoms(rt);
+        /* Off thread ion compilations depend on atoms still existing. */
+        for (CompartmentsIter c(rt); !c.done(); c.next())
+            CancelOffThreadIonCompile(c, NULL);
+
+        /* Unpin all common names before final GC. */
+        FinishCommonNames(rt);
 
         /* Clear debugging state to remove GC roots. */
         for (CompartmentsIter c(rt); !c.done(); c.next())
@@ -1109,8 +1127,19 @@ js_InvokeOperationCallback(JSContext *cx)
      */
     JS_ATOMIC_SET(&rt->interrupt, 0);
 
+    /* IonMonkey sets its stack limit to NULL to trigger operaton callbacks. */
+    rt->resetIonStackLimit();
+
     if (rt->gcIsNeeded)
         GCSlice(rt, GC_NORMAL, rt->gcTriggerReason);
+
+#ifdef JS_ION
+    /*
+     * A worker thread may have set the callback after finishing an Ion
+     * compilation.
+     */
+    ion::AttachFinishedCompilations(cx);
+#endif
 
     /*
      * Important: Additional callbacks can occur inside the callback handler
@@ -1174,9 +1203,6 @@ JSContext::JSContext(JSRuntime *rt)
     localeCallbacks(NULL),
     resolvingList(NULL),
     generatingError(false),
-#ifdef DEBUG
-    rootingUnnecessary(false),
-#endif
     compartment(NULL),
     enterCompartmentDepth_(0),
     savedFrameChains_(),
@@ -1184,7 +1210,6 @@ JSContext::JSContext(JSRuntime *rt)
     stack(thisDuringConstruction()),
     parseMapPool_(NULL),
     cycleDetectorSet(thisDuringConstruction()),
-    argumentFormatMap(NULL),
     lastMessage(NULL),
     errorReporter(NULL),
     operationCallback(NULL),
@@ -1212,7 +1237,7 @@ JSContext::JSContext(JSRuntime *rt)
     PodZero(&link);
 #ifdef JSGC_ROOT_ANALYSIS
     PodArrayZero(thingGCRooters);
-#ifdef DEBUG
+#if defined(JS_GC_ZEAL) && defined(DEBUG) && !defined(JS_THREADSAFE)
     skipGCRooters = NULL;
 #endif
 #endif
@@ -1227,40 +1252,8 @@ JSContext::~JSContext()
     if (lastMessage)
         js_free(lastMessage);
 
-    /* Remove any argument formatters. */
-    JSArgumentFormatMap *map = argumentFormatMap;
-    while (map) {
-        JSArgumentFormatMap *temp = map;
-        map = map->next;
-        js_free(temp);
-    }
-
     JS_ASSERT(!resolvingList);
 }
-
-#ifdef DEBUG
-namespace JS {
-
-JS_FRIEND_API(void)
-SetRootingUnnecessaryForContext(JSContext *cx, bool value)
-{
-    cx->rootingUnnecessary = value;
-}
-
-JS_FRIEND_API(bool)
-IsRootingUnnecessaryForContext(JSContext *cx)
-{
-    return cx->rootingUnnecessary;
-}
-
-JS_FRIEND_API(bool)
-RelaxRootChecksForContext(JSContext *cx)
-{
-    return cx->runtime->relaxRootChecks;
-}
-
-} /* namespace JS */
-#endif
 
 /*
  * Since this function is only called in the context of a pending exception,

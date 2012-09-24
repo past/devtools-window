@@ -39,7 +39,7 @@ struct StmtInfoPC : public StmtInfoBase {
 
 typedef HashSet<JSAtom *> FuncStmtSet;
 struct Parser;
-struct SharedContext;
+class SharedContext;
 
 typedef Vector<Definition *, 16> DeclVector;
 
@@ -84,12 +84,12 @@ struct ParseContext                 /* tree context for semantic checks */
     }
 
     uint32_t numArgs() const {
-        JS_ASSERT(sc->inFunction());
+        JS_ASSERT(sc->isFunction);
         return args_.length();
     }
 
     uint32_t numVars() const {
-        JS_ASSERT(sc->inFunction());
+        JS_ASSERT(sc->isFunction);
         return vars_.length();
     }
 
@@ -151,13 +151,12 @@ struct ParseContext                 /* tree context for semantic checks */
      *  - Sometimes a script's bindings are accessed at runtime to retrieve the
      *    contents of the lexical scope (e.g., from the debugger).
      */
-    bool generateFunctionBindings(JSContext *cx, Bindings *bindings) const;
+    bool generateFunctionBindings(JSContext *cx, InternalHandle<Bindings*> bindings) const;
 
   public:
     ParseNode       *yieldNode;     /* parse node for a yield expression that might
                                        be an error if we turn out to be inside a
                                        generator expression */
-    FunctionBox     *functionList;
 
     // A strict mode error found in this scope or one of its children. It is
     // used only when strictModeState is UNKNOWN. If the scope turns out to be
@@ -303,7 +302,7 @@ struct Parser : private AutoGCRooter
      */
     ObjectBox *newObjectBox(JSObject *obj);
 
-    FunctionBox *newFunctionBox(JSObject *obj, ParseContext *pc, StrictMode sms);
+    FunctionBox *newFunctionBox(JSFunction *fun, ParseContext *pc, StrictMode sms);
 
     /*
      * Create a new function object given parse context (pc) and a name (which

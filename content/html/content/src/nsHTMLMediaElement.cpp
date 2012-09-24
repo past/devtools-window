@@ -358,9 +358,12 @@ NS_IMETHODIMP nsHTMLMediaElement::MediaLoadListener::OnStopRequest(nsIRequest* a
   return NS_OK;
 }
 
-NS_IMETHODIMP nsHTMLMediaElement::MediaLoadListener::OnDataAvailable(nsIRequest* aRequest, nsISupports* aContext,
-                                                                     nsIInputStream* aStream, uint32_t aOffset,
-                                                                     uint32_t aCount)
+NS_IMETHODIMP
+nsHTMLMediaElement::MediaLoadListener::OnDataAvailable(nsIRequest* aRequest,
+                                                       nsISupports* aContext,
+                                                       nsIInputStream* aStream,
+                                                       uint64_t aOffset,
+                                                       uint32_t aCount)
 {
   if (!mNextListener) {
     NS_ERROR("Must have a chained listener; OnStartRequest should have canceled this request");
@@ -1034,6 +1037,11 @@ nsresult nsHTMLMediaElement::LoadResource()
   if (other) {
     // Clone it.
     nsresult rv = InitializeDecoderAsClone(other->mDecoder);
+    // Get the mimetype from the element we clone, since we will not get it via
+    // the channel, and we won't be able to sniff for it, because we will not
+    // open a channel to get the beginning of the media (it is likely to already
+    // be in the cache).
+    mMimeType = other->mMimeType;
     if (NS_SUCCEEDED(rv))
       return rv;
   }
@@ -1072,7 +1080,8 @@ nsresult nsHTMLMediaElement::LoadResource()
                      nullptr,
                      loadGroup,
                      nullptr,
-                     nsICachingChannel::LOAD_BYPASS_LOCAL_CACHE_IF_BUSY,
+                     nsICachingChannel::LOAD_BYPASS_LOCAL_CACHE_IF_BUSY |
+                     nsIChannel::LOAD_TREAT_APPLICATION_OCTET_STREAM_AS_UNKNOWN,
                      channelPolicy);
   NS_ENSURE_SUCCESS(rv,rv);
 
@@ -1088,20 +1097,21 @@ nsresult nsHTMLMediaElement::LoadResource()
 
   nsCOMPtr<nsIStreamListener> listener;
   if (ShouldCheckAllowOrigin()) {
-    listener =
+    nsRefPtr<nsCORSListenerProxy> corsListener =
       new nsCORSListenerProxy(loadListener,
                               NodePrincipal(),
-                              channel,
-                              GetCORSMode() == CORS_USE_CREDENTIALS,
-                              &rv);
+                              GetCORSMode() == CORS_USE_CREDENTIALS);
+    rv = corsListener->Init(channel);
+    NS_ENSURE_SUCCESS(rv, rv);
+    listener = corsListener;
   } else {
     rv = nsContentUtils::GetSecurityManager()->
            CheckLoadURIWithPrincipal(NodePrincipal(),
                                      mLoadingSrc,
                                      nsIScriptSecurityManager::STANDARD);
     listener = loadListener;
+    NS_ENSURE_SUCCESS(rv, rv);
   }
-  NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsIHttpChannel> hc = do_QueryInterface(channel);
   if (hc) {
@@ -1436,8 +1446,10 @@ nsHTMLMediaElement::BuildObjectFromTags(nsCStringHashKey::KeyType aKey,
   nsString wideValue = NS_ConvertUTF8toUTF16(aValue);
   JSString* string = JS_NewUCStringCopyZ(args->cx, wideValue.Data());
   JS::Value value = STRING_TO_JSVAL(string);
-  if (!JS_SetProperty(args->cx, args->tags, aKey.Data(), &value)) {
+  if (!JS_DefineProperty(args->cx, args->tags, aKey.Data(), value,
+                         NULL, NULL, JSPROP_ENUMERATE)) {
     NS_WARNING("Failed to set metadata property");
+    return PL_DHASH_STOP;
   }
 
   return PL_DHASH_NEXT;
@@ -1456,7 +1468,13 @@ nsHTMLMediaElement::MozGetMetadata(JSContext* cx, JS::Value* aValue)
   }
   if (mTags) {
     MetadataIterCx iter = {cx, tags};
-    mTags->EnumerateRead(BuildObjectFromTags, static_cast<void*>(&iter));
+    uint32_t ret = mTags->EnumerateRead(BuildObjectFromTags,
+                                        static_cast<void*>(&iter));
+    LOG(PR_LOG_DEBUG, ("tag enumerator returned %d", ret));
+    if (ret == PL_DHASH_STOP) {
+      NS_WARNING("couldn't create metadata object!");
+      return NS_ERROR_FAILURE;
+    }
   }
   *aValue = OBJECT_TO_JSVAL(tags);
 
@@ -2433,19 +2451,21 @@ nsresult nsHTMLMediaElement::InitializeDecoderForChannel(nsIChannel *aChannel,
   NS_ASSERTION(mDecoder == nullptr, "Shouldn't have a decoder");
 
   nsAutoCString mimeType;
-  aChannel->GetContentType(mimeType);
 
-  nsRefPtr<nsMediaDecoder> decoder = CreateDecoder(mimeType);
+  aChannel->GetContentType(mMimeType);
+  NS_ASSERTION(!mMimeType.IsEmpty(), "We should have the Content-Type.");
+
+  nsRefPtr<nsMediaDecoder> decoder = CreateDecoder(mMimeType);
   if (!decoder) {
     nsAutoString src;
     GetCurrentSrc(src);
-    NS_ConvertUTF8toUTF16 mimeUTF16(mimeType);
+    NS_ConvertUTF8toUTF16 mimeUTF16(mMimeType);
     const PRUnichar* params[] = { mimeUTF16.get(), src.get() };
     ReportLoadError("MediaLoadUnsupportedMimeType", params, ArrayLength(params));
     return NS_ERROR_FAILURE;
   }
 
-  LOG(PR_LOG_DEBUG, ("%p Created decoder %p for type %s", this, decoder.get(), mimeType.get()));
+  LOG(PR_LOG_DEBUG, ("%p Created decoder %p for type %s", this, decoder.get(), mMimeType.get()));
 
   MediaResource* resource = MediaResource::Create(decoder, aChannel);
   if (!resource)
@@ -3526,6 +3546,11 @@ NS_IMETHODIMP nsHTMLMediaElement::GetMozFragmentEnd(double *aTime)
   // duration, return the duration.
   *aTime = (mFragmentEnd < 0.0 || mFragmentEnd > duration) ? duration : mFragmentEnd;
   return NS_OK;
+}
+
+void nsHTMLMediaElement::GetMimeType(nsCString& aMimeType)
+{
+  aMimeType = mMimeType;
 }
 
 void nsHTMLMediaElement::NotifyAudioAvailableListener()

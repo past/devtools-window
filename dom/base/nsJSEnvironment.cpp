@@ -75,7 +75,6 @@
 #include "prlog.h"
 #include "prthread.h"
 
-#include "mozilla/FunctionTimer.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/dom/BindingUtils.h"
@@ -401,8 +400,8 @@ public:
           ? "chrome javascript"
           : "content javascript";
 
-        rv = errorObject->InitWithWindowID(mErrorMsg.get(), mFileName.get(),
-                                           mSourceLine.get(),
+        rv = errorObject->InitWithWindowID(mErrorMsg, mFileName,
+                                           mSourceLine,
                                            mLineNr, mColumn, mFlags,
                                            category, mInnerWindowID);
 
@@ -949,6 +948,7 @@ static const char js_memlog_option_str[]      = JS_OPTIONS_DOT_STR "mem.log";
 static const char js_memnotify_option_str[]   = JS_OPTIONS_DOT_STR "mem.notify";
 static const char js_disable_explicit_compartment_gc[] =
   JS_OPTIONS_DOT_STR "mem.disable_explicit_compartment_gc";
+static const char js_ion_content_str[]        = JS_OPTIONS_DOT_STR "ion.content";
 
 int
 nsJSContext::JSOptionChangedCallback(const char *pref, void *data)
@@ -990,6 +990,7 @@ nsJSContext::JSOptionChangedCallback(const char *pref, void *data)
                                      "javascript.options.xml.chrome" :
                                      "javascript.options.xml.content");
   bool useHardening = Preferences::GetBool(js_jit_hardening_str);
+  bool useIon = Preferences::GetBool(js_ion_content_str);
   nsCOMPtr<nsIXULRuntime> xr = do_GetService(XULRUNTIME_SERVICE_CONTRACTID);
   if (xr) {
     bool safeMode = false;
@@ -1001,6 +1002,7 @@ nsJSContext::JSOptionChangedCallback(const char *pref, void *data)
       useMethodJITAlways = true;
       useXML = false;
       useHardening = false;
+      useIon = false;
     }
   }
 
@@ -1023,6 +1025,11 @@ nsJSContext::JSOptionChangedCallback(const char *pref, void *data)
     newDefaultJSOptions |= JSOPTION_TYPE_INFERENCE;
   else
     newDefaultJSOptions &= ~JSOPTION_TYPE_INFERENCE;
+
+  if (useIon)
+    newDefaultJSOptions |= JSOPTION_ION;
+  else
+    newDefaultJSOptions &= ~JSOPTION_ION;
 
   if (useXML)
     newDefaultJSOptions |= JSOPTION_ALLOW_XML;
@@ -1178,7 +1185,7 @@ NS_IMPL_CYCLE_COLLECTION_CLASS(nsJSContext)
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(nsJSContext)
 NS_IMPL_CYCLE_COLLECTION_TRACE_END
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsJSContext)
-  NS_ASSERTION(!tmp->mContext || js::GetContextOutstandingRequests(tmp->mContext) == 0,
+  NS_ASSERTION(!tmp->mContext || !js::ContextHasOutstandingRequests(tmp->mContext),
                "Trying to unlink a context with outstanding requests.");
   tmp->mIsInitialized = false;
   tmp->mGCOnDestruction = false;
@@ -1207,8 +1214,14 @@ nsrefcnt
 nsJSContext::GetCCRefcnt()
 {
   nsrefcnt refcnt = mRefCnt.get();
-  if (NS_LIKELY(mContext))
-    refcnt += js::GetContextOutstandingRequests(mContext);
+
+  // In the (abnormal) case of synchronous cycle-collection, the context may be
+  // actively running JS code in which case we must keep it alive by adding an
+  // extra refcount.
+  if (mContext && js::ContextHasOutstandingRequests(mContext)) {
+    refcnt++;
+  }
+
   return refcnt;
 }
 
@@ -1222,9 +1235,6 @@ nsJSContext::EvaluateStringWithValue(const nsAString& aScript,
                                      JS::Value* aRetValue,
                                      bool* aIsUndefined)
 {
-  NS_TIME_FUNCTION_MIN_FMT(1.0, "%s (line %d) (url: %s, line: %d)", MOZ_FUNCTION_NAME,
-                           __LINE__, aURL, aLineNo);
-
   SAMPLE_LABEL("JS", "EvaluateStringWithValue");
   NS_ABORT_IF_FALSE(aScopeObject,
     "Shouldn't call EvaluateStringWithValue with null scope object.");
@@ -1408,9 +1418,6 @@ nsJSContext::EvaluateString(const nsAString& aScript,
                             nsAString *aRetValue,
                             bool* aIsUndefined)
 {
-  NS_TIME_FUNCTION_MIN_FMT(1.0, "%s (line %d) (url: %s, line: %d)", MOZ_FUNCTION_NAME,
-                           __LINE__, aURL, aLineNo);
-
   SAMPLE_LABEL("JS", "EvaluateString");
   NS_ENSURE_TRUE(mIsInitialized, NS_ERROR_NOT_INITIALIZED);
 
@@ -1725,9 +1732,6 @@ nsJSContext::CompileEventHandler(nsIAtom *aName,
                                  uint32_t aVersion,
                                  nsScriptObjectHolder<JSObject>& aHandler)
 {
-  NS_TIME_FUNCTION_MIN_FMT(1.0, "%s (line %d) (url: %s, line: %d)", MOZ_FUNCTION_NAME,
-                           __LINE__, aURL, aLineNo);
-
   NS_ENSURE_TRUE(mIsInitialized, NS_ERROR_NOT_INITIALIZED);
 
   NS_PRECONDITION(AtomIsEventHandlerName(aName), "Bad event name");
@@ -1787,9 +1791,6 @@ nsJSContext::CompileFunction(JSObject* aTarget,
                              bool aShared,
                              JSObject** aFunctionObject)
 {
-  NS_TIME_FUNCTION_FMT(1.0, "%s (line %d) (function: %s, url: %s, line: %d)", MOZ_FUNCTION_NAME,
-                       __LINE__, aName.BeginReading(), aURL, aLineNo);
-
   NS_ABORT_IF_FALSE(aFunctionObject,
     "Shouldn't call CompileFunction with null return value.");
 
@@ -1846,17 +1847,6 @@ nsJSContext::CallEventHandler(nsISupports* aTarget, JSObject* aScope,
     return NS_OK;
   }
 
-#ifdef NS_FUNCTION_TIMER
-  {
-    JSObject *obj = aHandler;
-    if (js::IsFunctionProxy(obj))
-      obj = js::UnwrapObject(obj);
-    JSString *id = JS_GetFunctionId(static_cast<JSFunction *>(JS_GetPrivate(obj)));
-    JSAutoByteString bytes;
-    const char *name = !id ? "anonymous" : bytes.encode(mContext, id) ? bytes.ptr() : "<error>";
-    NS_TIME_FUNCTION_FMT(1.0, "%s (line %d) (function: %s)", MOZ_FUNCTION_NAME, __LINE__, name);
-  }
-#endif
   SAMPLE_LABEL("JS", "CallEventHandler");
 
   nsAutoMicroTask mt;
@@ -2008,8 +1998,6 @@ nsresult
 nsJSContext::Deserialize(nsIObjectInputStream* aStream,
                          nsScriptObjectHolder<JSScript>& aResult)
 {
-  NS_TIME_FUNCTION_MIN(1.0);
-  
   JSScript *script;
   nsresult rv = nsContentUtils::XPConnect()->ReadScript(aStream, mContext, &script);
   if (NS_FAILED(rv)) return rv;
@@ -2894,7 +2882,6 @@ nsJSContext::GarbageCollectNow(js::gcreason::Reason aReason,
                                IsShrinking aShrinking,
                                int64_t aSliceMillis)
 {
-  NS_TIME_FUNCTION_MIN(1.0);
   SAMPLE_LABEL("GC", "GarbageCollectNow");
 
   MOZ_ASSERT_IF(aSliceMillis, aIncremental == IncrementalGC);
@@ -2962,7 +2949,6 @@ nsJSContext::GarbageCollectNow(js::gcreason::Reason aReason,
 void
 nsJSContext::ShrinkGCBuffersNow()
 {
-  NS_TIME_FUNCTION_MIN(1.0);
   SAMPLE_LABEL("GC", "ShrinkGCBuffersNow");
 
   KillShrinkGCBuffersTimer();
@@ -3065,7 +3051,6 @@ nsJSContext::CycleCollectNow(nsICycleCollectorListener *aListener,
   }
 
   SAMPLE_LABEL("GC", "CycleCollectNow");
-  NS_TIME_FUNCTION_MIN(1.0);
 
   KillCCTimer();
 

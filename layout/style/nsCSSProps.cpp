@@ -219,6 +219,11 @@ nsCSSProps::BuildShorthandsContainingTable()
       subpropCounts[shorthand - eCSSProperty_COUNT_no_shorthands];
     subpropCountsEntry.property = shorthand;
     subpropCountsEntry.count = 0;
+    if (nsCSSProps::PropHasFlags(shorthand, CSS_PROPERTY_IS_ALIAS)) {
+      // Don't put shorthands that are acting as aliases in the
+      // shorthands-containing lists.
+      continue;
+    }
     for (const nsCSSProperty* subprops = SubpropertyEntryFor(shorthand);
          *subprops != eCSSProperty_UNKNOWN;
          ++subprops) {
@@ -279,6 +284,12 @@ nsCSSProps::BuildShorthandsContainingTable()
            shorthandAndCount->count,
            nsCSSProps::GetStringValue(shorthandAndCount->property).get());
 #endif
+    if (nsCSSProps::PropHasFlags(shorthandAndCount->property,
+                                 CSS_PROPERTY_IS_ALIAS)) {
+      // Don't put shorthands that are acting as aliases in the
+      // shorthands-containing lists.
+      continue;
+    }
     for (const nsCSSProperty* subprops =
            SubpropertyEntryFor(shorthandAndCount->property);
          *subprops != eCSSProperty_UNKNOWN;
@@ -307,6 +318,11 @@ nsCSSProps::BuildShorthandsContainingTable()
   for (nsCSSProperty shorthand = eCSSProperty_COUNT_no_shorthands;
        shorthand < eCSSProperty_COUNT;
        shorthand = nsCSSProperty(shorthand + 1)) {
+    if (nsCSSProps::PropHasFlags(shorthand, CSS_PROPERTY_IS_ALIAS)) {
+      // Don't put shorthands that are acting as aliases in the
+      // shorthands-containing lists.
+      continue;
+    }
     for (const nsCSSProperty* subprops = SubpropertyEntryFor(shorthand);
          *subprops != eCSSProperty_UNKNOWN;
          ++subprops) {
@@ -773,6 +789,7 @@ const int32_t nsCSSProps::kClearKTable[] = {
   eCSSKeyword_UNKNOWN,-1
 };
 
+// See also kObjectPatternKTable for SVG paint-specific values
 const int32_t nsCSSProps::kColorKTable[] = {
   eCSSKeyword_activeborder, LookAndFeel::eColorID_activeborder,
   eCSSKeyword_activecaption, LookAndFeel::eColorID_activecaption,
@@ -1147,6 +1164,18 @@ const int32_t nsCSSProps::kListStyleKTable[] = {
   eCSSKeyword_UNKNOWN,-1
 };
 
+const int32_t nsCSSProps::kObjectOpacityKTable[] = {
+  eCSSKeyword__moz_objectfillopacity, NS_STYLE_OBJECT_FILL_OPACITY,
+  eCSSKeyword__moz_objectstrokeopacity, NS_STYLE_OBJECT_STROKE_OPACITY,
+  eCSSKeyword_UNKNOWN,-1
+};
+
+const int32_t nsCSSProps::kObjectPatternKTable[] = {
+  eCSSKeyword__moz_objectfill, NS_COLOR_OBJECTFILL,
+  eCSSKeyword__moz_objectstroke, NS_COLOR_OBJECTSTROKE,
+  eCSSKeyword_UNKNOWN,-1
+};
+
 const int32_t nsCSSProps::kOrientKTable[] = {
   eCSSKeyword_horizontal, NS_STYLE_ORIENT_HORIZONTAL,
   eCSSKeyword_vertical,   NS_STYLE_ORIENT_VERTICAL,
@@ -1442,6 +1471,7 @@ const int32_t nsCSSProps::kWhitespaceKTable[] = {
   eCSSKeyword_nowrap, NS_STYLE_WHITESPACE_NOWRAP,
   eCSSKeyword_pre_wrap, NS_STYLE_WHITESPACE_PRE_WRAP,
   eCSSKeyword_pre_line, NS_STYLE_WHITESPACE_PRE_LINE,
+  eCSSKeyword__moz_pre_discard_newlines, NS_STYLE_WHITESPACE_PRE_DISCARD_NEWLINES,
   eCSSKeyword_UNKNOWN,-1
 };
 
@@ -1565,6 +1595,13 @@ const int32_t nsCSSProps::kStrokeLinejoinKTable[] = {
   eCSSKeyword_miter, NS_STYLE_STROKE_LINEJOIN_MITER,
   eCSSKeyword_round, NS_STYLE_STROKE_LINEJOIN_ROUND,
   eCSSKeyword_bevel, NS_STYLE_STROKE_LINEJOIN_BEVEL,
+  eCSSKeyword_UNKNOWN, -1
+};
+
+// Lookup table to store the sole objectValue keyword to let SVG glyphs inherit
+// certain stroke-* properties from the outer text object
+const int32_t nsCSSProps::kStrokeObjectValueKTable[] = {
+  eCSSKeyword__moz_objectvalue, NS_STYLE_STROKE_PROP_OBJECTVALUE,
   eCSSKeyword_UNKNOWN, -1
 };
 
@@ -2219,6 +2256,13 @@ static const nsCSSProperty gMarkerSubpropTable[] = {
   eCSSProperty_marker_start,
   eCSSProperty_marker_mid,
   eCSSProperty_marker_end,
+  eCSSProperty_UNKNOWN
+};
+
+// Subproperty tables for shorthands that are just aliases with
+// different parsing rules.
+static const nsCSSProperty gMozTransformSubpropTable[] = {
+  eCSSProperty_transform,
   eCSSProperty_UNKNOWN
 };
 

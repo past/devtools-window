@@ -36,6 +36,7 @@ XPCOMUtils.defineLazyGetter(this, "NetUtil", function() {
 [
   ["HelperApps", "chrome://browser/content/HelperApps.js"],
   ["SelectHelper", "chrome://browser/content/SelectHelper.js"],
+  ["InputWidgetHelper", "chrome://browser/content/InputWidgetHelper.js"],
   ["AboutReader", "chrome://browser/content/aboutReader.js"],
   ["WebAppRT", "chrome://browser/content/WebAppRT.js"],
 ].forEach(function (aScript) {
@@ -117,6 +118,10 @@ function resolveGeckoURI(aURI) {
   return aURI;
 }
 
+function shouldShowProgress(url) {
+  return (url != "about:home" && !/^about:reader/.test(url));
+}
+
 /**
  * Cache of commonly used string bundles.
  */
@@ -168,6 +173,7 @@ var BrowserApp = {
     Services.obs.addObserver(this, "Passwords:Init", false);
     Services.obs.addObserver(this, "FormHistory:Init", false);
     Services.obs.addObserver(this, "ToggleProfiling", false);
+    Services.obs.addObserver(this, "Memory:Dump", false);
 
     Services.obs.addObserver(this, "sessionstore-state-purge-complete", false);
 
@@ -311,7 +317,7 @@ var BrowserApp = {
       // Start the restore
       ss.restoreLastSession(restoreToFront, restoreMode == 1);
     } else {
-      loadParams.showProgress = (url != "about:home");
+      loadParams.showProgress = shouldShowProgress(url);
       loadParams.pinned = pinned;
       this.addTab(url, loadParams);
 
@@ -446,8 +452,10 @@ var BrowserApp = {
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.shareImage"),
       NativeWindow.contextmenus.imageSaveableContext,
       function(aTarget) {
-        let imageCache = Cc["@mozilla.org/image/cache;1"].getService(Ci.imgICache);
-        let props = imageCache.findEntryProperties(aTarget.currentURI, aTarget.ownerDocument.characterSet);
+        let doc = aTarget.ownerDocument;
+        let imageCache = Cc["@mozilla.org/image/tools;1"].getService(Ci.imgITools)
+                                                         .getImgCacheForDocument(doc);
+        let props = imageCache.findEntryProperties(aTarget.currentURI, doc.characterSet);
         let src = aTarget.src;
         let type = "";
         try {
@@ -467,8 +475,10 @@ var BrowserApp = {
     NativeWindow.contextmenus.add(Strings.browser.GetStringFromName("contextmenu.saveImage"),
       NativeWindow.contextmenus.imageSaveableContext,
       function(aTarget) {
-        let imageCache = Cc["@mozilla.org/image/cache;1"].getService(Ci.imgICache);
-        let props = imageCache.findEntryProperties(aTarget.currentURI, aTarget.ownerDocument.characterSet);
+        let doc = aTarget.ownerDocument;
+        let imageCache = Cc["@mozilla.org/image/tools;1"].getService(Ci.imgITools)
+                                                         .getImgCacheForDocument(doc);
+        let props = imageCache.findEntryProperties(aTarget.currentURI, doc.characterSet);
         let contentDisposition = "";
         let type = "";
         try {
@@ -807,7 +817,7 @@ var BrowserApp = {
       let json = JSON.parse(aPrefNames);
       let prefs = [];
 
-      for each (let prefName in json) {
+      for each (let prefName in json.preferences) {
         let pref = {
           name: prefName
         };
@@ -876,6 +886,7 @@ var BrowserApp = {
       sendMessageToJava({
         gecko: {
           type: "Preferences:Data",
+          requestId: json.requestId,    // opaque request identifier, can be any string/int/whatever
           preferences: prefs
         }
       });
@@ -1056,8 +1067,8 @@ var BrowserApp = {
         }
       }
 
-      // Don't show progress throbber for about:home
-      if (url == "about:home")
+      // Don't show progress throbber for about:home or about:reader
+      if (!shouldShowProgress(url))
         params.showProgress = false;
 
       if (aTopic == "Tab:Add")
@@ -1110,6 +1121,8 @@ var BrowserApp = {
       } else {
         profiler.StartProfiler(100000, 25, ["stackwalk"], 1);
       }
+    } else if (aTopic == "Memory:Dump") {
+      this.dumpMemoryStats(aData);
     }
   },
 
@@ -1122,7 +1135,83 @@ var BrowserApp = {
   // nsIAndroidBrowserApp
   getBrowserTab: function(tabId) {
     return this.getTabForId(tabId);
-  }
+  },
+
+  dumpMemoryStats: function(aLabel) {
+    // TODO once bug 788021 has landed, replace this code and just invoke that instead
+    // currently this code is hijacked from areweslimyet.com, original code can be found at:
+    // https://github.com/Nephyrin/MozAreWeSlimYet/blob/master/mozmill_endurance_test/performance.js
+    var memMgr = Cc["@mozilla.org/memory-reporter-manager;1"].getService(Ci.nsIMemoryReporterManager);
+
+    var timestamp = new Date();
+    var memory = {};
+
+    // These *should* be identical to the explicit/resident root node
+    // sum, AND the explicit/resident node explicit value (on newer builds),
+    // but we record all three so we can make sure the data is consistent
+    memory['manager_explicit'] = memMgr.explicit;
+    memory['manager_resident'] = memMgr.resident;
+
+    var knownHeap = 0;
+
+    function addReport(path, amount, kind, units) {
+      if (units !== undefined && units != Ci.nsIMemoryReporter.UNITS_BYTES)
+        // Unhandled. (old builds don't specify units, but use only bytes)
+        return;
+
+      if (memory[path])
+        memory[path] += amount;
+      else
+        memory[path] = amount;
+      if (kind !== undefined && kind == Ci.nsIMemoryReporter.KIND_HEAP
+          && path.indexOf('explicit/') == 0)
+        knownHeap += amount;
+    }
+
+    // Normal reporters
+    var reporters = memMgr.enumerateReporters();
+    while (reporters.hasMoreElements()) {
+      var r = reporters.getNext();
+      r instanceof Ci.nsIMemoryReporter;
+      if (r.path.length) {
+        addReport(r.path, r.amount, r.kind, r.units);
+      }
+    }
+
+    // Multireporters
+    if (memMgr.enumerateMultiReporters) {
+      var multireporters = memMgr.enumerateMultiReporters();
+
+      while (multireporters.hasMoreElements()) {
+        var mr = multireporters.getNext();
+        mr instanceof Ci.nsIMemoryMultiReporter;
+        mr.collectReports(function (proc, path, kind, units, amount, description, closure) {
+          addReport(path, amount, kind, units);
+        }, null);
+      }
+    }
+
+    var heapAllocated = memory['heap-allocated'];
+    // Called heap-used in older builds
+    if (!heapAllocated) heapAllocated = memory['heap-used'];
+    // This is how about:memory calculates derived value heap-unclassified, which
+    // is necessary to get a proper explicit value.
+    if (knownHeap && heapAllocated)
+      memory['explicit/heap-unclassified'] = memory['heap-allocated'] - knownHeap;
+
+    // If the build doesn't have a resident/explicit reporter, but does have
+    // the memMgr.explicit/resident field, use that
+    if (!memory['resident'])
+      memory['resident'] = memory['manager_resident']
+    if (!memory['explicit'])
+      memory['explicit'] = memory['manager_explicit']
+
+    var label = "[AboutMemoryDump|" + aLabel + "] ";
+    dump(label + timestamp);
+    for (var type in memory) {
+      dump(label + type + " = " + memory[type]);
+    }
+  },
 };
 
 var NativeWindow = {
@@ -1387,9 +1476,9 @@ var NativeWindow = {
 
     _sendToContent: function(aX, aY) {
       // initially we look for nearby clickable elements. If we don't find one we fall back to using whatever this click was on
-      let rootElement = ElementTouchHelper.elementFromPoint(BrowserApp.selectedBrowser.contentWindow, aX, aY);
+      let rootElement = ElementTouchHelper.elementFromPoint(aX, aY);
       if (!rootElement)
-        rootElement = ElementTouchHelper.anyElementFromPoint(BrowserApp.selectedBrowser.contentWindow, aX, aY)
+        rootElement = ElementTouchHelper.anyElementFromPoint(aX, aY)
 
       this.menuitems = {};
       let menuitemsSet = false;
@@ -1842,7 +1931,7 @@ var SelectionHandler = {
 
     // Only try copying text if there's text to copy!
     if (pointInSelection && selectedText.length) {
-      let element = ElementTouchHelper.anyElementFromPoint(BrowserApp.selectedBrowser.contentWindow, aX, aY);
+      let element = ElementTouchHelper.anyElementFromPoint(aX, aY);
       // Only try copying text if the tap happens in the same view
       if (element.ownerDocument.defaultView == this._view) {
         let clipboard = Cc["@mozilla.org/widget/clipboardhelper;1"].getService(Ci.nsIClipboardHelper);
@@ -2521,14 +2610,9 @@ Tab.prototype = {
     return aDisplayPort;
   },
 
-  setViewport: function(aViewport) {
-    // Transform coordinates based on zoom
-    let x = aViewport.x / aViewport.zoom;
-    let y = aViewport.y / aViewport.zoom;
-
-    // Set scroll position and scroll-port clamping size
-    let viewportWidth = gScreenWidth / aViewport.zoom;
-    let viewportHeight = gScreenHeight / aViewport.zoom;
+  setScrollClampingSize: function(zoom) {
+    let viewportWidth = gScreenWidth / zoom;
+    let viewportHeight = gScreenHeight / zoom;
     let [pageWidth, pageHeight] = this.getPageSize(this.browser.contentDocument,
                                                    viewportWidth, viewportHeight);
     let scrollPortWidth = Math.min(viewportWidth, pageWidth);
@@ -2537,6 +2621,16 @@ Tab.prototype = {
     let win = this.browser.contentWindow;
     win.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils).
         setScrollPositionClampingScrollPortSize(scrollPortWidth, scrollPortHeight);
+  },
+
+  setViewport: function(aViewport) {
+    // Transform coordinates based on zoom
+    let x = aViewport.x / aViewport.zoom;
+    let y = aViewport.y / aViewport.zoom;
+
+    this.setScrollClampingSize(aViewport.zoom);
+
+    let win = this.browser.contentWindow;
     win.scrollTo(x, y);
 
     this.userScrollPos.x = win.scrollX;
@@ -2628,24 +2722,10 @@ Tab.prototype = {
   },
 
   sendViewportUpdate: function(aPageSizeUpdate) {
-    let message;
-    // for foreground tabs, send the viewport update unless the document
-    // displayed is different from the content document. In that case, just
-    // calculate the display port.
-    if (BrowserApp.selectedTab == this && BrowserApp.isBrowserContentDocumentDisplayed()) {
-      message = this.getViewport();
-      message.type = aPageSizeUpdate ? "Viewport:PageSize" : "Viewport:Update";
-    } else {
-      // for background tabs, request a new display port calculation, so that
-      // when we do switch to that tab, we have the correct display port and
-      // don't need to draw twice (once to allow the first-paint viewport to
-      // get to java, and again once java figures out the display port).
-      message = this.getViewport();
-      message.type = "Viewport:CalculateDisplayPort";
-    }
-    let displayPort = sendMessageToJava({ gecko: message });
+    let viewport = this.getViewport();
+    let displayPort = getBridge().getDisplayPort(aPageSizeUpdate, BrowserApp.isBrowserContentDocumentDisplayed(), this.id, viewport);
     if (displayPort != null)
-      this.setDisplayPort(JSON.parse(displayPort));
+      this.setDisplayPort(displayPort);
   },
 
   handleEvent: function(aEvent) {
@@ -2685,9 +2765,9 @@ Tab.prototype = {
         // require error page UI to do privileged things, without letting error
         // pages have any privilege themselves.
         if (/^about:/.test(target.documentURI)) {
-          this.browser.addEventListener("click", ErrorPageEventHandler, false);
+          this.browser.addEventListener("click", ErrorPageEventHandler, true);
           let listener = function() {
-            this.browser.removeEventListener("click", ErrorPageEventHandler, false);
+            this.browser.removeEventListener("click", ErrorPageEventHandler, true);
             this.browser.removeEventListener("pagehide", listener, true);
           }.bind(this);
 
@@ -3286,6 +3366,7 @@ Tab.prototype = {
     let zoomScale = (screenW * oldBrowserWidth) / (aOldScreenWidth * viewportW);
     let zoom = this.clampZoom(this._zoom * zoomScale);
     this.setResolution(zoom, false);
+    this.setScrollClampingSize(zoom);
     this.sendViewportUpdate();
   },
 
@@ -3398,6 +3479,7 @@ var BrowserEventHandler = {
 
     BrowserApp.deck.addEventListener("DOMUpdatePageReport", PopupBlockerObserver.onUpdatePageReport, false);
     BrowserApp.deck.addEventListener("touchstart", this, true);
+    BrowserApp.deck.addEventListener("click", InputWidgetHelper, true);
     BrowserApp.deck.addEventListener("click", SelectHelper, true);
   },
 
@@ -3422,14 +3504,29 @@ var BrowserEventHandler = {
     }
 
     if (!ElementTouchHelper.isElementClickable(closest, null, false))
-      closest = ElementTouchHelper.elementFromPoint(BrowserApp.selectedBrowser.contentWindow,
-                                                    aEvent.changedTouches[0].screenX,
+      closest = ElementTouchHelper.elementFromPoint(aEvent.changedTouches[0].screenX,
                                                     aEvent.changedTouches[0].screenY);
     if (!closest)
       closest = aEvent.target;
 
-    if (closest)
+    if (closest) {
+      let uri = this._getLinkURI(closest);
+      if (uri) {
+        Services.io.QueryInterface(Ci.nsISpeculativeConnect).speculativeConnect(uri, null, null);
+      }
       this._doTapHighlight(closest);
+    }
+  },
+
+  _getLinkURI: function(aElement) {
+    if (aElement.nodeType == Ci.nsIDOMNode.ELEMENT_NODE &&
+        ((aElement instanceof Ci.nsIDOMHTMLAnchorElement && aElement.href) ||
+        (aElement instanceof Ci.nsIDOMHTMLAreaElement && aElement.href))) {
+      try {
+        return Services.io.newURI(aElement.href, null, null);
+      } catch (e) {}
+    }
+    return null;
   },
 
   observe: function(aSubject, aTopic, aData) {
@@ -3503,7 +3600,7 @@ var BrowserEventHandler = {
 
           if (isClickable) {
             [data.x, data.y] = this._moveClickPoint(element, data.x, data.y);
-            element = ElementTouchHelper.anyElementFromPoint(element.ownerDocument.defaultView.top, data.x, data.y);
+            element = ElementTouchHelper.anyElementFromPoint(data.x, data.y);
             isClickable = ElementTouchHelper.isElementClickable(element);
           }
 
@@ -3561,10 +3658,8 @@ var BrowserEventHandler = {
   onDoubleTap: function(aData) {
     let data = JSON.parse(aData);
 
-    let win = BrowserApp.selectedBrowser.contentWindow;
-    
     let zoom = BrowserApp.selectedTab._zoom;
-    let element = ElementTouchHelper.anyElementFromPoint(win, data.x, data.y);
+    let element = ElementTouchHelper.anyElementFromPoint(data.x, data.y);
     if (!element) {
       this._zoomOut();
       return;
@@ -3782,8 +3877,13 @@ var BrowserEventHandler = {
 const kReferenceDpi = 240; // standard "pixel" size used in some preferences
 
 const ElementTouchHelper = {
-  anyElementFromPoint: function(aWindow, aX, aY) {
-    let cwu = aWindow.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils);
+  /* Return the element at the given coordinates, starting from the given window and
+     drilling down through frames. If no window is provided, the top-level window of
+     the currently selected tab is used. The coordinates provided should be CSS pixels
+     relative to the window's scroll position. */
+  anyElementFromPoint: function(aX, aY, aWindow) {
+    let win = (aWindow ? aWindow : BrowserApp.selectedBrowser.contentWindow);
+    let cwu = win.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils);
     let elem = cwu.elementFromPoint(aX, aY, false, true);
 
     while (elem && (elem instanceof HTMLIFrameElement || elem instanceof HTMLFrameElement)) {
@@ -3797,10 +3897,16 @@ const ElementTouchHelper = {
     return elem;
   },
 
-  elementFromPoint: function(aWindow, aX, aY) {
+  /* Return the most appropriate clickable element (if any), starting from the given window
+     and drilling down through iframes as necessary. If no window is provided, the top-level
+     window of the currently selected tab is used. The coordinates provided should be CSS
+     pixels relative to the window's scroll position. The element returned may not actually
+     contain the coordinates passed in because of touch radius and clickability heuristics. */
+  elementFromPoint: function(aX, aY, aWindow) {
     // browser's elementFromPoint expect browser-relative client coordinates.
     // subtract browser's scroll values to adjust
-    let cwu = aWindow.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils);
+    let win = (aWindow ? aWindow : BrowserApp.selectedBrowser.contentWindow);
+    let cwu = win.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils);
     let elem = this.getClosest(cwu, aX, aY);
 
     // step through layers of IFRAMEs and FRAMES to find innermost element
@@ -4034,6 +4140,10 @@ var ErrorPageEventHandler = {
           } else if (target == errorDoc.getElementById("getMeOutOfHereButton")) {
             errorDoc.location = "about:home";
           }
+        } else if (/^about:neterror\?e=netOffline/.test(ownerDoc.documentURI)) {
+          let tryAgain = errorDoc.getElementById("errorTryAgain");
+          if (target == tryAgain)
+            Services.io.offline = false;
         }
         break;
       }
@@ -6116,8 +6226,10 @@ var WebappsUI = {
 
   observe: function observe(aSubject, aTopic, aData) {
     let data = {};
-    try { data = JSON.parse(aData); }
-    catch(ex) { }
+    try {
+      data = JSON.parse(aData);
+      data.mm = aSubject;
+    } catch(ex) { }
     switch (aTopic) {
       case "webapps-install-error":
         let msg = "";
@@ -6191,9 +6303,8 @@ var WebappsUI = {
 
   isMarketplace: function isMarketplace(aUri) {
     try {
-      return aUri.host == this.MARKETPLACE.URI.host;
+      return !aUri.schemeIs("about") && aUri.host == this.MARKETPLACE.URI.host;
     } catch(ex) {
-      // this can fail for uri's that don't have a host (i.e. about urls)
       console.log("could not find host for " + aUri.spec + ", " + ex);
     }
     return false;
@@ -6279,13 +6390,13 @@ var WebappsUI = {
       // Add a homescreen shortcut -- we can't use createShortcut, since we need to pass
       // a unique ID for Android webapp allocation
       this.makeBase64Icon(this.getBiggestIcon(manifest.icons, Services.io.newURI(aData.app.origin, null, null)),
-        (function(icon) {
+        (function(scaledIcon, fullsizeIcon) {
           let profilePath = sendMessageToJava({
             gecko: {
               type: "WebApps:Install",
               name: manifest.name,
               launchPath: manifest.fullLaunchPath(),
-              iconURL: icon,
+              iconURL: scaledIcon,
               uniqueURI: aData.app.origin
             }
           });
@@ -6305,6 +6416,20 @@ var WebappsUI = {
             let defaultPrefsFile = file.clone();
             defaultPrefsFile.append(this.DEFAULT_PREFS_FILENAME);
             this.writeDefaultPrefs(defaultPrefsFile, prefs);
+
+            // also save the icon so that it can be used in the splash screen
+            try {
+              let iconFile = file.clone();
+              iconFile.append("logo.png");
+              let persist = Cc["@mozilla.org/embedding/browser/nsWebBrowserPersist;1"].createInstance(Ci.nsIWebBrowserPersist);
+              persist.persistFlags = Ci.nsIWebBrowserPersist.PERSIST_FLAGS_REPLACE_EXISTING_FILES;
+              persist.persistFlags |= Ci.nsIWebBrowserPersist.PERSIST_FLAGS_AUTODETECT_APPLY_CONVERSION;
+  
+              let source = Services.io.newURI(fullsizeIcon, "UTF8", null);
+              persist.saveURI(source, null, null, null, null, iconFile);
+            } catch(ex) {
+              console.log(ex);
+            }
           }
           DOMApplicationRegistry.confirmInstall(aData, false, file);
         }).bind(this));
@@ -6317,7 +6442,7 @@ var WebappsUI = {
     if (aPrefs.length > 0) {
       let data = JSON.stringify(aPrefs);
 
-      var ostream = Cc["@mozilla.org/network/file-output-stream;1"].createInstance(Ci.nsIFileOutputStream);
+      let ostream = Cc["@mozilla.org/network/file-output-stream;1"].createInstance(Ci.nsIFileOutputStream);
       ostream.init(aFile, -1, -1, 0);
 
       let istream = Cc["@mozilla.org/io/string-input-stream;1"].createInstance(Ci.nsIStringInputStream);
@@ -6341,21 +6466,41 @@ var WebappsUI = {
     });
   },
 
+  get iconSize() {
+    let iconSize = 64;
+    try {
+      Cu.import("resource://gre/modules/JNI.jsm");
+      let jni = new JNI();
+      let cls = jni.findClass("org.mozilla.gecko.GeckoAppShell");
+      let method = jni.getStaticMethodID(cls, "getPreferredIconSize", "()I");
+      iconSize = jni.callStaticIntMethod(cls, method);
+      jni.close();
+    } catch(ex) {
+      console.log(ex);
+    }
+
+    delete this.iconSize;
+    return this.iconSize = iconSize;
+  },
+
   makeBase64Icon: function loadAndMakeBase64Icon(aIconURL, aCallbackFunction) {
-    // The images are 64px, but Android will resize as needed.
-    // Bigger is better than too small.
-    const kIconSize = 64;
+    let size = this.iconSize;
 
     let canvas = document.createElementNS("http://www.w3.org/1999/xhtml", "canvas");
-
-    canvas.width = canvas.height = kIconSize;
+    canvas.width = canvas.height = size;
     let ctx = canvas.getContext("2d");
     let favicon = new Image();
     favicon.onload = function() {
-      ctx.drawImage(favicon, 0, 0, kIconSize, kIconSize);
-      let base64icon = canvas.toDataURL("image/png", "");
+      ctx.drawImage(favicon, 0, 0, size, size);
+      let scaledIcon = canvas.toDataURL("image/png", "");
+
+      canvas.width = favicon.width;
+      canvas.height = favicon.height;
+      ctx.drawImage(favicon, 0, 0, favicon.width, favicon.height);
+      let fullsizeIcon = canvas.toDataURL("image/png", "");
+
       canvas = null;
-      aCallbackFunction.call(null, base64icon);
+      aCallbackFunction.call(null, scaledIcon, fullsizeIcon);
     };
     favicon.onerror = function() {
       Cu.reportError("CreateShortcut: favicon image load error");
@@ -6676,8 +6821,7 @@ let Reader = {
       let url = tab.browser.contentWindow.location.href;
       let uri = Services.io.newURI(url, null, null);
 
-      if (!(uri.schemeIs("http") || uri.schemeIs("https") || uri.schemeIs("file"))) {
-        this.log("Not parsing URI scheme: " + uri.scheme);
+      if (!this._shouldCheckUri(uri)) {
         callback(null);
         return;
       }
@@ -6802,6 +6946,20 @@ let Reader = {
   log: function(msg) {
     if (this.DEBUG)
       dump("Reader: " + msg);
+  },
+
+  _shouldCheckUri: function Reader_shouldCheckUri(uri) {
+    if ((uri.prePath + "/") === uri.spec) {
+      this.log("Not parsing home page: " + uri.spec);
+      return false;
+    }
+
+    if (!(uri.schemeIs("http") || uri.schemeIs("https") || uri.schemeIs("file"))) {
+      this.log("Not parsing URI scheme: " + uri.scheme);
+      return false;
+    }
+
+    return true;
   },
 
   _readerParse: function Reader_readerParse(uri, doc, callback) {

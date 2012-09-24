@@ -1118,7 +1118,7 @@ nsFtpState::S_list() {
 
         // open cache entry for writing, and configure it to receive data.
         if (NS_FAILED(InstallCacheListener())) {
-            mCacheEntry->Doom();
+            mCacheEntry->AsyncDoom(nullptr);
             mCacheEntry = nullptr;
         }
     }
@@ -1181,7 +1181,7 @@ nsFtpState::R_retr() {
         // any cache entry, otherwise we'll have problems reading it later.
         // See bug 122548
         if (mCacheEntry) {
-            (void)mCacheEntry->Doom();
+            (void)mCacheEntry->AsyncDoom(nullptr);
             mCacheEntry = nullptr;
         }
         if (HasPendingCallback())
@@ -2149,7 +2149,7 @@ nsFtpState::CloseWithStatus(nsresult status)
 
     mDataStream = nullptr;
     if (mDoomCache && mCacheEntry)
-        mCacheEntry->Doom();
+        mCacheEntry->AsyncDoom(nullptr);
     mCacheEntry = nullptr;
 
     return nsBaseContentStream::CloseWithStatus(status);
@@ -2260,22 +2260,9 @@ nsFtpState::CheckCache()
         key.Truncate(pos);
     NS_ENSURE_FALSE(key.IsEmpty(), false);
 
-    // Try to open a cache entry immediately, but if the cache entry is busy,
-    // then wait for it to be available.
+    nsresult rv = session->AsyncOpenCacheEntry(key, accessReq, this, false);
+    return NS_SUCCEEDED(rv);
 
-    nsresult rv = session->OpenCacheEntry(key, accessReq, false,
-                                          getter_AddRefs(mCacheEntry));
-    if (NS_SUCCEEDED(rv) && mCacheEntry) {
-        mDoomCache = true;
-        return false;  // great, we're ready to proceed!
-    }
-
-    if (rv == NS_ERROR_CACHE_WAIT_FOR_VALIDATION) {
-        rv = session->AsyncOpenCacheEntry(key, accessReq, this, false);
-        return NS_SUCCEEDED(rv);
-    }
-
-    return false;
 }
 
 nsresult

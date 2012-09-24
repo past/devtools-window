@@ -664,7 +664,8 @@ static bool IsCSSWordSpacingSpace(const nsTextFragment* aFrag,
     return !IsSpaceCombiningSequenceTail(aFrag, aPos + 1);
   case '\r':
   case '\t': return !aStyleText->WhiteSpaceIsSignificant();
-  case '\n': return !aStyleText->NewlineIsSignificant();
+  case '\n': return !aStyleText->NewlineIsSignificant() &&
+                    !aStyleText->NewlineIsDiscarded();
   default: return false;
   }
 }
@@ -696,7 +697,8 @@ static bool IsTrimmableSpace(const nsTextFragment* aFrag, uint32_t aPos,
   switch (aFrag->CharAt(aPos)) {
   case ' ': return !aStyleText->WhiteSpaceIsSignificant() &&
                    !IsSpaceCombiningSequenceTail(aFrag, aPos + 1);
-  case '\n': return !aStyleText->NewlineIsSignificant();
+  case '\n': return !aStyleText->NewlineIsSignificant() &&
+                    !aStyleText->NewlineIsDiscarded();
   case '\t':
   case '\r':
   case '\f': return !aStyleText->WhiteSpaceIsSignificant();
@@ -756,6 +758,21 @@ IsAllWhitespace(const nsTextFragment* aFrag, bool aAllowNewline)
     if (ch == ' ' || ch == '\t' || ch == '\r' || (ch == '\n' && aAllowNewline))
       continue;
     return false;
+  }
+  return true;
+}
+
+static bool
+IsAllNewlines(const nsTextFragment* aFrag)
+{
+  if (aFrag->Is2b())
+    return false;
+  int32_t len = aFrag->GetLength();
+  const char* str = aFrag->Get1b();
+  for (int32_t i = 0; i < len; ++i) {
+    char ch = str[i];
+    if (ch != '\n')
+      return false;
   }
   return true;
 }
@@ -1537,6 +1554,7 @@ BuildTextRunsScanner::ContinueTextRunAcrossFrames(nsTextFrame* aFrame1, nsTextFr
   }
 
   nsStyleContext* sc2 = aFrame2->GetStyleContext();
+  const nsStyleText* textStyle2 = sc2->GetStyleText();
   if (sc1 == sc2)
     return true;
 
@@ -1546,6 +1564,7 @@ BuildTextRunsScanner::ContinueTextRunAcrossFrames(nsTextFrame* aFrame1, nsTextFr
   nscoord letterSpacing2 = LetterSpacing(aFrame2);
   return fontStyle1->mFont.BaseEquals(fontStyle2->mFont) &&
     sc1->GetStyleFont()->mLanguage == sc2->GetStyleFont()->mLanguage &&
+    textStyle1->mTextTransform == textStyle2->mTextTransform &&
     nsLayoutUtils::GetTextRunFlagsForStyle(sc1, fontStyle1, letterSpacing1) ==
       nsLayoutUtils::GetTextRunFlagsForStyle(sc2, fontStyle2, letterSpacing2);
 }
@@ -1737,6 +1756,7 @@ PR_STATIC_ASSERT(NS_STYLE_WHITESPACE_PRE == 1);
 PR_STATIC_ASSERT(NS_STYLE_WHITESPACE_NOWRAP == 2);
 PR_STATIC_ASSERT(NS_STYLE_WHITESPACE_PRE_WRAP == 3);
 PR_STATIC_ASSERT(NS_STYLE_WHITESPACE_PRE_LINE == 4);
+PR_STATIC_ASSERT(NS_STYLE_WHITESPACE_PRE_DISCARD_NEWLINES == 5);
 
 static const nsTextFrameUtils::CompressionMode CSSWhitespaceToCompressionMode[] =
 {
@@ -1744,7 +1764,8 @@ static const nsTextFrameUtils::CompressionMode CSSWhitespaceToCompressionMode[] 
   nsTextFrameUtils::COMPRESS_NONE,               // pre
   nsTextFrameUtils::COMPRESS_WHITESPACE_NEWLINE, // nowrap
   nsTextFrameUtils::COMPRESS_NONE,               // pre-wrap
-  nsTextFrameUtils::COMPRESS_WHITESPACE          // pre-line
+  nsTextFrameUtils::COMPRESS_WHITESPACE,         // pre-line
+  nsTextFrameUtils::DISCARD_NEWLINE              // -moz-pre-discard-newlines
 };
 
 gfxTextRun*
@@ -7082,7 +7103,8 @@ nsTextFrame::AddInlinePrefWidthForFlow(nsRenderingContext *aRenderingContext,
       // XXXldb Shouldn't we be including the newline as part of the
       // segment that it ends rather than part of the segment that it
       // starts?
-      NS_ASSERTION(preformatNewlines, "We can't be here unless newlines are hard breaks");
+      NS_ASSERTION(preformatNewlines || textStyle->NewlineIsDiscarded(),
+                   "We can't be here unless newlines are hard breaks or are discarded");
       preformattedNewline = preformatNewlines && textRun->CharIsNewline(i);
       preformattedTab = preformatTabs && textRun->CharIsTab(i);
       if (!preformattedNewline && !preformattedTab) {
@@ -7273,20 +7295,17 @@ RemoveInFlows(nsTextFrame* aFrame, nsTextFrame* aFirstToNotRemove)
   
   nsIFrame* prevContinuation = aFrame->GetPrevContinuation();
   nsIFrame* lastRemoved = aFirstToNotRemove->GetPrevContinuation();
-  nsIFrame* parent = aFrame->GetParent();
-  nsBlockFrame* parentBlock = nsLayoutUtils::GetAsBlock(parent);
-  if (!parentBlock) {
-    // Clear the text run on the first frame we'll remove to make sure none of
-    // the frames we keep shares its text run.  We need to do this now, before
-    // we unlink the frames to remove from the flow, because DestroyFrom calls
-    // ClearTextRuns() and that will start at the first frame with the text
-    // run and walk the continuations.  We only need to care about the first
-    // and last frames we remove since text runs are contiguous.
-    aFrame->ClearTextRuns();
-    if (aFrame != lastRemoved) {
-      // Clear the text run on the last frame we'll remove for the same reason.
-      static_cast<nsTextFrame*>(lastRemoved)->ClearTextRuns();
-    }
+
+  // Clear the text run on the first frame we'll remove to make sure none of
+  // the frames we keep shares its text run.  We need to do this now, before
+  // we unlink the frames to remove from the flow, because DestroyFrom calls
+  // ClearTextRuns() and that will start at the first frame with the text
+  // run and walk the continuations.  We only need to care about the first
+  // and last frames we remove since text runs are contiguous.
+  aFrame->ClearTextRuns();
+  if (aFrame != lastRemoved) {
+    // Clear the text run on the last frame we'll remove for the same reason.
+    static_cast<nsTextFrame*>(lastRemoved)->ClearTextRuns();
   }
 
   prevContinuation->SetNextInFlow(aFirstToNotRemove);
@@ -7295,6 +7314,8 @@ RemoveInFlows(nsTextFrame* aFrame, nsTextFrame* aFirstToNotRemove)
   aFrame->SetPrevInFlow(nullptr);
   lastRemoved->SetNextInFlow(nullptr);
 
+  nsIFrame* parent = aFrame->GetParent();
+  nsBlockFrame* parentBlock = nsLayoutUtils::GetAsBlock(parent);
   if (parentBlock) {
     // Manually call DoRemoveFrame so we can tell it that we're
     // removing empty frames; this will keep it from blowing away
@@ -8178,7 +8199,8 @@ static PRUnichar TransformChar(const nsStyleText* aStyle, gfxTextRun* aTextRun,
                                uint32_t aSkippedOffset, PRUnichar aChar)
 {
   if (aChar == '\n') {
-    return aStyle->NewlineIsSignificant() ? aChar : ' ';
+    return aStyle->NewlineIsSignificant() || aStyle->NewlineIsDiscarded() ?
+             aChar : ' ';
   }
   switch (aStyle->mTextTransform) {
   case NS_STYLE_TEXT_TRANSFORM_LOWERCASE:
@@ -8325,7 +8347,8 @@ nsTextFrame::IsEmpty()
   
   // XXXldb Should this check compatibility mode as well???
   const nsStyleText* textStyle = GetStyleText();
-  if (textStyle->WhiteSpaceIsSignificant()) {
+  if (textStyle->WhiteSpaceIsSignificant() &&
+      textStyle->mWhiteSpace != NS_STYLE_WHITESPACE_PRE_DISCARD_NEWLINES) {
     // XXX shouldn't we return true if the length is zero?
     return false;
   }
@@ -8337,9 +8360,12 @@ nsTextFrame::IsEmpty()
   if (mState & TEXT_IS_ONLY_WHITESPACE) {
     return true;
   }
-  
-  bool isEmpty = IsAllWhitespace(mContent->GetText(),
-          textStyle->mWhiteSpace != NS_STYLE_WHITESPACE_PRE_LINE);
+
+  bool isEmpty =
+    textStyle->mWhiteSpace == NS_STYLE_WHITESPACE_PRE_DISCARD_NEWLINES ?
+      IsAllNewlines(mContent->GetText()) :
+      IsAllWhitespace(mContent->GetText(),
+                      textStyle->mWhiteSpace != NS_STYLE_WHITESPACE_PRE_LINE);
   mState |= (isEmpty ? TEXT_IS_ONLY_WHITESPACE : TEXT_ISNOT_ONLY_WHITESPACE);
   return isEmpty;
 }
@@ -8366,7 +8392,7 @@ nsTextFrame::GetDebugStateBits() const
 }
 
 NS_IMETHODIMP
-nsTextFrame::List(FILE* out, int32_t aIndent) const
+nsTextFrame::List(FILE* out, int32_t aIndent, uint32_t aFlags) const
 {
   // Output the tag
   IndentBy(out, aIndent);

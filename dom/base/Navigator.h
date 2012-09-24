@@ -19,6 +19,7 @@
 #include "nsINavigatorMobileConnection.h"
 #endif
 #include "nsAutoPtr.h"
+#include "nsIDOMNavigatorTime.h"
 #include "nsWeakReference.h"
 #include "DeviceStorage.h"
 
@@ -74,6 +75,10 @@ namespace power {
 class PowerManager;
 } // namespace power
 
+namespace time {
+class TimeManager;
+} // namespace time
+
 class Navigator : public nsIDOMNavigator
                 , public nsIDOMClientInformation
                 , public nsIDOMNavigatorDeviceStorage
@@ -82,6 +87,7 @@ class Navigator : public nsIDOMNavigator
                 , public nsINavigatorBattery
                 , public nsIDOMMozNavigatorSms
 #ifdef MOZ_MEDIA_NAVIGATOR
+                , public nsINavigatorUserMedia
                 , public nsIDOMNavigatorUserMedia
 #endif
 #ifdef MOZ_B2G_RIL
@@ -96,6 +102,7 @@ class Navigator : public nsIDOMNavigator
 #endif
                 , public nsIDOMNavigatorCamera
                 , public nsIDOMNavigatorSystemMessages
+                , public nsIDOMMozNavigatorTime
 {
 public:
   Navigator(nsPIDOMWindow *aInnerWindow);
@@ -110,6 +117,7 @@ public:
   NS_DECL_NSINAVIGATORBATTERY
   NS_DECL_NSIDOMMOZNAVIGATORSMS
 #ifdef MOZ_MEDIA_NAVIGATOR
+  NS_DECL_NSINAVIGATORUSERMEDIA
   NS_DECL_NSIDOMNAVIGATORUSERMEDIA
 #endif
 #ifdef MOZ_B2G_RIL
@@ -124,6 +132,7 @@ public:
   NS_DECL_NSIDOMNAVIGATORBLUETOOTH
 #endif
   NS_DECL_NSIDOMNAVIGATORSYSTEMMESSAGES
+  NS_DECL_NSIDOMMOZNAVIGATORTIME
 
   static void Init();
 
@@ -176,6 +185,7 @@ private:
   nsRefPtr<nsDOMCameraManager> mCameraManager;
   nsCOMPtr<nsIDOMNavigatorSystemMessages> mMessagesManager;
   nsTArray<nsRefPtr<nsDOMDeviceStorage> > mDeviceStorageStores;
+  nsRefPtr<time::TimeManager> mTimeManager;
   nsWeakPtr mWindow;
 };
 

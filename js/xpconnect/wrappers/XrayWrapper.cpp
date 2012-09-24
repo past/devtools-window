@@ -269,8 +269,8 @@ createHolder(JSContext *cx, JSObject *wrappedNative, JSObject *parent)
     // wrapped native alive. Furthermore, the reachability of that object and
     // the associated holder are exactly the same, so we can use that for our
     // strong reference.
-    JS_ASSERT(IS_WN_WRAPPER(wrappedNative) ||
-              js::GetObjectClass(wrappedNative)->ext.innerObject);
+    MOZ_ASSERT(IS_WN_WRAPPER(wrappedNative) ||
+               js::GetObjectClass(wrappedNative)->ext.innerObject);
     js::SetReservedSlot(holder, JSSLOT_WN, PrivateValue(wn));
     js::SetReservedSlot(holder, JSSLOT_RESOLVING, PrivateValue(NULL));
     return holder;
@@ -653,9 +653,11 @@ Is(JSObject *wrapper)
 static JSBool
 mozMatchesSelectorStub(JSContext *cx, unsigned argc, jsval *vp)
 {
-    if (argc < 1)
+    if (argc < 1) {
         JS_ReportError(cx, "Not enough arguments");
-    
+        return false;
+    }
+
     JSObject *wrapper = JS_THIS_OBJECT(cx, vp);
     JSString *selector = JS_ValueToString(cx, JS_ARGV(cx, vp)[0]);
     nsDependentJSString selectorStr;
@@ -910,23 +912,6 @@ nodePrincipal_getter(JSContext *cx, JSHandleObject wrapper, JSHandleId id, JSMut
     return true;
 }
 
-static bool
-ContentScriptHasUniversalXPConnect()
-{
-    nsIScriptSecurityManager *ssm = XPCWrapper::GetSecurityManager();
-    if (ssm) {
-        // Double-check that the subject principal according to CAPS is a content
-        // principal rather than the system principal. If it is, this check is
-        // meaningless.
-        NS_ASSERTION(!AccessCheck::callerIsChrome(), "About to do a meaningless security check!");
-
-        bool privileged;
-        if (NS_SUCCEEDED(ssm->IsCapabilityEnabled("UniversalXPConnect", &privileged)) && privileged)
-            return true;
-    }
-    return false;
-}
-
 bool
 XPCWrappedNativeXrayTraits::resolveOwnProperty(JSContext *cx, js::Wrapper &jsWrapper,
                                                JSObject *wrapper, JSObject *holder, jsid id,
@@ -936,13 +921,12 @@ XPCWrappedNativeXrayTraits::resolveOwnProperty(JSContext *cx, js::Wrapper &jsWra
     // in the wrapper's compartment here, not the wrappee.
     MOZ_ASSERT(js::IsObjectInContextCompartment(wrapper, cx));
     XPCJSRuntime* rt = nsXPConnect::GetRuntimeInstance();
-    if (!WrapperFactory::IsPartiallyTransparent(wrapper) &&
+    if (AccessCheck::isChrome(wrapper) &&
         (((id == rt->GetStringID(XPCJSRuntime::IDX_BASEURIOBJECT) ||
            id == rt->GetStringID(XPCJSRuntime::IDX_NODEPRINCIPAL)) &&
           Is<nsINode>(wrapper)) ||
           (id == rt->GetStringID(XPCJSRuntime::IDX_DOCUMENTURIOBJECT) &&
-          Is<nsIDocument>(wrapper))) &&
-        (AccessCheck::callerIsChrome() || ContentScriptHasUniversalXPConnect())) {
+          Is<nsIDocument>(wrapper)))) {
         bool status;
         Wrapper::Action action = set ? Wrapper::SET : Wrapper::GET;
         desc->obj = NULL; // default value
@@ -1298,16 +1282,7 @@ namespace XrayUtils {
 bool
 IsTransparent(JSContext *cx, JSObject *wrapper)
 {
-    if (WrapperFactory::HasWaiveXrayFlag(wrapper))
-        return true;
-
-    if (!WrapperFactory::IsPartiallyTransparent(wrapper))
-        return false;
-
-    // Redirect access straight to the wrapper if UniversalXPConnect is enabled.
-    // We don't need to check for system principal here, because only content
-    // scripts have Partially Transparent wrappers.
-    return ContentScriptHasUniversalXPConnect();
+    return WrapperFactory::HasWaiveXrayFlag(wrapper);
 }
 
 JSObject *
@@ -1414,10 +1389,11 @@ XrayWrapper<Base, Traits>::getPropertyDescriptor(JSContext *cx, JSObject *wrappe
     if (!holder)
         return false;
 
-    // Partially transparent wrappers (which used to be known as XOWs) don't
-    // have a .wrappedJSObject property.
+    // Only chrome wrappers and same-origin xrays (used by jetpack sandboxes)
+    // get .wrappedJSObject. We can check this by determining if the compartment
+    // of the wrapper subsumes that of the wrappee.
     XPCJSRuntime* rt = nsXPConnect::GetRuntimeInstance();
-    if (!WrapperFactory::IsPartiallyTransparent(wrapper) &&
+    if (AccessCheck::wrapperSubsumes(wrapper) &&
         id == rt->GetStringID(XPCJSRuntime::IDX_WRAPPED_JSOBJECT)) {
         bool status;
         Wrapper::Action action = set ? Wrapper::SET : Wrapper::GET;
@@ -1608,7 +1584,7 @@ XrayWrapper<Base, Traits>::enumerate(JSContext *cx, JSObject *wrapper, unsigned 
         return js::GetPropertyNames(cx, obj, flags, &props);
     }
 
-    if (WrapperFactory::IsPartiallyTransparent(wrapper)) {
+    if (!AccessCheck::wrapperSubsumes(wrapper)) {
         JS_ReportError(cx, "Not allowed to enumerate cross origin objects");
         return false;
     }

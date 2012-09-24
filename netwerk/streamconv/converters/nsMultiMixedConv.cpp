@@ -74,7 +74,7 @@ nsresult nsPartChannel::SendOnStartRequest(nsISupports* aContext)
 
 nsresult nsPartChannel::SendOnDataAvailable(nsISupports* aContext,
                                             nsIInputStream* aStream,
-                                            uint32_t aOffset, uint32_t aLen)
+                                            uint64_t aOffset, uint32_t aLen)
 {
     return mListener->OnDataAvailable(this, aContext, aStream, aOffset, aLen);
 }
@@ -458,7 +458,8 @@ private:
 // nsIStreamListener implementation
 NS_IMETHODIMP
 nsMultiMixedConv::OnDataAvailable(nsIRequest *request, nsISupports *context,
-                                  nsIInputStream *inStr, uint32_t sourceOffset, uint32_t count) {
+                                  nsIInputStream *inStr, uint64_t sourceOffset,
+                                  uint32_t count) {
 
     if (mToken.IsEmpty()) // no token, no love.
         return NS_ERROR_FAILURE;
@@ -874,7 +875,7 @@ nsMultiMixedConv::SendData(char *aBuffer, uint32_t aLen) {
             return NS_OK;
     }
 
-    uint32_t offset = mTotalSent;
+    uint64_t offset = mTotalSent;
     mTotalSent += aLen;
 
     nsCOMPtr<nsIStringInputStream> ss(
@@ -953,7 +954,7 @@ nsMultiMixedConv::ParseHeaders(nsIChannel *aChannel, char *&aPtr,
             if (headerStr.LowerCaseEqualsLiteral("content-type")) {
                 mContentType = headerVal;
             } else if (headerStr.LowerCaseEqualsLiteral("content-length")) {
-                mContentLength = atoi(headerVal.get()); // XXX 64-bit math?
+                mContentLength = nsCRT::atoll(headerVal.get());
             } else if (headerStr.LowerCaseEqualsLiteral("content-disposition")) {
                 mContentDisposition = headerVal;
             } else if (headerStr.LowerCaseEqualsLiteral("set-cookie")) {
@@ -987,14 +988,14 @@ nsMultiMixedConv::ParseHeaders(nsIChannel *aChannel, char *&aPtr,
                     
                     tmpPtr[0] = '\0';
                     
-                    mByteRangeStart = atoi(range); // XXX want 64-bit conv
+                    mByteRangeStart = nsCRT::atoll(range);
                     tmpPtr++;
-                    mByteRangeEnd = atoi(tmpPtr);
+                    mByteRangeEnd = nsCRT::atoll(tmpPtr);
                 }
 
                 mIsByteRangeRequest = true;
                 if (mContentLength == LL_MAXUINT)
-                    mContentLength = uint64_t(int64_t(mByteRangeEnd - mByteRangeStart + int64_t(1)));
+                    mContentLength = uint64_t(mByteRangeEnd - mByteRangeStart + 1);
             }
         }
         *newLine = tmpChar;

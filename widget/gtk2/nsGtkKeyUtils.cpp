@@ -18,6 +18,9 @@
 #ifdef MOZ_X11
 #include <gdk/gdkx.h>
 #endif /* MOZ_X11 */
+#if (MOZ_WIDGET_GTK == 3)
+#include <gdk/gdkkeysyms-compat.h>
+#endif
 #include "nsGUIEvent.h"
 #include "WidgetUtils.h"
 #include "keysym2ucs.h"
@@ -621,7 +624,6 @@ KeymapWrapper::InitInputEvent(nsInputEvent& aInputEvent,
         case NS_WHEEL_EVENT:
         case NS_DRAG_EVENT:
         case NS_SIMPLE_GESTURE_EVENT:
-        case NS_MOZTOUCH_EVENT:
             break;
         default:
             return;

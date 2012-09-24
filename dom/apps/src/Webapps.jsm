@@ -60,53 +60,45 @@ let DOMApplicationRegistry = {
                      "Webapps:GetInstalled", "Webapps:GetNotInstalled",
                      "Webapps:Launch", "Webapps:GetAll",
                      "Webapps:InstallPackage", "Webapps:GetBasePath",
-                     "Webapps:GetList"];
+                     "Webapps:GetList", "Webapps:RegisterForMessages",
+                     "Webapps:UnregisterForMessages"];
 
     this.messages.forEach((function(msgName) {
       ppmm.addMessageListener(msgName, this);
     }).bind(this));
+
+    cpmm.addMessageListener("Activities:Register:OK", this);
 
     Services.obs.addObserver(this, "xpcom-shutdown", false);
 
     this.appsFile = FileUtils.getFile(DIRECTORY_NAME,
                                       ["webapps", "webapps.json"], true);
 
-    let dirList = [DIRECTORY_NAME];
+    this.loadAndUpdateApps();
+  },
 
-#ifdef MOZ_WIDGET_GONK
-    dirList.push("coreAppsDir");
-#endif
-    let currentId = 1;
-    dirList.forEach((function(dir) {
-      let curFile;
-      try {
-        // getFile calls getDir with |shouldCreate = true|, so we have
-        // to wrap in a try..catch in case the file does not exist on a
-        // read-only partition.
-        curFile = FileUtils.getFile(dir, ["webapps", "webapps.json"], false);
-      } catch(e) { }
-      if (curFile && curFile.exists()) {
-        let appDir = FileUtils.getDir(dir, ["webapps"], false);
-        this._loadJSONAsync(curFile, (function(aData) {
-          if (!aData) {
-            return;
-          }
-          // Add new apps to the merged list.
-          for (let id in aData) {
-            this.webapps[id] = aData[id];
-            this.webapps[id].basePath = appDir.path;
-            this.webapps[id].removable = (dir == DIRECTORY_NAME);
-#ifdef MOZ_SYS_MSG
-            this._processManifestForId(id);
-#endif
-            // local ids must be stable between restarts.
-            // We partition the ids in two buckets:
-            // - 1 to 1000 for the core apps.
-            // - 1001 to Inf for installed apps.
-            // This way, a gecko update with new core apps will not lead to
-            // changes for installed apps ids.
-            if (!this.webapps[id].removable) {
-              this.webapps[id].localId = currentId++;
+  // loads the current registry, that could be empty on first run.
+  // aNext() is called after we load the current webapps list.
+  loadCurrentRegistry: function loadCurrentRegistry(aNext) {
+    let file = FileUtils.getFile(DIRECTORY_NAME, ["webapps", "webapps.json"], false);
+    if (file && file.exists) {
+      this._loadJSONAsync(file, (function loadRegistry(aData) {
+        if (aData) {
+          this.webapps = aData;
+          let appDir = FileUtils.getDir(DIRECTORY_NAME, ["webapps"], false);
+          for (let id in this.webapps) {
+            // Make sure we have a localId
+            if (this.webapps[id].localId === undefined) {
+              this.webapps[id].localId = this._nextLocalId();
+            }
+
+            if (this.webapps[id].basePath === undefined) {
+              this.webapps[id].basePath = appDir.path;
+            }
+
+            // Default to removable apps.
+            if (this.webapps[id].removable === undefined) {
+              this.webapps[id].removable = true;
             }
 
             // Default to a non privileged status.
@@ -114,32 +106,168 @@ let DOMApplicationRegistry = {
               this.webapps[id].appStatus = Ci.nsIPrincipal.APP_STATUS_INSTALLED;
             }
           };
+        }
+        aNext();
+      }).bind(this));
+    } else {
+      aNext();
+    }
+  },
+
+  // We are done with loading and initializing. Notify and
+  // save a copy of the registry.
+  onInitDone: function onInitDone() {
+    Services.obs.notifyObservers(this, "webapps-registry-ready", null);
+    this._saveApps();
+  },
+
+  // registers all the activities and system messages
+  registerAppsHandlers: function registerAppsHandlers() {
+#ifdef MOZ_SYS_MSG
+    let ids = [];
+    for (let id in this.webapps) {
+      ids.push({ id: id });
+    }
+    this._processManifestForIds(ids);
+#else
+    // Nothing else to do but notifying we're ready.
+    this.onInitDone();
+#endif
+  },
+
+  // Implements the core of bug 787439
+  // 1. load the apps from the current registry.
+  // 2. if at first run, go through these steps:
+  //   a. load the core apps registry.
+  //   b. uninstall any core app from the current registry but not in the
+  //      new core apps registry.
+  //   c. for all apps in the new core registry, install them if they are not
+  //      yet in the current registry, and run installPermissions()
+  loadAndUpdateApps: function loadAndUpdateApps() {
+    let runUpdate = Services.prefs.getBoolPref("dom.mozApps.runUpdate");
+    Services.prefs.setBoolPref("dom.mozApps.runUpdate", false);
+
+    // 1.
+    this.loadCurrentRegistry((function() {
+#ifdef MOZ_WIDGET_GONK
+    // if first run, merge the system apps.
+    if (runUpdate) {
+      let file;
+      try {
+        file = FileUtils.getFile("coreAppsDir", ["webapps", "webapps.json"], false);
+      } catch(e) { }
+
+      if (file && file.exists) {
+        // 2.a
+        this._loadJSONAsync(file, (function loadCoreRegistry(aData) {
+          if (!aData) {
+            this.registerAppsHandlers();
+            return;
+          }
+
+          // 2.b : core apps are not removable.
+          for (let id in this.webapps) {
+            if (id in aData || this.webapps[id].removable)
+              continue;
+            let localId = this.webapps[id].localId;
+            delete this.webapps[id];
+            // XXXX once bug 758269 is ready, revoke perms for this app
+            // removePermissions(localId);
+          }
+
+          let appDir = FileUtils.getDir("coreAppsDir", ["webapps"], false);
+          // 2.c
+          for (let id in aData) {
+            // Core apps have ids matching their domain name (eg: dialer.gaiamobile.org)
+            // Use that property to check if they are new or not.
+            if (!(id in this.webapps)) {
+              this.webapps[id] = aData[id];
+              this.webapps[id].basePath = appDir.path;
+
+              // Create a new localId.
+              this.webapps[id].localId = this._nextLocalId();
+
+              // Core apps are not removable.
+              if (this.webapps[id].removable === undefined) {
+                this.webapps[id].removable = false;
+              }
+            }
+            // XXXX once bug 758269 is ready, revoke perms for this app
+            // let localId = this.webapps[id].localId;
+            // installPermissions(localId);
+          }
+          this.registerAppsHandlers();
         }).bind(this));
+      } else {
+        this.registerAppsHandlers();
       }
+    } else {
+      this.registerAppsHandlers();
+    }
+#else
+    this.registerAppsHandlers();
+#endif
     }).bind(this));
   },
 
 #ifdef MOZ_SYS_MSG
-  _registerSystemMessages: function(aManifest, aApp) {
-    if (aManifest.messages && Array.isArray(aManifest.messages) &&
-        aManifest.messages.length > 0) {
-      let manifest = new DOMApplicationManifest(aManifest, aApp.origin);
-      let launchPath = Services.io.newURI(manifest.fullLaunchPath(), null, null);
-      let manifestURL = Services.io.newURI(aApp.manifestURL, null, null);
-      aManifest.messages.forEach(function registerPages(aMessage) {
-        msgmgr.registerPage(aMessage, launchPath, manifestURL);
-      });
-    }
-  },
 
-  _registerActivities: function(aManifest, aApp) {
-    if (!aManifest.activities) {
+  // aEntryPoint is either the entry_point name or the null, in which case we
+  // use the root of the manifest.
+  _registerSystemMessagesForEntryPoint: function(aManifest, aApp, aEntryPoint) {
+    let root = aManifest;
+    if (aEntryPoint && aManifest.entry_points[aEntryPoint]) {
+      root = aManifest.entry_points[aEntryPoint];
+    }
+
+    if (!root.messages || !Array.isArray(root.messages) ||
+        root.messages.length == 0) {
       return;
     }
 
     let manifest = new DOMApplicationManifest(aManifest, aApp.origin);
-    for (let activity in aManifest.activities) {
-      let description = aManifest.activities[activity];
+    let launchPath = Services.io.newURI(manifest.fullLaunchPath(aEntryPoint), null, null);
+    let manifestURL = Services.io.newURI(aApp.manifestURL, null, null);
+    root.messages.forEach(function registerPages(aMessage) {
+      let href = launchPath;
+      let messageName;
+      if (typeof(aMessage) === "object" && Object.keys(aMessage).length === 1) {
+        messageName = Object.keys(aMessage)[0];
+        href = Services.io.newURI(manifest.resolveFromOrigin(aMessage[messageName]), null, null);
+      } else {
+        messageName = aMessage;
+      }
+      msgmgr.registerPage(messageName, href, manifestURL);
+    });
+  },
+
+  _registerSystemMessages: function(aManifest, aApp) {
+    this._registerSystemMessagesForEntryPoint(aManifest, aApp, null);
+
+    if (!aManifest.entry_points) {
+      return;
+    }
+
+    for (let entryPoint in aManifest.entry_points) {
+      this._registerSystemMessagesForEntryPoint(aManifest, aApp, entryPoint);
+    }
+  },
+
+  // aEntryPoint is either the entry_point name or the null, in which case we
+  // use the root of the manifest.
+  _registerActivitiesForEntryPoint: function(aManifest, aApp, aEntryPoint) {
+    let root = aManifest;
+    if (aEntryPoint && aManifest.entry_points[aEntryPoint]) {
+      root = aManifest.entry_points[aEntryPoint];
+    }
+
+    if (!root.activities) {
+      return;
+    }
+
+    let manifest = new DOMApplicationManifest(aManifest, aApp.origin);
+    for (let activity in root.activities) {
+      let description = root.activities[activity];
       if (!description.href) {
         description.href = manifest.launch_path;
       }
@@ -151,6 +279,7 @@ let DOMApplicationRegistry = {
         "icon": manifest.iconURLForSize(128),
         "description": description
       }
+      this.activitiesToRegister++;
       cpmm.sendAsyncMessage("Activities:Register", json);
 
       let launchPath =
@@ -160,13 +289,30 @@ let DOMApplicationRegistry = {
     }
   },
 
-  _unregisterActivities: function(aManifest, aApp) {
-    if (!aManifest.activities) {
+  _registerActivities: function(aManifest, aApp) {
+    this._registerActivitiesForEntryPoint(aManifest, aApp, null);
+
+    if (!aManifest.entry_points) {
       return;
     }
 
-    for (let activity in aManifest.activities) {
-      let description = aManifest.activities[activity];
+    for (let entryPoint in aManifest.entry_points) {
+      this._registerActivitiesForEntryPoint(aManifest, aApp, entryPoint);
+    }
+  },
+
+  _unregisterActivitiesForEntryPoint: function(aManifest, aApp, aEntryPoint) {
+    let root = aManifest;
+    if (aEntryPoint && aManifest.entry_points[aEntryPoint]) {
+      root = aManifest.entry_points[aEntryPoint];
+    }
+
+    if (!root.activities) {
+      return;
+    }
+
+    for (let activity in root.activities) {
+      let description = root.activities[activity];
       let json = {
         "manifest": aApp.manifestURL,
         "name": activity
@@ -175,12 +321,31 @@ let DOMApplicationRegistry = {
     }
   },
 
-  _processManifestForId: function(aId) {
-    let app = this.webapps[aId];
-    this._readManifests([{ id: aId }], (function registerManifest(aResult) {
-      let manifest = aResult[0].manifest;
-      this._registerSystemMessages(manifest, app);
-      this._registerActivities(manifest, app);
+  _unregisterActivities: function(aManifest, aApp) {
+    this._unregisterActivitiesForEntryPoint(aManifest, aApp, null);
+
+    if (!aManifest.entry_points) {
+      return;
+    }
+
+    for (let entryPoint in aManifest.entry_points) {
+      this._unregisterActivitiesForEntryPoint(aManifest, aApp, entryPoint);
+    }
+  },
+
+  _processManifestForIds: function(aIds) {
+    this.activitiesToRegister = 0;
+    this.activitiesRegistered = 0;
+    this.allActivitiesSent = false;
+    this._readManifests(aIds, (function registerManifests(aResults) {
+      aResults.forEach(function registerManifest(aResult) {
+        let app = this.webapps[aResult.id];
+        let manifest = aResult.manifest;
+        app.name = manifest.name;
+        this._registerSystemMessages(manifest, app);
+        this._registerActivities(manifest, app);
+      }, this);
+      this.allActivitiesSent = true;
     }).bind(this));
   },
 #endif
@@ -222,7 +387,8 @@ let DOMApplicationRegistry = {
           if (aCallback)
             aCallback(data);
         } catch (ex) {
-          Cu.reportError("DOMApplicationRegistry: Could not parse JSON: " + ex);
+          Cu.reportError("DOMApplicationRegistry: Could not parse JSON: " +
+                         aFile.path + " " + ex);
           if (aCallback)
             aCallback(null);
         }
@@ -235,50 +401,103 @@ let DOMApplicationRegistry = {
     }
   },
 
+  addMessageListener: function(aMsgNames, aMm) {
+    aMsgNames.forEach(function (aMsgName) {
+      if (!(aMsgName in this.children)) {
+        this.children[aMsgName] = [];
+      }
+      this.children[aMsgName].push(aMm);
+    }, this);
+  },
+
+  removeMessageListener: function(aMsgNames, aMm) {
+    aMsgNames.forEach(function (aMsgName) {
+      if (!(aMsgName in this.children)) {
+        return;
+      }
+
+      let index;
+      if ((index = this.children[aMsgName].indexOf(aMm)) != -1) {
+        this.children[aMsgName].splice(index, 1);
+      }
+    }, this);
+  },
+
   receiveMessage: function(aMessage) {
     // nsIPrefBranch throws if pref does not exist, faster to simply write
     // the pref instead of first checking if it is false.
     Services.prefs.setBoolPref("dom.mozApps.used", true);
 
     let msg = aMessage.json;
+    let mm = aMessage.target;
+    msg.mm = mm;
 
     switch (aMessage.name) {
       case "Webapps:Install":
         // always ask for UI to install
-        Services.obs.notifyObservers(this, "webapps-ask-install", JSON.stringify(msg));
+        Services.obs.notifyObservers(mm, "webapps-ask-install", JSON.stringify(msg));
         break;
       case "Webapps:GetSelf":
-        this.getSelf(msg);
+        this.getSelf(msg, mm);
         break;
       case "Webapps:Uninstall":
-        Services.obs.notifyObservers(this, "webapps-uninstall", JSON.stringify(msg));
+        Services.obs.notifyObservers(mm, "webapps-uninstall", JSON.stringify(msg));
         this.uninstall(msg);
         break;
       case "Webapps:Launch":
-        Services.obs.notifyObservers(this, "webapps-launch", JSON.stringify(msg));
+        Services.obs.notifyObservers(mm, "webapps-launch", JSON.stringify(msg));
         break;
       case "Webapps:GetInstalled":
-        this.getInstalled(msg);
+        this.getInstalled(msg, mm);
         break;
       case "Webapps:GetNotInstalled":
-        this.getNotInstalled(msg);
+        this.getNotInstalled(msg, mm);
         break;
       case "Webapps:GetAll":
         if (msg.hasPrivileges)
-          this.getAll(msg);
+          this.getAll(msg, mm);
         else
-          ppmm.broadcastAsyncMessage("Webapps:GetAll:Return:KO", msg);
+          mm.sendAsyncMessage("Webapps:GetAll:Return:KO", msg);
         break;
       case "Webapps:InstallPackage":
-        this.installPackage(msg);
+        this.installPackage(msg, mm);
         break;
       case "Webapps:GetBasePath":
         return this.webapps[msg.id].basePath;
         break;
+      case "Webapps:RegisterForMessages":
+        this.addMessageListener(msg, mm);
+        break;
+      case "Webapps:UnregisterForMessages":
+        this.removeMessageListener(msg, mm);
+        break;
       case "Webapps:GetList":
-        this.children.push(aMessage.target);
+        this.addMessageListener(["Webapps:AddApp", "Webapps:RemoveApp"], mm);
         return this.webapps;
+      case "Activities:Register:OK":
+        this.activitiesRegistered++;
+        if (this.allActivitiesSent &&
+            this.activitiesRegistered === this.activitiesToRegister) {
+          this.onInitDone();
+        }
+        break;
     }
+  },
+
+  // Some messages can be listened by several content processes:
+  // Webapps:AddApp
+  // Webapps:RemoveApp
+  // Webapps:Install:Return:OK
+  // Webapps:Uninstall:Return:OK
+  // Webapps:OfflineCache
+  broadcastMessage: function broadcastMessage(aMsgName, aContent) {
+    if (!(aMsgName in this.children)) {
+      return;
+    }
+
+    this.children[aMsgName].forEach(function _doBroadcast(aMsgMgr) {
+      aMsgMgr.sendAsyncMessage(aMsgName, aContent);
+    });
   },
 
   _getAppDir: function(aId) {
@@ -312,7 +531,7 @@ let DOMApplicationRegistry = {
       } catch(e) {
       }
     }
-    ppmm.broadcastAsyncMessage("Webapps:Install:Return:KO", aData);
+    aData.mm.sendAsyncMessage("Webapps:Install:Return:KO", aData);
   },
 
   confirmInstall: function(aData, aFromSync, aProfileDir, aOfflineCacheObserver) {
@@ -345,6 +564,7 @@ let DOMApplicationRegistry = {
     appNote.id = id;
 
     appObject.localId = localId;
+    appObject.basePath = FileUtils.getDir(DIRECTORY_NAME, ["webapps"], true, true).path;
 
     let dir = FileUtils.getDir(DIRECTORY_NAME, ["webapps", id], true, true);
     let manFile = dir.clone();
@@ -367,20 +587,20 @@ let DOMApplicationRegistry = {
     this.webapps[id] = appObject;
 
     appObject.status = "installed";
+    appObject.name = app.manifest.name;
 
     let manifest = new DOMApplicationManifest(app.manifest, app.origin);
 
     if (!aFromSync)
       this._saveApps((function() {
-        ppmm.broadcastAsyncMessage("Webapps:Install:Return:OK", aData);
+        this.broadcastMessage("Webapps:Install:Return:OK", aData);
         Services.obs.notifyObservers(this, "webapps-sync-install", appNote);
-        this.children.forEach(function(aMsgMgr) {
-          aMsgMgr.broadcastAsyncMessage("Webapps:AddApp", { id: id, app: appObject });
-        });
+        this.broadcastMessage("Webapps:AddApp", { id: id, app: appObject });
       }).bind(this));
 
 #ifdef MOZ_SYS_MSG
-    this._registerSystemMessages(id, app);
+    this._registerSystemMessages(app.manifest, app);
+    this._registerActivities(app.manifest, app);
 #endif
 
     // if the manifest has an appcache_path property, use it to populate the appcache
@@ -399,16 +619,9 @@ let DOMApplicationRegistry = {
   },
 
   _nextLocalId: function() {
-    // All installed apps have a localId > 1000.
-    let maxLocalId = 1000;
-
-    for (let id in this.webapps) {
-      if (this.webapps[id].localId > maxLocalId) {
-        maxLocalId = this.webapps[id].localId;
-      }
-    }
-
-    return maxLocalId + 1;
+    let id = Services.prefs.getIntPref("dom.mozApps.maxLocalId") + 1;
+    Services.prefs.setIntPref("dom.mozApps.maxLocalId", id);
+    return id;
   },
 
   _appId: function(aURI) {
@@ -459,7 +672,7 @@ let DOMApplicationRegistry = {
     }).bind(this));
   },
 
-  installPackage: function(aData) {
+  installPackage: function(aData, aMm) {
     // Here are the steps when installing a package:
     // - create a temp directory where to store the app.
     // - download the zip in this directory.
@@ -484,30 +697,15 @@ let DOMApplicationRegistry = {
 
     let dir = FileUtils.getDir("TmpD", ["webapps", id], true, true);
 
-    /** from https://developer.mozilla.org/en/OpenWebApps/The_Manifest
-     * only the name property is mandatory
-     */
-    function checkManifest(aManifest) {
-      if (aManifest.name == undefined)
-        return false;
-
-      if (aManifest.installs_allowed_from) {
-        return aManifest.installs_allowed_from.some(function(aOrigin) {
-          return aOrigin == "*" || aOrigin == aData.installOrigin;
-        });
-      }
-      return true;
-    }
-
     // Removes the directory we created, and sends an error to the DOM side.
     function cleanup(aError) {
       try {
         dir.remove(true);
       } catch (e) { }
-      ppmm.broadcastAsyncMessage("Webapps:Install:Return:KO",
-                            { oid: aData.oid,
-                              requestID: aData.requestID,
-                              error: aError });
+      aMm.sendAsyncMessage("Webapps:Install:Return:KO",
+                           { oid: aData.oid,
+                             requestID: aData.requestID,
+                             error: aError });
     }
 
     function getInferedStatus() {
@@ -574,7 +772,7 @@ let DOMApplicationRegistry = {
         let msg = {
           from: aData.from,
           oid: aData.oid,
-          requestId: aData.requestId,
+          requestID: aData.requestID,
           app: {
             packageId: id,
             installOrigin: aData.installOrigin,
@@ -595,7 +793,7 @@ let DOMApplicationRegistry = {
           let istream = zipReader.getInputStream("manifest.webapp");
           msg.app.manifest = JSON.parse(NetUtil.readInputStreamToString(istream,
                                         istream.available()) || "");
-          if (!checkManifest(msg.app.manifest)) {
+          if (!AppsUtils.checkManifest(msg.app.manifest, aData.installOrigin)) {
             throw "INVALID_MANIFEST";
           }
 
@@ -603,7 +801,7 @@ let DOMApplicationRegistry = {
             throw "INVALID_SECURITY_LEVEL";
           }
 
-          msg.appStatus = getAppStatus(msg.app.manifest);
+          msg.app.appStatus = getAppStatus(msg.app.manifest);
           Services.obs.notifyObservers(this, "webapps-ask-install",
                                              JSON.stringify(msg));
         } catch (e) {
@@ -645,20 +843,18 @@ let DOMApplicationRegistry = {
       delete this.webapps[id];
 
       this._saveApps((function() {
-        ppmm.broadcastAsyncMessage("Webapps:Uninstall:Return:OK", aData);
+        this.broadcastMessage("Webapps:Uninstall:Return:OK", aData);
         Services.obs.notifyObservers(this, "webapps-sync-uninstall", appNote);
-        this.children.forEach(function(aMsgMgr) {
-          aMsgMgr.broadcastAsyncMessage("Webapps:RemoveApp", { id: id });
-        });
+        this.broadcastMessage("Webapps:RemoveApp", { id: id });
       }).bind(this));
     }
 
     if (!found) {
-      ppmm.broadcastAsyncMessage("Webapps:Uninstall:Return:KO", aData);
+      aData.mm.broadcastMessage("Webapps:Uninstall:Return:KO", aData);
     }
   },
 
-  getSelf: function(aData) {
+  getSelf: function(aData, aMm) {
     aData.apps = [];
     let tmp = [];
     let id = this._appId(aData.origin);
@@ -672,11 +868,11 @@ let DOMApplicationRegistry = {
     this._readManifests(tmp, (function(aResult) {
       for (let i = 0; i < aResult.length; i++)
         aData.apps[i].manifest = aResult[i].manifest;
-      ppmm.broadcastAsyncMessage("Webapps:GetSelf:Return:OK", aData);
+      aMm.sendAsyncMessage("Webapps:GetSelf:Return:OK", aData);
     }).bind(this));
   },
 
-  getInstalled: function(aData) {
+  getInstalled: function(aData, aMm) {
     aData.apps = [];
     let tmp = [];
 
@@ -691,11 +887,11 @@ let DOMApplicationRegistry = {
     this._readManifests(tmp, (function(aResult) {
       for (let i = 0; i < aResult.length; i++)
         aData.apps[i].manifest = aResult[i].manifest;
-      ppmm.broadcastAsyncMessage("Webapps:GetInstalled:Return:OK", aData);
+      aMm.sendAsyncMessage("Webapps:GetInstalled:Return:OK", aData);
     }).bind(this));
   },
 
-  getNotInstalled: function(aData) {
+  getNotInstalled: function(aData, aMm) {
     aData.apps = [];
     let tmp = [];
 
@@ -709,11 +905,11 @@ let DOMApplicationRegistry = {
     this._readManifests(tmp, (function(aResult) {
       for (let i = 0; i < aResult.length; i++)
         aData.apps[i].manifest = aResult[i].manifest;
-      ppmm.broadcastAsyncMessage("Webapps:GetNotInstalled:Return:OK", aData);
+      aMm.sendAsyncMessage("Webapps:GetNotInstalled:Return:OK", aData);
     }).bind(this));
   },
 
-  getAll: function(aData) {
+  getAll: function(aData, aMm) {
     aData.apps = [];
     let tmp = [];
 
@@ -729,7 +925,7 @@ let DOMApplicationRegistry = {
     this._readManifests(tmp, (function(aResult) {
       for (let i = 0; i < aResult.length; i++)
         aData.apps[i].manifest = aResult[i].manifest;
-      ppmm.broadcastAsyncMessage("Webapps:GetAll:Return:OK", aData);
+      aMm.sendAsyncMessage("Webapps:GetAll:Return:OK", aData);
     }).bind(this));
   },
 
@@ -803,7 +999,7 @@ let DOMApplicationRegistry = {
           dir.remove(true);
         } catch (e) {
         }
-        ppmm.broadcastAsyncMessage("Webapps:Uninstall:Return:OK", { origin: origin });
+        this.broadcastMessage("Webapps:Uninstall:Return:OK", { origin: origin });
       } else {
         if (this.webapps[record.id]) {
           this.webapps[record.id] = record.value;
@@ -811,7 +1007,7 @@ let DOMApplicationRegistry = {
         } else {
           let data = { app: record.value };
           this.confirmInstall(data, true);
-          ppmm.broadcastAsyncMessage("Webapps:Install:Return:OK", data);
+          this.broadcastMessage("Webapps:Install:Return:OK", data);
         }
       }
     }
@@ -917,7 +1113,9 @@ AppcacheObserver.prototype = {
     let setStatus = function appObs_setStatus(aStatus) {
       mustSave = (app.status != aStatus);
       app.status = aStatus;
-      ppmm.broadcastAsyncMessage("Webapps:OfflineCache", { manifest: app.manifestURL, status: aStatus });
+      DOMApplicationRegistry.broadcastMessage("Webapps:OfflineCache",
+                                              { manifest: app.manifestURL,
+                                                status: aStatus });
     }
 
     switch (aState) {

@@ -58,7 +58,6 @@
 #include "prlog.h"
 #include "rdf.h"
 #include "nsIFrame.h"
-#include "mozilla/FunctionTimer.h"
 #include "nsXBLService.h"
 #include "nsCExternalHandlerService.h"
 #include "nsMimeTypes.h"
@@ -1993,7 +1992,7 @@ nsXULDocument::StartLayout(void)
 
         nsresult rv = NS_OK;
         nsRect r = cx->GetVisibleArea();
-        rv = shell->InitialReflow(r.width, r.height);
+        rv = shell->Initialize(r.width, r.height);
         NS_ENSURE_SUCCESS(rv, rv);
     }
 
@@ -2816,7 +2815,6 @@ FirePendingMergeNotification(nsIURI* aKey, nsCOMPtr<nsIObserver>& aObserver, voi
 nsresult
 nsXULDocument::ResumeWalk()
 {
-    NS_TIME_FUNCTION;
     // Walk the prototype and build the delegate content model. The
     // walk is performed in a top-down, left-to-right fashion. That
     // is, a parent is built before any of its children; a node is
@@ -3865,7 +3863,7 @@ nsXULDocument::OverlayForwardReference::Resolve()
     nsCOMPtr<nsIContent> target;
 
     nsIPresShell *shell = mDocument->GetShell();
-    bool notify = shell && shell->DidInitialReflow();
+    bool notify = shell && shell->DidInitialize();
 
     nsAutoString id;
     mOverlay->GetAttr(kNameSpaceID_None, nsGkAtoms::id, id);
@@ -4500,7 +4498,7 @@ NS_IMETHODIMP
 nsXULDocument::CachedChromeStreamListener::OnDataAvailable(nsIRequest *request,
                                                            nsISupports* aContext,
                                                            nsIInputStream* aInStr,
-                                                           uint32_t aSourceOffset,
+                                                           uint64_t aSourceOffset,
                                                            uint32_t aCount)
 {
     NS_NOTREACHED("CachedChromeStream doesn't receive data");

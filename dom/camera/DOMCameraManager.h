@@ -14,13 +14,16 @@
 #include "nsIDOMCameraManager.h"
 #include "mozilla/Attributes.h"
 
+class nsPIDOMWindow;
+
 class nsDOMCameraManager MOZ_FINAL : public nsIDOMCameraManager
 {
 public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSIDOMCAMERAMANAGER
 
-  static already_AddRefed<nsDOMCameraManager> Create(uint64_t aWindowId);
+  static already_AddRefed<nsDOMCameraManager>
+    CheckPermissionAndCreateInstance(nsPIDOMWindow* aWindow);
 
   void OnNavigation(uint64_t aWindowId);
 
@@ -35,7 +38,6 @@ protected:
   uint64_t mWindowId;
   nsCOMPtr<nsIThread> mCameraThread;
 };
-
 
 class GetCameraTask : public nsRunnable
 {
@@ -54,30 +56,6 @@ protected:
   nsCOMPtr<nsICameraGetCameraCallback> mOnSuccessCb;
   nsCOMPtr<nsICameraErrorCallback> mOnErrorCb;
   nsCOMPtr<nsIThread> mCameraThread;
-};
-
-class GetCameraResult : public nsRunnable
-{
-public:
-  GetCameraResult(nsICameraControl* aCameraControl, nsICameraGetCameraCallback* onSuccess)
-    : mCameraControl(aCameraControl)
-    , mOnSuccessCb(onSuccess)
-  { }
-
-  NS_IMETHOD Run()
-  {
-    MOZ_ASSERT(NS_IsMainThread());
-
-    // TODO: window management stuff
-    if (mOnSuccessCb) {
-      mOnSuccessCb->HandleEvent(mCameraControl);
-    }
-    return NS_OK;
-  }
-
-protected:
-  nsCOMPtr<nsICameraControl> mCameraControl;
-  nsCOMPtr<nsICameraGetCameraCallback> mOnSuccessCb;
 };
 
 #endif // DOM_CAMERA_DOMCAMERAMANAGER_H

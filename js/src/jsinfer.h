@@ -1,5 +1,5 @@
-//* -*- Mode: c++; c-basic-offset: 4; tab-width: 40; indent-tabs-mode: nil -*- */
-/* vim: set ts=40 sw=4 et tw=99: */
+/* -*- Mode: C++; c-basic-offset: 4; tab-width: 4; indent-tabs-mode: nil -*- */
+/* vim: set ts=4 sw=4 et tw=99: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -31,6 +31,10 @@ class CallObject;
 
 namespace mjit {
     struct JITScript;
+}
+
+namespace ion {
+    struct IonScript;
 }
 
 namespace types {
@@ -92,7 +96,7 @@ class Type
         return isObject() && !!(data & 1);
     }
 
-    inline JSObject *singleObject() const;
+    inline RawObject singleObject() const;
 
     /* Accessors for TypeObject types */
 
@@ -120,7 +124,7 @@ class Type
         return Type(type);
     }
 
-    static inline Type ObjectType(JSObject *obj);
+    static inline Type ObjectType(RawObject obj);
     static inline Type ObjectType(TypeObject *obj);
     static inline Type ObjectType(TypeObjectKey *obj);
 };
@@ -310,7 +314,7 @@ enum {
     /* Whether any objects this represents are not DOM objects. */
     OBJECT_FLAG_NON_DOM               = 0x00080000,
 
-    /* Whether any represented script is considered uninlineable. */
+    /* Whether any represented script is considered uninlineable in JM. */
     OBJECT_FLAG_UNINLINEABLE          = 0x00100000,
 
     /* Whether any objects have an equality hook. */
@@ -404,7 +408,7 @@ class TypeSet
      */
     inline unsigned getObjectCount();
     inline TypeObjectKey *getObject(unsigned i);
-    inline JSObject *getSingleObject(unsigned i);
+    inline RawObject getSingleObject(unsigned i);
     inline TypeObject *getTypeObject(unsigned i);
 
     void setOwnProperty(bool configurable) {
@@ -489,6 +493,9 @@ class StackTypeSet : public TypeSet
 
     bool isMagicArguments() { return getKnownTypeTag() == JSVAL_TYPE_MAGIC; }
 
+    /* Whether this value may be an object. */
+    bool maybeObject() { return unknownObject() || baseObjectCount() > 0; }
+
     /* Whether the type set contains objects with any of a set of flags. */
     bool hasObjectFlags(JSContext *cx, TypeObjectFlags flags);
 
@@ -499,10 +506,16 @@ class StackTypeSet : public TypeSet
     int getTypedArrayType();
 
     /* Get the single value which can appear in this type set, otherwise NULL. */
-    JSObject *getSingleton();
+    RawObject getSingleton();
 
     /* Whether any objects in the type set needs a barrier on id. */
     bool propertyNeedsBarrier(JSContext *cx, jsid id);
+
+    /*
+     * Get whether this type only contains non-string primitives:
+     * null/undefined/int/double, or some combination of those.
+     */
+    bool knownNonStringPrimitive();
 };
 
 /*
@@ -556,13 +569,16 @@ class HeapTypeSet : public TypeSet
     bool knownSubset(JSContext *cx, TypeSet *other);
 
     /* Get the single value which can appear in this type set, otherwise NULL. */
-    JSObject *getSingleton(JSContext *cx);
+    RawObject getSingleton(JSContext *cx);
 
     /*
      * Whether a location with this TypeSet needs a write barrier (i.e., whether
      * it can hold GC things). The type set is frozen if no barrier is needed.
      */
     bool needsBarrier(JSContext *cx);
+
+    /* Get any type tag which all values in this set must have. */
+    JSValueType getKnownTypeTag(JSContext *cx);
 };
 
 inline StackTypeSet *
@@ -595,6 +611,9 @@ struct TypeResult
         : offset(offset), type(type), next(NULL)
     {}
 };
+
+/* Is this a reasonable PC to be doing inlining on? */
+inline bool isInlinableCall(jsbytecode *pc);
 
 /*
  * Type barriers overview.
@@ -790,7 +809,7 @@ struct TypeObject : gc::Cell
      * object whose type has not been constructed yet.
      */
     static const size_t LAZY_SINGLETON = 1;
-    bool lazy() const { return singleton == (JSObject *) LAZY_SINGLETON; }
+    bool lazy() const { return singleton == (RawObject) LAZY_SINGLETON; }
 
     /* Flags for this object. */
     TypeObjectFlags flags;
@@ -855,7 +874,7 @@ struct TypeObject : gc::Cell
     void *padding;
 #endif
 
-    inline TypeObject(JSObject *proto, bool isFunction, bool unknown);
+    inline TypeObject(RawObject proto, bool isFunction, bool unknown);
 
     bool isFunction() { return !!(flags & OBJECT_FLAG_FUNCTION); }
 
@@ -900,8 +919,8 @@ struct TypeObject : gc::Cell
     /* Helpers */
 
     bool addProperty(JSContext *cx, jsid id, Property **pprop);
-    bool addDefiniteProperties(JSContext *cx, JSObject *obj);
-    bool matchDefiniteProperties(JSObject *obj);
+    bool addDefiniteProperties(JSContext *cx, HandleObject obj);
+    bool matchDefiniteProperties(HandleObject obj);
     void addPrototype(JSContext *cx, TypeObject *proto);
     void addPropertyType(JSContext *cx, jsid id, Type type);
     void addPropertyType(JSContext *cx, jsid id, const Value &value);
@@ -953,8 +972,8 @@ struct TypeObjectEntry
 {
     typedef JSObject *Lookup;
 
-    static inline HashNumber hash(JSObject *base);
-    static inline bool match(TypeObject *key, JSObject *lookup);
+    static inline HashNumber hash(RawObject base);
+    static inline bool match(TypeObject *key, RawObject lookup);
 };
 typedef HashSet<ReadBarriered<TypeObject>, TypeObjectEntry, SystemAllocPolicy> TypeObjectSet;
 
@@ -1068,7 +1087,7 @@ class TypeScript
     static inline void Monitor(JSContext *cx, const js::Value &rval);
 
     /* Monitor an assignment at a SETELEM on a non-integer identifier. */
-    static inline void MonitorAssign(JSContext *cx, JSObject *obj, jsid id);
+    static inline void MonitorAssign(JSContext *cx, HandleObject obj, jsid id);
 
     /* Add a type for a variable in a script. */
     static inline void SetThis(JSContext *cx, JSScript *script, Type type);
@@ -1104,16 +1123,19 @@ typedef HashMap<AllocationSiteKey,ReadBarriered<TypeObject>,AllocationSiteKey,Sy
 struct CompilerOutput
 {
     JSScript *script;
+    bool isIonFlag : 1;
     bool constructing : 1;
     bool barriers : 1;
     bool pendingRecompilation : 1;
-    uint32_t chunkIndex:29;
+    uint32_t chunkIndex:28;
 
     CompilerOutput();
 
-    bool isJM() const { return true; }
+    bool isJM() const { return !isIonFlag; }
+    bool isIon() const { return isIonFlag; }
 
-    mjit::JITScript * mjit() const;
+    mjit::JITScript *mjit() const;
+    ion::IonScript *ion() const;
 
     bool isValid() const;
 
@@ -1205,8 +1227,8 @@ struct TypeCompartment
     ArrayTypeTable *arrayTypeTable;
     ObjectTypeTable *objectTypeTable;
 
-    void fixArrayType(JSContext *cx, JSObject *obj);
-    void fixObjectType(JSContext *cx, JSObject *obj);
+    void fixArrayType(JSContext *cx, HandleObject obj);
+    void fixObjectType(JSContext *cx, HandleObject obj);
 
     /* Logging fields */
 
@@ -1236,12 +1258,11 @@ struct TypeCompartment
      * or JSProto_Object to indicate a type whose class is unknown (not just
      * js_ObjectClass).
      */
-    TypeObject *newTypeObject(JSContext *cx, JSScript *script,
-                              JSProtoKey kind, JSObject *proto,
+    TypeObject *newTypeObject(JSContext *cx, JSProtoKey kind, HandleObject proto,
                               bool unknown = false, bool isDOM = false);
 
-    /* Make an object for an allocation site. */
-    TypeObject *newAllocationSiteTypeObject(JSContext *cx, AllocationSiteKey key);
+    /* Get or make an object for an allocation site, and add to the allocation site table. */
+    TypeObject *addAllocationSiteTypeObject(JSContext *cx, AllocationSiteKey key);
 
     void nukeTypes(FreeOp *fop);
     void processPendingRecompiles(FreeOp *fop);

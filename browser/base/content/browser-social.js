@@ -220,6 +220,7 @@ let SocialFlyout = {
     // create and initialize the panel for this window
     let iframe = document.createElement("iframe");
     iframe.setAttribute("type", "content");
+    iframe.setAttribute("class", "social-panel-frame");
     iframe.setAttribute("flex", "1");
     iframe.setAttribute("origin", Social.provider.origin);
     panel.appendChild(iframe);
@@ -288,7 +289,18 @@ let SocialFlyout = {
 
     sizeSocialPanelToContent(iframe);
     let anchor = document.getElementById("social-sidebar-browser");
-    panel.openPopup(anchor, "start_before", 0, yOffset, false, false);
+    if (panel.state == "open") {
+      // this is painful - there is no way to say "move to a new anchor offset",
+      // only "move to new screen pos".  So we remember the last yOffset,
+      // calculate the adjustment needed to the new yOffset, then calc the
+      // screen Y position.
+      let yAdjust = yOffset - this.yOffset;
+      let box = panel.boxObject;
+      panel.moveTo(box.screenX, box.screenY + yAdjust);
+    } else {
+      panel.openPopup(anchor, "start_before", 0, yOffset, false, false);
+    }
+    this.yOffset = yOffset;
   }
 }
 
@@ -308,6 +320,8 @@ let SocialShareButton = {
   updateProfileInfo: function SSB_updateProfileInfo() {
     let profileRow = document.getElementById("editSharePopupHeader");
     let profile = Social.provider.profile;
+    this.promptImages = null;
+    this.promptMessages = null;
     if (profile && profile.displayName) {
       profileRow.hidden = false;
       let portrait = document.getElementById("socialUserPortrait");
@@ -316,14 +330,14 @@ let SocialShareButton = {
       displayName.setAttribute("label", profile.displayName);
     } else {
       profileRow.hidden = true;
+      this.updateButtonHiddenState();
+      return;
     }
     // XXX - this shouldn't be done as part of updateProfileInfo, but instead
     // whenever we notice the provider has changed - but the concept of
     // "provider changed" will only exist once bug 774520 lands. 
-    this.promptImages = null;
-    this.promptMessages = null;
     // get the recommend-prompt info.
-    let port = Social.provider._getWorkerPort();
+    let port = Social.provider.getWorkerPort();
     if (port) {
       port.onmessage = function(evt) {
         if (evt.data.topic == "social.user-recommend-prompt-response") {
@@ -388,7 +402,8 @@ let SocialShareButton = {
   updateButtonHiddenState: function SSB_updateButtonHiddenState() {
     let shareButton = this.shareButton;
     if (shareButton)
-      shareButton.hidden = !Social.uiVisible || this.promptImages == null;
+      shareButton.hidden = !Social.uiVisible || this.promptImages == null ||
+                           !Social.provider.profile || !Social.provider.profile.userName;
   },
 
   onClick: function SSB_onClick(aEvent) {
@@ -533,6 +548,7 @@ var SocialToolbar = {
       if (!notificationFrame) {
         notificationFrame = document.createElement("iframe");
         notificationFrame.setAttribute("type", "content");
+        notificationFrame.setAttribute("class", "social-panel-frame");
         notificationFrame.setAttribute("id", notificationFrameId);
         notificationFrame.setAttribute("mozbrowser", "true");
         notificationFrames.appendChild(notificationFrame);

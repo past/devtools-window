@@ -40,8 +40,6 @@ ThreadActor.prototype = {
 
   get state() { return this._state; },
 
-  get dbg() { return this._dbg; },
-
   get _breakpointStore() { return ThreadActor._breakpointStore; },
 
   get threadLifetimePool() {
@@ -53,10 +51,10 @@ ThreadActor.prototype = {
   },
 
   clearDebuggees: function TA_clearDebuggees() {
-    if (this._dbg) {
-      let debuggees = this._dbg.getDebuggees();
+    if (this.dbg) {
+      let debuggees = this.dbg.getDebuggees();
       for (let debuggee of debuggees) {
-        this._dbg.removeDebuggee(debuggee);
+        this.dbg.removeDebuggee(debuggee);
       }
     }
     this.conn.removeActorPool(this._threadLifetimePool || undefined);
@@ -79,11 +77,11 @@ ThreadActor.prototype = {
     // medium- to long-term, and will be managed by the engine
     // instead.
 
-    if (!this._dbg) {
-      this._dbg = new Debugger();
-      this._dbg.uncaughtExceptionHook = this.uncaughtExceptionHook.bind(this);
-      this._dbg.onDebuggerStatement = this.onDebuggerStatement.bind(this);
-      this._dbg.onNewScript = this.onNewScript.bind(this);
+    if (!this.dbg) {
+      this.dbg = new Debugger();
+      this.dbg.uncaughtExceptionHook = this.uncaughtExceptionHook.bind(this);
+      this.dbg.onDebuggerStatement = this.onDebuggerStatement.bind(this);
+      this.dbg.onNewScript = this.onNewScript.bind(this);
       // Keep the debugger disabled until a client attaches.
       this.dbg.enabled = this._state != "detached";
     }
@@ -115,11 +113,11 @@ ThreadActor.prototype = {
 
     this.clearDebuggees();
 
-    if (!this._dbg) {
+    if (!this.dbg) {
       return;
     }
-    this._dbg.enabled = false;
-    this._dbg = null;
+    this.dbg.enabled = false;
+    this.dbg = null;
   },
 
   /**
@@ -261,26 +259,26 @@ ThreadActor.prototype = {
         return undefined;
       }
 
-      switch (aRequest.resumeLimit.type) {
-        case "step":
-          this.dbg.onEnterFrame = onEnterFrame;
-          // Fall through.
-        case "next":
-          let stepFrame = this._getNextStepFrame(startFrame);
-          if (stepFrame) {
+      let steppingType = aRequest.resumeLimit.type;
+      if (["step", "next", "finish"].indexOf(steppingType) == -1) {
+            return { error: "badParameterType",
+                     message: "Unknown resumeLimit type" };
+      }
+      // Make sure there is still a frame on the stack if we are to continue
+      // stepping.
+      let stepFrame = this._getNextStepFrame(startFrame);
+      if (stepFrame) {
+        switch (steppingType) {
+          case "step":
+            this.dbg.onEnterFrame = onEnterFrame;
+            // Fall through.
+          case "next":
             stepFrame.onStep = onStep;
             stepFrame.onPop = onPop;
-          }
-          break;
-        case "finish":
-          stepFrame = this._getNextStepFrame(startFrame);
-          if (stepFrame) {
+            break;
+          case "finish":
             stepFrame.onPop = onPop;
-          }
-          break;
-        default:
-          return { error: "badParameterType",
-                   message: "Unknown resumeLimit type" };
+        }
       }
     }
 
@@ -1126,7 +1124,11 @@ PauseScopedActor.prototype = {
  */
 function update(aTarget, aNewAttrs) {
   for (let key in aNewAttrs) {
-    aTarget[key] = aNewAttrs[key];
+    let desc = Object.getOwnPropertyDescriptor(aNewAttrs, key);
+
+    if (desc) {
+      Object.defineProperty(aTarget, key, desc);
+    }
   }
 }
 
@@ -1821,9 +1823,14 @@ function getFunctionName(aFunction) {
   if (aFunction.name) {
     name = aFunction.name;
   } else {
+    // Check if the developer has added a de-facto standard displayName
+    // property for us to use.
     let desc = aFunction.getOwnPropertyDescriptor("displayName");
     if (desc && desc.value && typeof desc.value == "string") {
       name = desc.value;
+    } else {
+      // Otherwise use SpiderMonkey's inferred name.
+      name = aFunction.displayName;
     }
   }
   return name;

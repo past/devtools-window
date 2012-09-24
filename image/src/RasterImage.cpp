@@ -170,7 +170,8 @@ RasterImage::RasterImage(imgStatusTracker* aStatusTracker) :
   mDecoded(false),
   mHasBeenDecoded(false),
   mInDecoder(false),
-  mAnimationFinished(false)
+  mAnimationFinished(false),
+  mFinishing(false)
 {
   // Set up the discard tracker node.
   mDiscardTrackerNode.img = this;
@@ -1592,7 +1593,7 @@ RasterImage::SourceDataComplete()
 }
 
 nsresult
-RasterImage::NewSourceData(const char* aMimeType)
+RasterImage::NewSourceData()
 {
   nsresult rv;
 
@@ -1626,8 +1627,6 @@ RasterImage::NewSourceData(const char* aMimeType)
   // Reset some flags
   mDecoded = false;
   mHasSourceData = false;
-
-  mSourceDataMimeType.Assign(aMimeType);
 
   // We're decode-on-load here. Open up a new decoder just like what happens when
   // we call Init() for decode-on-load images.
@@ -2309,9 +2308,11 @@ RasterImage::ShutdownDecoder(eShutdownIntent aIntent)
   nsRefPtr<Decoder> decoder = mDecoder;
   mDecoder = nullptr;
 
+  mFinishing = true;
   mInDecoder = true;
   decoder->Finish();
   mInDecoder = false;
+  mFinishing = false;
 
   // Kill off our decode request, if it's pending.  (If not, this call is
   // harmless.)
@@ -2426,6 +2427,12 @@ RasterImage::RequestDecode()
 
   // If we've already got a full decoder running, we have nothing to do
   if (mDecoder && !mDecoder->IsSizeDecode())
+    return NS_OK;
+
+  // mFinishing protects against the case when we enter RequestDecode from
+  // ShutdownDecoder -- in that case, we're done with the decode, we're just
+  // not quite ready to admit it.  See bug 744309.
+  if (mFinishing)
     return NS_OK;
 
   // If our callstack goes through a size decoder, we have a problem.

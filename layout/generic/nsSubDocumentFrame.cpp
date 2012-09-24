@@ -54,10 +54,6 @@
 #include "nsIServiceManager.h"
 #include "nsContentUtils.h"
 
-#ifdef MOZ_XUL
-#include "nsXULPopupManager.h"
-#endif
-
 // For Accessibility
 #ifdef ACCESSIBILITY
 #include "nsAccessibilityService.h"
@@ -340,7 +336,7 @@ nsSubDocumentFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   }
 
   nsRect subdocBoundsInParentUnits =
-    mInnerView->GetBounds() + GetOffsetToCrossDoc(aBuilder->ReferenceFrame());
+    mInnerView->GetBounds() + aBuilder->ToReferenceFrame(this);
 
   if (subdocRootFrame) {
     rv = subdocRootFrame->
@@ -459,6 +455,52 @@ nsSubDocumentFrame::GetIntrinsicHeight()
 }
 
 #ifdef DEBUG
+NS_IMETHODIMP
+nsSubDocumentFrame::List(FILE* out, int32_t aIndent, uint32_t aFlags) const
+{
+  IndentBy(out, aIndent);
+  ListTag(out);
+#ifdef DEBUG_waterson
+  fprintf(out, " [parent=%p]", static_cast<void*>(mParent));
+#endif
+  if (HasView()) {
+    fprintf(out, " [view=%p]", static_cast<void*>(GetView()));
+  }
+  fprintf(out, " {%d,%d,%d,%d}", mRect.x, mRect.y, mRect.width, mRect.height);
+  if (0 != mState) {
+    fprintf(out, " [state=%016llx]", (unsigned long long)mState);
+  }
+  nsIFrame* prevInFlow = GetPrevInFlow();
+  nsIFrame* nextInFlow = GetNextInFlow();
+  if (nullptr != prevInFlow) {
+    fprintf(out, " prev-in-flow=%p", static_cast<void*>(prevInFlow));
+  }
+  if (nullptr != nextInFlow) {
+    fprintf(out, " next-in-flow=%p", static_cast<void*>(nextInFlow));
+  }
+  fprintf(out, " [content=%p]", static_cast<void*>(mContent));
+  nsSubDocumentFrame* f = const_cast<nsSubDocumentFrame*>(this);
+  if (f->HasOverflowAreas()) {
+    nsRect overflowArea = f->GetVisualOverflowRect();
+    fprintf(out, " [vis-overflow=%d,%d,%d,%d]", overflowArea.x, overflowArea.y,
+            overflowArea.width, overflowArea.height);
+    overflowArea = f->GetScrollableOverflowRect();
+    fprintf(out, " [scr-overflow=%d,%d,%d,%d]", overflowArea.x, overflowArea.y,
+            overflowArea.width, overflowArea.height);
+  }
+  fprintf(out, " [sc=%p]", static_cast<void*>(mStyleContext));
+  fputs("\n", out);
+
+  if (aFlags & TRAVERSE_SUBDOCUMENT_FRAMES) {
+    nsIFrame* subdocRootFrame = f->GetSubdocumentRootFrame();
+    if (subdocRootFrame) {
+      subdocRootFrame->List(out, aIndent + 1);
+    }
+  }
+
+  return NS_OK;
+}
+
 NS_IMETHODIMP nsSubDocumentFrame::GetFrameName(nsAString& aResult) const
 {
   return MakeFrameName(NS_LITERAL_STRING("FrameOuter"), aResult);
@@ -703,76 +745,6 @@ nsSubDocumentFrame::AttributeChanged(int32_t aNameSpaceID,
     if (frameloader)
       frameloader->MarginsChanged(margins.width, margins.height);
   }
-  else if (aAttribute == nsGkAtoms::type) {
-    if (!mFrameLoader) 
-      return NS_OK;
-
-    if (!mContent->IsXUL()) {
-      return NS_OK;
-    }
-
-    if (mFrameLoader->GetRemoteBrowser()) {
-      // TODO: Implement ContentShellAdded for remote browsers (bug 658304)
-      return NS_OK;
-    }
-
-    // Note: This logic duplicates a lot of logic in
-    // nsFrameLoader::EnsureDocShell.  We should fix that.
-
-    // Notify our enclosing chrome that our type has changed.  We only do this
-    // if our parent is chrome, since in all other cases we're random content
-    // subframes and the treeowner shouldn't worry about us.
-
-    nsCOMPtr<nsIDocShell> docShell;
-    mFrameLoader->GetDocShell(getter_AddRefs(docShell));
-    nsCOMPtr<nsIDocShellTreeItem> docShellAsItem(do_QueryInterface(docShell));
-    if (!docShellAsItem) {
-      return NS_OK;
-    }
-
-    nsCOMPtr<nsIDocShellTreeItem> parentItem;
-    docShellAsItem->GetParent(getter_AddRefs(parentItem));
-    if (!parentItem) {
-      return NS_OK;
-    }
-
-    int32_t parentType;
-    parentItem->GetItemType(&parentType);
-
-    if (parentType != nsIDocShellTreeItem::typeChrome) {
-      return NS_OK;
-    }
-
-    nsCOMPtr<nsIDocShellTreeOwner> parentTreeOwner;
-    parentItem->GetTreeOwner(getter_AddRefs(parentTreeOwner));
-    if (parentTreeOwner) {
-      nsAutoString value;
-      mContent->GetAttr(kNameSpaceID_None, nsGkAtoms::type, value);
-
-      bool is_primary = value.LowerCaseEqualsLiteral("content-primary");
-
-#ifdef MOZ_XUL
-      // when a content panel is no longer primary, hide any open popups it may have
-      if (!is_primary) {
-        nsXULPopupManager* pm = nsXULPopupManager::GetInstance();
-        if (pm)
-          pm->HidePopupsInDocShell(docShellAsItem);
-      }
-#endif
-
-      parentTreeOwner->ContentShellRemoved(docShellAsItem);
-
-      if (value.LowerCaseEqualsLiteral("content") ||
-          StringBeginsWith(value, NS_LITERAL_STRING("content-"),
-                           nsCaseInsensitiveStringComparator())) {
-        bool is_targetable = is_primary ||
-          value.LowerCaseEqualsLiteral("content-targetable");
-
-        parentTreeOwner->ContentShellAdded(docShellAsItem, is_primary,
-                                           is_targetable, value);
-      }
-    }
-  }
 
   return NS_OK;
 }
@@ -836,18 +808,6 @@ nsSubDocumentFrame::DestroyFrom(nsIFrame* aDestructRoot)
   if (mPostedReflowCallback) {
     PresContext()->PresShell()->CancelReflowCallback(this);
     mPostedReflowCallback = false;
-  }
-
-  // Forget about plugin geometry updates in the subdoc's PresContext,
-  // otherwise we can be left with dangling pointers to the "plugin for
-  // geometry update frame" in the root PresContext.
-  nsIFrame* subdocRootFrame = GetSubdocumentRootFrame();
-  if (subdocRootFrame) {
-    nsPresContext* pc = subdocRootFrame->PresContext();
-    nsRootPresContext* rpc = pc ? pc->GetRootPresContext() : nullptr;
-    if (rpc) {
-      rpc->RootForgetUpdatePluginGeometryFrameForPresContext(pc);
-    }
   }
 
   // Detach the subdocument's views and stash them in the frame loader.

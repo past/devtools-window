@@ -25,39 +25,57 @@ class BluetoothDBusService : public BluetoothService
 {
 public:
   virtual nsresult StartInternal();
+
   virtual nsresult StopInternal();
+
   virtual nsresult GetDefaultAdapterPathInternal(BluetoothReplyRunnable* aRunnable);
+
   virtual nsresult GetPairedDevicePropertiesInternal(const nsTArray<nsString>& aDeviceAddresses,
                                                      BluetoothReplyRunnable* aRunnable);
+
   virtual nsresult StartDiscoveryInternal(const nsAString& aAdapterPath,
                                           BluetoothReplyRunnable* aRunnable);
+
   virtual nsresult StopDiscoveryInternal(const nsAString& aAdapterPath,
                                          BluetoothReplyRunnable* aRunnable);
+
   virtual nsresult
   GetProperties(BluetoothObjectType aType,
                 const nsAString& aPath,
                 BluetoothReplyRunnable* aRunnable);
+
+  virtual nsresult
+  GetDevicePropertiesInternal(const BluetoothSignal& aSignal);
+
   virtual nsresult
   SetProperty(BluetoothObjectType aType,
               const nsAString& aPath,
               const BluetoothNamedValue& aValue,
               BluetoothReplyRunnable* aRunnable);
+
   virtual bool
   GetDevicePath(const nsAString& aAdapterPath,
                 const nsAString& aDeviceAddress,
                 nsAString& aDevicePath);
-  virtual int
-  GetDeviceServiceChannelInternal(const nsAString& aObjectPath,
-                                  const nsAString& aPattern,
-                                  int aAttributeId);
 
-  virtual nsTArray<uint32_t>
+  static bool
   AddReservedServicesInternal(const nsAString& aAdapterPath,
-                              const nsTArray<uint32_t>& aServices);
+                              const nsTArray<uint32_t>& aServices,
+                              nsTArray<uint32_t>& aServiceHandlesContainer);
 
-  virtual bool
+  static bool
   RemoveReservedServicesInternal(const nsAString& aAdapterPath,
                                  const nsTArray<uint32_t>& aServiceHandles);
+
+  virtual nsresult
+  GetSocketViaService(const nsAString& aObjectPath,
+                      const nsAString& aService,
+                      int aType,
+                      bool aAuth,
+                      bool aEncrypt,
+                      BluetoothReplyRunnable* aRunnable);
+
+  virtual bool CloseSocket(int aFd, BluetoothReplyRunnable* aRunnable);
 
   virtual nsresult
   CreatePairedDeviceInternal(const nsAString& aAdapterPath,
@@ -71,18 +89,23 @@ public:
                        BluetoothReplyRunnable* aRunnable);
 
   virtual bool
-  SetPinCodeInternal(const nsAString& aDeviceAddress, const nsAString& aPinCode);
+  SetPinCodeInternal(const nsAString& aDeviceAddress, const nsAString& aPinCode,
+                     BluetoothReplyRunnable* aRunnable);
 
   virtual bool
-  SetPasskeyInternal(const nsAString& aDeviceAddress, uint32_t aPasskey);
+  SetPasskeyInternal(const nsAString& aDeviceAddress, uint32_t aPasskey,
+                     BluetoothReplyRunnable* aRunnable);
 
-  virtual bool 
-  SetPairingConfirmationInternal(const nsAString& aDeviceAddress, bool aConfirm);
+  virtual bool
+  SetPairingConfirmationInternal(const nsAString& aDeviceAddress, bool aConfirm,
+                                 BluetoothReplyRunnable* aRunnable);
 
-  virtual bool 
-  SetAuthorizationInternal(const nsAString& aDeviceAddress, bool aAllow);
+  virtual bool
+  SetAuthorizationInternal(const nsAString& aDeviceAddress, bool aAllow,
+                           BluetoothReplyRunnable* aRunnable);
 
-  virtual int IsEnabledInternal();
+  virtual nsresult
+  PrepareAdapterInternal(const nsAString& aPath);
 
 private:
   nsresult SendGetPropertyMessage(const nsAString& aPath,

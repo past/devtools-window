@@ -34,7 +34,6 @@ EXPORTS_mozilla/ipc = \
   RPCChannel.h \
   SharedMemory.h \
   SharedMemoryBasic.h \
-  SharedMemoryBasic_chromium.h \
   SharedMemorySysV.h \
   Shmem.h \
   SyncChannel.h \
@@ -105,6 +104,12 @@ endif #}
 ifeq ($(OS_TARGET),Android)
 CPPSRCS += SharedMemoryBasic_android.cpp
 endif #}
+
+ifeq ($(OS_ARCH),Linux)
+CPPSRCS += ProcessUtils_linux.cpp
+else
+CPPSRCS += ProcessUtils_none.cpp
+endif
 
 include $(topsrcdir)/ipc/app/defs.mk
 DEFINES += -DMOZ_CHILD_PROCESS_NAME=\"$(MOZ_CHILD_PROCESS_NAME)\"

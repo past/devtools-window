@@ -11,6 +11,7 @@
 #include "InterfaceInitFuncs.h"
 #include "nsAccUtils.h"
 #include "nsIAccessibleRelation.h"
+#include "nsIAccessibleTable.h"
 #include "RootAccessible.h"
 #include "nsIAccessibleValue.h"
 #include "nsMai.h"
@@ -947,7 +948,7 @@ GetAccessibleWrap(AtkObject* aAtkObj)
 
   NS_ENSURE_TRUE(accWrap->GetAtkObject() == aAtkObj, nullptr);
 
-  AccessibleWrap* appAccWrap = nsAccessNode::GetApplicationAccessible();
+  AccessibleWrap* appAccWrap = ApplicationAcc();
   if (appAccWrap != accWrap && !accWrap->IsValidObject())
     return nullptr;
 

@@ -1059,10 +1059,12 @@ let RIL = {
    * Fetch ICC records.
    */
   fetchICCRecords: function fetchICCRecords() {
+    this.getICCID();
     this.getIMSI();
     this.getMSISDN();
     this.getAD();
-    this.getUST();
+    this.getSPN();
+    this.getSST();
     this.getMBDN();
   },
 
@@ -1089,6 +1091,35 @@ let RIL = {
     Buf.writeUint32(1);
     Buf.writeString(aid ? aid : this.aid);
     Buf.sendParcel();
+  },
+
+  /**
+   * Read the ICCD from the ICC card.
+   */
+  getICCID: function getICCID() {
+    function callback() {
+      let length = Buf.readUint32();
+      this.iccInfo.iccid = GsmPDUHelper.readSwappedNibbleBcdString(length / 2);
+      Buf.readStringDelimiter(length);
+
+      if (DEBUG) debug("ICCID: " + this.iccInfo.iccid);
+      if (this.iccInfo.iccid) {
+        this._handleICCInfoChange();
+      }
+    }
+
+    this.iccIO({
+      command:   ICC_COMMAND_GET_RESPONSE,
+      fileId:    ICC_EF_ICCID,
+      pathId:    this._getPathIdForICCRecord(ICC_EF_ICCID),
+      p1:        0, // For GET_RESPONSE, p1 = 0
+      p2:        0, // For GET_RESPONSE, p2 = 0
+      p3:        GET_RESPONSE_EF_SIZE_BYTES,
+      data:      null,
+      pin2:      null,
+      type:      EF_TYPE_TRANSPARENT,
+      callback:  callback,
+    });
   },
 
   /**
@@ -1165,47 +1196,125 @@ let RIL = {
   },
 
   /**
-   * Get whether specificed USIM service is available.
-   *
-   * @param service
-   *        Service id, valid in 1..N. See 3GPP TS 31.102 4.2.8.
-   * @return
-   *        true if the service is enabled,
-   *        false otherwise.
+   * Read the SPN (Service Provider Name) from the ICC.
    */
-  isUSTServiceAvailable: function isUSTServiceAvailable(service) {
-    service -= 1;
-    let index = service / 8;
-    let bitmask = 1 << (service % 8);
-    return this.iccInfo.ust &&
-           (index < this.iccInfo.ust.length) &&
-           (this.iccInfo.ust[index] & bitmask);
-  },
-
-  /**
-   * Read the UST from the ICC.
-   */
-  getUST: function getUST() {
+  getSPN: function getSPN() {
     function callback() {
       let length = Buf.readUint32();
       // Each octet is encoded into two chars.
-      let len = length / 2;
-      this.iccInfo.ust = GsmPDUHelper.readHexOctetArray(len);
+      // Minus 1 because first is used to store display condition
+      let len = (length / 2) - 1;
+      let spnDisplayCondition = GsmPDUHelper.readHexOctet();
+      this.iccInfo.spn = GsmPDUHelper.readAlphaIdentifier(len);
       Buf.readStringDelimiter(length);
-      
+
       if (DEBUG) {
-        let str = "";
-        for (let i = 0; i < this.iccInfo.ust.length; i++) {
-          str += this.iccInfo.ust[i] + ", ";
-        }
-        debug("UST: " + str);
+        debug("SPN: spn=" + this.iccInfo.spn + ", spnDisplayCondition=" + spnDisplayCondition);
       }
+      this._handleICCInfoChange();
     }
 
     this.iccIO({
       command:   ICC_COMMAND_GET_RESPONSE,
-      fileId:    ICC_EF_UST,
-      pathId:    this._getPathIdForICCRecord(ICC_EF_UST),
+      fileId:    ICC_EF_SPN,
+      pathId:    this._getPathIdForICCRecord(ICC_EF_SPN),
+      p1:        0, // For GET_RESPONSE, p1 = 0
+      p2:        0, // For GET_RESPONSE, p2 = 0
+      p3:        GET_RESPONSE_EF_SIZE_BYTES,
+      data:      null,
+      pin2:      null,
+      type:      EF_TYPE_TRANSPARENT,
+      callback:  callback,
+    });
+  },
+
+  /**
+   * Get whether specificed (U)SIM service is available.
+   *
+   * @param geckoService
+   *        Service name like "ADN", "BDN", etc.
+   *
+   * @return true if the service is enabled, false otherwise.
+   */
+  isICCServiceAvailable: function isICCServiceAvailable(geckoService) {
+    let serviceTable = this.iccInfo.sst;
+    let index, bitmask;
+    if (this.appType == CARD_APPTYPE_SIM) {
+      /**
+       * Service id is valid in 1..N, and 2 bits are used to code each service.
+       *
+       * +----+--  --+----+----+
+       * | b8 | ...  | b2 | b1 |
+       * +----+--  --+----+----+
+       *
+       * b1 = 0, service not allocated.
+       *      1, service allocated.
+       * b2 = 0, service not activatd.
+       *      1, service allocated.
+       *
+       * @see 3GPP TS 51.011 10.3.7.
+       */
+      let simService = GECKO_ICC_SERVICES.sim[geckoService];
+      if (!simService) {
+        return false;
+      }
+      simService -= 1;
+      index = Math.floor(simService / 4);
+      bitmask = 2 << ((simService % 4) << 1);
+    } else {
+      /**
+       * Service id is valid in 1..N, and 1 bit is used to code each service.
+       *
+       * +----+--  --+----+----+
+       * | b8 | ...  | b2 | b1 |
+       * +----+--  --+----+----+
+       *
+       * b1 = 0, service not avaiable.
+       *      1, service available.
+       * b2 = 0, service not avaiable.
+       *      1, service available.
+       *
+       * @see 3GPP TS 31.102 4.2.8.
+       */
+      let usimService = GECKO_ICC_SERVICES.usim[geckoService];
+      if (!usimService) {
+        return false;
+      }
+      usimService -= 1;
+      index = Math.floor(usimService / 8);
+      bitmask = 1 << ((usimService % 8) << 0);
+    }
+
+    return (serviceTable &&
+           (index < serviceTable.length) &&
+           (serviceTable[index] & bitmask)) != 0;
+  },
+
+  /**
+   * Read the (U)SIM Service Table from the ICC.
+   */
+  getSST: function getSST() {
+    function callback() {
+      let length = Buf.readUint32();
+      // Each octet is encoded into two chars.
+      let len = length / 2;
+      this.iccInfo.sst = GsmPDUHelper.readHexOctetArray(len);
+      Buf.readStringDelimiter(length);
+
+      if (DEBUG) {
+        let str = "";
+        for (let i = 0; i < this.iccInfo.sst.length; i++) {
+          str += this.iccInfo.sst[i] + ", ";
+        }
+        debug("SST: " + str);
+      }
+    }
+
+    // ICC_EF_UST has the same value with ICC_EF_SST.
+    this.iccIO({
+      command:   ICC_COMMAND_GET_RESPONSE,
+      fileId:    ICC_EF_SST,
+      pathId:    this._getPathIdForICCRecord(ICC_EF_SST),
       p1:        0, // For GET_RESPONSE, p1 = 0
       p2:        0, // For GET_RESPONSE, p2 = 0
       p3:        GET_RESPONSE_EF_SIZE_BYTES,
@@ -1291,14 +1400,15 @@ let RIL = {
                                 " number = " + this.iccInfo.fdn[i].number);
           }
         }
-        this.sendDOMMessage({rilMessageType: "icccontacts",
-                             contactType: "FDN",
-                             contacts: this.iccInfo.fdn,
-                             requestId: options.requestId});
+        delete options.callback;
+        delete options.onerror;
+        options.rilMessageType = "icccontacts";
+        options.contacts = this.iccInfo.fdn;
+        this.sendDOMMessage(options);
       };
       this.parseDiallingNumber(options, add, finish);
     }
-    
+
     this.iccInfo.fdn = [];
     this.iccIO({
       command:   ICC_COMMAND_GET_RESPONSE,
@@ -1334,20 +1444,27 @@ let RIL = {
         if (DEBUG) {
           for (let i = 0; i < this.iccInfo.adn.length; i++) {
             debug("ADN[" + i + "] alphaId = " + this.iccInfo.adn[i].alphaId +
-                                " number = " + this.iccInfo.adn[i].number);
+                                " number  = " + this.iccInfo.adn[i].number);
           }
         }
+        // To prevent DataCloneError when sending parcels,
+        // We need to delete those properties which are not
+        // 'Structured Clone Data',
+        // in this case, those callback functions.
+        delete options.callback;
+        delete options.onerror;
         options.rilMessageType = "icccontacts";
-        options.contactType = "ADN";
-        options.contacts = this.iccInfo.adn,
+        options.contacts = this.iccInfo.adn;
         this.sendDOMMessage(options);
       };
       this.parseDiallingNumber(options, add, finish);
     }
 
     function error(options) {
+      // TODO: Error handling should be addressed in Bug 787477
+      delete options.callback;
+      delete options.onerror;
       options.rilMessageType = "icccontacts";
-      options.contactType = "ADN";
       options.contacts = [];
       this.sendDOMMessage(options);
     }
@@ -1432,11 +1549,18 @@ let RIL = {
   /**
    * Get UICC Phonebook.
    *
-   * @params type
+   * @params contactType
    *         "ADN" or "FDN".
    */
   getICCContacts: function getICCContacts(options) {
-    let type = options.type;
+    if (!this.appType) {
+      // TODO: Error handling should be addressed in Bug 787477
+      options.rilMessageType = "icccontacts";
+      options.contacts = [];
+      this.sendDOMMessage(options);
+    }
+
+    let type = options.contactType;
     switch (type) {
       case "ADN":
         switch (this.appType) {
@@ -1478,8 +1602,10 @@ let RIL = {
     }
 
     function error(options) {
+      // TODO: Error handling should be addressed in Bug 787477
+      delete options.callback;
+      delete options.onerror;
       options.rilMessageType = "icccontacts";
-      options.contactType = "ADN";
       options.contacts = [];
       this.sendDOMMessage(options);
     }
@@ -1510,6 +1636,20 @@ let RIL = {
     Buf.newParcel(REQUEST_RADIO_POWER);
     Buf.writeUint32(1);
     Buf.writeUint32(options.on ? 1 : 0);
+    Buf.sendParcel();
+  },
+
+  /**
+   * Set call waiting status.
+   *
+   * @param on
+   *        Boolean indicating the desired waiting status.
+   */
+  setCallWaiting: function setCallWaiting(options) {
+    Buf.newParcel(REQUEST_SET_CALL_WAITING, options);
+    Buf.writeUint32(2);
+    Buf.writeUint32(options.enabled ? 1 : 0);
+    Buf.writeUint32(ICC_SERVICE_CLASS_VOICE);
     Buf.sendParcel();
   },
 
@@ -2133,12 +2273,19 @@ let RIL = {
    * @param helpRequested
    */
   sendStkMenuSelection: function sendStkMenuSelection(command) {
+    command.tag = BER_MENU_SELECTION_TAG;
+    command.deviceId = {
+      sourceId :STK_DEVICE_ID_KEYPAD,
+      destinationId: STK_DEVICE_ID_SIM
+    };
     this.sendICCEnvelopeCommand(command);
   },
 
   /**
    * Send REQUEST_STK_SEND_ENVELOPE_COMMAND to ICC.
    *
+   * @param tag
+   * @patam deviceId
    * @param [optioanl] itemIdentifier
    * @param [optional] helpRequested
    */
@@ -2152,15 +2299,15 @@ let RIL = {
     Buf.writeUint32(size);
 
     // Write a BER-TLV
-    GsmPDUHelper.writeHexOctet(BER_MENU_SELECTION_TAG);
+    GsmPDUHelper.writeHexOctet(options.tag);
     GsmPDUHelper.writeHexOctet(berLen);
 
     // Device Identifies
     GsmPDUHelper.writeHexOctet(COMPREHENSIONTLV_TAG_DEVICE_ID |
                                COMPREHENSIONTLV_FLAG_CR);
     GsmPDUHelper.writeHexOctet(2);
-    GsmPDUHelper.writeHexOctet(STK_DEVICE_ID_KEYPAD);
-    GsmPDUHelper.writeHexOctet(STK_DEVICE_ID_SIM);
+    GsmPDUHelper.writeHexOctet(options.deviceId.sourceId);
+    GsmPDUHelper.writeHexOctet(options.deviceId.destinationId);
 
     // Item Identifier
     if (options.itemIdentifier) {
@@ -2298,33 +2445,40 @@ let RIL = {
       return null;
     }
 
+    // Here we handle only file ids that are common to RUIM, SIM, USIM
+    // and other types of ICC cards.
+    switch (fileId) {
+      case ICC_EF_ICCID:
+        return EF_PATH_MF_SIM;
+      case ICC_EF_ADN:
+        return EF_PATH_MF_SIM + EF_PATH_DF_TELECOM;
+      case ICC_EF_PBR:
+        return EF_PATH_MF_SIM + EF_PATH_DF_TELECOM + EF_PATH_DF_PHONEBOOK;
+    }
+
     switch (app.app_type) {
       case CARD_APPTYPE_SIM:
         switch (fileId) {
-          case ICC_EF_ADN:
           case ICC_EF_FDN:
           case ICC_EF_MSISDN:
             return EF_PATH_MF_SIM + EF_PATH_DF_TELECOM;
 
           case ICC_EF_AD:
           case ICC_EF_MBDN:
-          case ICC_EF_UST:
+          case ICC_EF_SPN:
+          case ICC_EF_SST:
             return EF_PATH_MF_SIM + EF_PATH_DF_GSM;
-          case ICC_EF_PBR:
-            return EF_PATH_MF_SIM + EF_PATH_DF_TELECOM + EF_PATH_DF_PHONEBOOK;
         }
       case CARD_APPTYPE_USIM:
         switch (fileId) {
           case ICC_EF_AD:
+          case ICC_EF_FDN:
           case ICC_EF_MBDN:
           case ICC_EF_UST:
           case ICC_EF_MSISDN:
+          case ICC_EF_SPN:
             return EF_PATH_MF_SIM + EF_PATH_ADF_USIM;
-          case ICC_EF_ADN:
-          case ICC_EF_FDN:
-            return EF_PATH_MF_SIM + EF_PATH_DF_TELECOM;
-          case ICC_EF_PBR:
-            return EF_PATH_MF_SIM + EF_PATH_DF_TELECOM + EF_PATH_DF_PHONEBOOK;
+
           default:
             // The file ids in USIM phone book entries are decided by the
 	    // card manufacturer. So if we don't match any of the cases
@@ -2660,7 +2814,7 @@ let RIL = {
         debug("Operator is currently unregistered");
       }
 
-      if (longName && shortName && networkTuple) {
+      if (networkTuple) {
         try {
           this._processNetworkTuple(networkTuple, this.operator);
         } catch (e) {
@@ -2884,7 +3038,7 @@ let RIL = {
     let messageStringLength = Buf.readUint32();
     if (DEBUG) debug("Got new SMS, length " + messageStringLength);
     let message = GsmPDUHelper.readMessage();
-    if (DEBUG) debug(message);
+    if (DEBUG) debug("Got new SMS: " + JSON.stringify(message));
 
     // Read string delimiters. See Buf.readString().
     Buf.readStringDelimiter(length);
@@ -2944,11 +3098,13 @@ let RIL = {
   _processSmsStatusReport: function _processSmsStatusReport(length) {
     let message = this._processReceivedSms(length);
     if (!message) {
+      if (DEBUG) debug("invalid SMS-STATUS-REPORT");
       return PDU_FCS_UNSPECIFIED;
     }
 
     let options = this._pendingSentSmsMap[message.messageRef];
     if (!options) {
+      if (DEBUG) debug("no pending SMS-SUBMIT message");
       return PDU_FCS_OK;
     }
 
@@ -2971,12 +3127,14 @@ let RIL = {
 
     // Pending. Waiting for next status report.
     if ((status >>> 5) == 0x01) {
+      if (DEBUG) debug("SMS-STATUS-REPORT: delivery still pending");
       return PDU_FCS_OK;
     }
 
     delete this._pendingSentSmsMap[message.messageRef];
 
     if ((status >>> 5) != 0x00) {
+      if (DEBUG) debug("SMS-STATUS-REPORT: delivery failed");
       // It seems unlikely to get a result code for a failure to deliver.
       // Even if, we don't want to do anything with this.
       return PDU_FCS_OK;
@@ -3511,6 +3669,7 @@ RIL[REQUEST_SEND_SMS] = function REQUEST_SEND_SMS(length, options) {
   options.errorCode = Buf.readUint32();
 
   if (options.requestStatusReport) {
+    if (DEBUG) debug("waiting SMS-STATUS-REPORT for messageRef " + options.messageRef);
     this._pendingSentSmsMap[options.messageRef] = options;
   }
 
@@ -3619,7 +3778,10 @@ RIL[REQUEST_SET_CLIR] = null;
 RIL[REQUEST_QUERY_CALL_FORWARD_STATUS] = null;
 RIL[REQUEST_SET_CALL_FORWARD] = null;
 RIL[REQUEST_QUERY_CALL_WAITING] = null;
-RIL[REQUEST_SET_CALL_WAITING] = null;
+RIL[REQUEST_SET_CALL_WAITING] = function REQUEST_SET_CALL_WAITING(length, options) {
+  options.success = options.rilRequestError == 0 ? true : false;
+  this.sendDOMMessage(options);
+};
 RIL[REQUEST_SMS_ACKNOWLEDGE] = null;
 RIL[REQUEST_GET_IMEI] = function REQUEST_GET_IMEI(length, options) {
   if (options.rilRequestError) {
@@ -4884,6 +5046,21 @@ let GsmPDUHelper = {
       number = '+' + number;
     }
     return number;
+  },
+
+  /**
+   * Write Dialling Number.
+   *
+   * @param number  The Dialling number
+   */
+  writeDiallingNumber: function writeDiallingNumber(number) {
+    let toa = PDU_TOA_ISDN; // 81
+    if (number[0] == '+') {
+      toa = PDU_TOA_INTERNATIONAL | PDU_TOA_ISDN; // 91
+      number = number.substring(1);
+    }
+    this.writeHexOctet(toa);
+    this.writeSwappedNibbleBCD(number);
   },
 
   /**

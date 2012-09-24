@@ -371,7 +371,6 @@ DOMCI_CLASS(FileReader)
 DOMCI_CLASS(ArchiveReader)
 DOMCI_CLASS(ArchiveRequest)
 DOMCI_CLASS(MozURLProperty)
-DOMCI_CLASS(MozBlobBuilder)
 
 DOMCI_CLASS(DOMStringMap)
 
@@ -430,8 +429,6 @@ DOMCI_CLASS(TimeRanges)
 DOMCI_CLASS(MediaStream)
 #endif
 
-DOMCI_CLASS(ProgressEvent)
-
 DOMCI_CLASS(XMLHttpRequestUpload)
 
 // DOM Traversal NodeIterator class
@@ -445,12 +442,9 @@ DOMCI_CLASS(NotifyAudioAvailableEvent)
 
 DOMCI_CLASS(SimpleGestureEvent)
 
-DOMCI_CLASS(MozTouchEvent)
-
 DOMCI_CLASS(MathMLElement)
 
 // WebGL
-DOMCI_CLASS(WebGLRenderingContext)
 DOMCI_CLASS(WebGLBuffer)
 DOMCI_CLASS(WebGLTexture)
 DOMCI_CLASS(WebGLProgram)
@@ -485,9 +479,6 @@ DOMCI_CLASS(FormData)
 
 DOMCI_CLASS(DesktopNotification)
 DOMCI_CLASS(DesktopNotificationCenter)
-
-// WebSocket
-DOMCI_CLASS(WebSocket)
 
 DOMCI_CLASS(IDBFactory)
 DOMCI_CLASS(IDBFileHandle)
@@ -526,6 +517,10 @@ DOMCI_CLASS(MozIccManager)
 DOMCI_CLASS(MozStkCommandEvent)
 #endif
 
+#ifdef MOZ_B2G_FM
+DOMCI_CLASS(FMRadio)
+#endif
+
 #ifdef MOZ_B2G_BT
 DOMCI_CLASS(BluetoothManager)
 DOMCI_CLASS(BluetoothAdapter)
@@ -546,3 +541,5 @@ DOMCI_CLASS(FileRequest)
 DOMCI_CLASS(LockedFile)
 
 DOMCI_CLASS(MozActivity)
+
+DOMCI_CLASS(MozTimeManager)

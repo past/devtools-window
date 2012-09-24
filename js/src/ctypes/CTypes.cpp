@@ -63,7 +63,7 @@ namespace CType {
   static JSBool CreateArray(JSContext* cx, unsigned argc, jsval* vp);
   static JSBool ToString(JSContext* cx, unsigned argc, jsval* vp);
   static JSBool ToSource(JSContext* cx, unsigned argc, jsval* vp);
-  static JSBool HasInstance(JSContext* cx, JSHandleObject obj, const jsval* v, JSBool* bp);
+  static JSBool HasInstance(JSContext* cx, JSHandleObject obj, JSMutableHandleValue v, JSBool* bp);
 
 
   /*
@@ -3524,7 +3524,7 @@ CType::ToSource(JSContext* cx, unsigned argc, jsval* vp)
 }
 
 JSBool
-CType::HasInstance(JSContext* cx, JSHandleObject obj, const jsval* v, JSBool* bp)
+CType::HasInstance(JSContext* cx, JSHandleObject obj, JSMutableHandleValue v, JSBool* bp)
 {
   JS_ASSERT(CType::IsCType(obj));
 
@@ -3534,10 +3534,10 @@ CType::HasInstance(JSContext* cx, JSHandleObject obj, const jsval* v, JSBool* bp
   JS_ASSERT(CData::IsCDataProto(prototype));
 
   *bp = JS_FALSE;
-  if (JSVAL_IS_PRIMITIVE(*v))
+  if (JSVAL_IS_PRIMITIVE(v))
     return JS_TRUE;
 
-  JSObject* proto = JSVAL_TO_OBJECT(*v);
+  JSObject* proto = JSVAL_TO_OBJECT(v);
   while ((proto = JS_GetPrototype(proto))) {
     if (proto == prototype) {
       *bp = JS_TRUE;
@@ -4553,7 +4553,10 @@ StructType::DefineInternal(JSContext* cx, JSObject* typeObj_, JSObject* fieldsOb
         return JS_FALSE;
 
       RootedObject fieldType(cx, NULL);
-      JSFlatString* name = ExtractStructField(cx, item.jsval_value(), fieldType.address());
+      JSFlatString* flat = ExtractStructField(cx, item.jsval_value(), fieldType.address());
+      if (!flat)
+        return JS_FALSE;
+      Rooted<JSStableString*> name(cx, flat->ensureStable(cx));
       if (!name)
         return JS_FALSE;
       fieldRootsArray[i] = OBJECT_TO_JSVAL(fieldType);
@@ -5569,24 +5572,17 @@ FunctionType::Call(JSContext* cx,
   int savedErrno = errno;
   errno = 0;
 
-  // suspend the request before we call into the function, since the call
-  // may block or otherwise take a long time to return.
-  {
-    JSAutoSuspendRequest suspend(cx);
-    ffi_call(&fninfo->mCIF, FFI_FN(fn), returnValue.mData,
-             reinterpret_cast<void**>(values.begin()));
+  ffi_call(&fninfo->mCIF, FFI_FN(fn), returnValue.mData,
+           reinterpret_cast<void**>(values.begin()));
 
-    // Save error value.
-    // We need to save it before leaving the scope of |suspend| as destructing
-    // |suspend| has the side-effect of clearing |GetLastError|
-    // (see bug 684017).
+  // Save error value.
+  // We need to save it before leaving the scope of |suspend| as destructing
+  // |suspend| has the side-effect of clearing |GetLastError|
+  // (see bug 684017).
 
-    errnoStatus = errno;
+  errnoStatus = errno;
 #if defined(XP_WIN)
-    lastErrorStatus = GetLastError();
-#endif // defined(XP_WIN)
-  }
-#if defined(XP_WIN)
+  lastErrorStatus = GetLastError();
   SetLastError(savedLastError);
 #endif // defined(XP_WIN)
 

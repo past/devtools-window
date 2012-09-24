@@ -1403,7 +1403,10 @@ nsXPCComponents_Results::NewResolve(nsIXPConnectWrappedNative *wrapper,
         nsresult rv;
         while (nsXPCException::IterateNSResults(&rv, &rv_name, nullptr, &iter)) {
             if (!strcmp(name.ptr(), rv_name)) {
-                jsval val = JS_NumberValue((double)rv);
+                // The two casts below is required since nsresult is an enum,
+                // and it can be interpreted as a signed integer if we directly
+                // cast to a double.
+                jsval val = JS_NumberValue((double)(uint32_t)rv);
 
                 *objp = obj;
                 if (!JS_DefinePropertyById(cx, obj, id, val,
@@ -2784,9 +2787,16 @@ nsXPCComponents_Utils::ReportError(const JS::Value &error, JSContext *cx)
 
         uint32_t column = err->uctokenptr - err->uclinebuf;
 
+        const PRUnichar* ucmessage =
+            static_cast<const PRUnichar*>(err->ucmessage);
+        const PRUnichar* uclinebuf =
+            static_cast<const PRUnichar*>(err->uclinebuf);
+
         nsresult rv = scripterr->InitWithWindowID(
-                static_cast<const PRUnichar*>(err->ucmessage), fileUni.get(),
-                static_cast<const PRUnichar*>(err->uclinebuf), err->lineno,
+                ucmessage ? nsDependentString(ucmessage) : EmptyString(),
+                fileUni,
+                uclinebuf ? nsDependentString(uclinebuf) : EmptyString(),
+                err->lineno,
                 column, err->flags, "XPConnect JavaScript", innerWindowID);
         NS_ENSURE_SUCCESS(rv, NS_OK);
 
@@ -2817,9 +2827,9 @@ nsXPCComponents_Utils::ReportError(const JS::Value &error, JSContext *cx)
         return NS_OK;
 
     nsresult rv = scripterr->InitWithWindowID(
-            reinterpret_cast<const PRUnichar *>(msgchars),
-            NS_ConvertUTF8toUTF16(fileName).get(),
-            nullptr, lineNo, 0, 0, "XPConnect JavaScript", innerWindowID);
+            nsDependentString(static_cast<const PRUnichar *>(msgchars)),
+            NS_ConvertUTF8toUTF16(fileName),
+            EmptyString(), lineNo, 0, 0, "XPConnect JavaScript", innerWindowID);
     NS_ENSURE_SUCCESS(rv, NS_OK);
 
     console->LogMessage(scripterr);
@@ -3165,7 +3175,7 @@ xpc::SandboxProxyHandler::getPropertyDescriptor(JSContext *cx, JSObject *proxy,
     JS::RootedObject obj(cx, wrappedObject(proxy));
     JS::RootedId id(cx, id_);
 
-    JS_ASSERT(js::GetObjectCompartment(obj) == js::GetObjectCompartment(proxy));
+    MOZ_ASSERT(js::GetObjectCompartment(obj) == js::GetObjectCompartment(proxy));
     // XXXbz Not sure about the JSRESOLVE_QUALIFIED here, but we have
     // no way to tell for sure whether to use it.
     if (!JS_GetPropertyDescriptorById(cx, obj, id,
@@ -4425,6 +4435,7 @@ GENERATE_JSOPTION_GETTER_SETTER(Relimit, JSOPTION_RELIMIT)
 GENERATE_JSOPTION_GETTER_SETTER(Methodjit, JSOPTION_METHODJIT)
 GENERATE_JSOPTION_GETTER_SETTER(Methodjit_always, JSOPTION_METHODJIT_ALWAYS)
 GENERATE_JSOPTION_GETTER_SETTER(Strict_mode, JSOPTION_STRICT_MODE)
+GENERATE_JSOPTION_GETTER_SETTER(Ion, JSOPTION_ION)
 
 #undef GENERATE_JSOPTION_GETTER_SETTER
 
@@ -4710,7 +4721,10 @@ nsXPCComponents::GetProperty(nsIXPConnectWrappedNative *wrapper,
 
     nsresult rv = NS_OK;
     if (doResult) {
-        *vp = JS_NumberValue((double) res);
+        // The two casts below is required since nsresult is an enum,
+        // and it can be interpreted as a signed integer if we directly
+        // cast to a double.
+        *vp = JS_NumberValue((double)(uint32_t) res);
         rv = NS_SUCCESS_I_DID_SOMETHING;
     }
 

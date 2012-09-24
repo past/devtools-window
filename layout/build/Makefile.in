@@ -68,6 +68,7 @@ SHARED_LIBRARY_LIBS = \
 	$(DEPTH)/dom/file/$(LIB_PREFIX)domfile_s.$(LIB_SUFFIX) \
 	$(DEPTH)/dom/power/$(LIB_PREFIX)dom_power_s.$(LIB_SUFFIX) \
 	$(DEPTH)/dom/settings/$(LIB_PREFIX)jsdomsettings_s.$(LIB_SUFFIX) \
+	$(DEPTH)/dom/permission/$(LIB_PREFIX)jsdompermissionsettings_s.$(LIB_SUFFIX) \
 	$(DEPTH)/dom/network/src/$(LIB_PREFIX)dom_network_s.$(LIB_SUFFIX) \
 	$(DEPTH)/dom/media/$(LIB_PREFIX)dom_media_s.$(LIB_SUFFIX) \
 	$(DEPTH)/dom/sms/src/$(LIB_PREFIX)dom_sms_s.$(LIB_SUFFIX) \
@@ -83,6 +84,7 @@ SHARED_LIBRARY_LIBS = \
 	$(DEPTH)/dom/indexedDB/$(LIB_PREFIX)dom_indexeddb_s.$(LIB_SUFFIX) \
 	$(DEPTH)/dom/indexedDB/ipc/$(LIB_PREFIX)dom_indexeddb_ipc_s.$(LIB_SUFFIX) \
 	$(DEPTH)/dom/browser-element/$(LIB_PREFIX)dom_browserelement_s.$(LIB_SUFFIX) \
+	$(DEPTH)/dom/time/$(LIB_PREFIX)dom_time_s.$(LIB_SUFFIX) \
 	$(DEPTH)/editor/libeditor/text/$(LIB_PREFIX)texteditor_s.$(LIB_SUFFIX) \
 	$(DEPTH)/editor/libeditor/base/$(LIB_PREFIX)editorbase_s.$(LIB_SUFFIX) \
 	$(DEPTH)/parser/html/$(LIB_PREFIX)html5p_s.$(LIB_SUFFIX) \
@@ -117,8 +119,14 @@ LOCAL_INCLUDES	+= \
 	$(NULL)
 endif
 
+ifdef MOZ_B2G_FM #{
+SHARED_LIBRARY_LIBS	+= \
+  $(DEPTH)/dom/fm/$(LIB_PREFIX)domfm_s.$(LIB_SUFFIX) \
+  $(NULL)
+endif #}
+
 ifdef MOZ_B2G_BT #{
-SHARED_LIBRARY_LIBS	+= $(DEPTH)/dom/bluetooth/$(LIB_PREFIX)dombluetooth_s.$(LIB_SUFFIX)
+SHARED_LIBRARY_LIBS += $(DEPTH)/dom/bluetooth/$(LIB_PREFIX)dombluetooth_s.$(LIB_SUFFIX)
 endif #}
 
 SHARED_LIBRARY_LIBS	+= $(DEPTH)/dom/camera/$(LIB_PREFIX)domcamera_s.$(LIB_SUFFIX)
@@ -254,6 +262,7 @@ LOCAL_INCLUDES	+= -I$(srcdir)/../base \
 		   -I$(topsrcdir)/dom/src/geolocation \
 		   -I$(topsrcdir)/dom/contacts \
 		   -I$(topsrcdir)/dom/settings \
+		   -I$(topsrcdir)/dom/permission \
 		   -I$(topsrcdir)/dom/telephony \
 		   -I. \
 		   -I$(topsrcdir)/editor/libeditor/base \
@@ -272,6 +281,10 @@ LOCAL_INCLUDES	+= -I$(srcdir)/../base \
 
 ifdef MOZ_B2G_RIL #{
 LOCAL_INCLUDES	+= -I$(topsrcdir)/dom/system/gonk
+endif #}
+
+ifdef MOZ_B2G_FM #{
+LOCAL_INCLUDES	+= -I$(topsrcdir)/dom/fm
 endif #}
 
 ifdef MOZ_B2G_BT #{

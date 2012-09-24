@@ -699,6 +699,25 @@ const STK_TEXT_CODING_GSM_8BIT = 0x04;
 const STK_TEXT_CODING_UCS2 = 0x08;
 
 /**
+ * (U)SIM Services.
+ *
+ * @see 3GPP TS 51.011 10.3.7 (SIM) and 3GPP TS 31.102 4.2.8 (USIM).
+ */
+const GECKO_ICC_SERVICES = {
+  sim: {
+    ADN: 2,
+    FDN: 3,
+    SDN: 18,
+    BDN: 31
+  },
+  usim: {
+    FDN: 2,
+    SDN: 4,
+    BDN: 6
+  }
+};
+
+/**
  * GSM PDU constants
  */
 
@@ -1628,9 +1647,9 @@ const GECKO_RADIOSTATE_READY         = "ready";
 
 const GECKO_CARDSTATE_UNAVAILABLE    = null;
 const GECKO_CARDSTATE_ABSENT         = "absent";
-const GECKO_CARDSTATE_PIN_REQUIRED   = "pin_required";
-const GECKO_CARDSTATE_PUK_REQUIRED   = "puk_required";
-const GECKO_CARDSTATE_NETWORK_LOCKED = "network_locked";
+const GECKO_CARDSTATE_PIN_REQUIRED   = "pinRequired";
+const GECKO_CARDSTATE_PUK_REQUIRED   = "pukRequired";
+const GECKO_CARDSTATE_NETWORK_LOCKED = "networkLocked";
 const GECKO_CARDSTATE_NOT_READY      = null;
 const GECKO_CARDSTATE_READY          = "ready";
 

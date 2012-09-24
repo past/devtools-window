@@ -76,6 +76,7 @@
 #include "nsIMIMEHeaderParam.h"
 #include "nsILoadContext.h"
 #include "mozilla/Services.h"
+#include "nsIPrivateBrowsingChannel.h"
 
 #ifdef MOZILLA_INTERNAL_API
 
@@ -1325,10 +1326,24 @@ NS_QueryNotificationCallbacks(nsIInterfaceRequestor  *callbacks,
 inline bool
 NS_UsePrivateBrowsing(nsIChannel *channel)
 {
+    bool isPrivate = false;
+    bool isOverriden = false;
+    nsCOMPtr<nsIPrivateBrowsingChannel> pbChannel = do_QueryInterface(channel);
+    if (pbChannel &&
+        NS_SUCCEEDED(pbChannel->IsPrivateModeOverriden(&isPrivate, &isOverriden)) &&
+        isOverriden) {
+        return isPrivate;
+    }
     nsCOMPtr<nsILoadContext> loadContext;
     NS_QueryNotificationCallbacks(channel, loadContext);
     return loadContext && loadContext->UsePrivateBrowsing();
 }
+
+// Constants duplicated from nsIScriptSecurityManager so we avoid having necko
+// know about script security manager.
+#define NECKO_NO_APP_ID 0
+// Note: UNKNOWN also equals PR_UINT32_MAX
+#define NECKO_UNKNOWN_APP_ID 4294967295
 
 /**
  * Gets AppId and isInBrowserElement from channel's nsILoadContext.

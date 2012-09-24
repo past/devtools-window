@@ -21,6 +21,7 @@
 #include "nsSVGPatternElement.h"
 #include "nsSVGUtils.h"
 #include "SVGAnimatedTransformList.h"
+#include "SVGContentUtils.h"
 
 using namespace mozilla;
 
@@ -146,7 +147,7 @@ nsSVGPatternFrame::GetCanvasTM(uint32_t aFor)
 // -------------------------------------------------------------------------
 
 // The SVG specification says that the 'patternContentUnits' attribute "has no effect if
-// attribute ‘viewBox’ is specified". We still need to include a bbox scale
+// attribute â€˜viewBoxâ€™ is specified". We still need to include a bbox scale
 // if the viewBox is specified and _patternUnits_ is set to or defaults to
 // objectBoundingBox though, since in that case the viewBox is relative to the bbox
 static bool
@@ -661,7 +662,7 @@ nsSVGPatternFrame::ConstructCTM(const nsSVGViewBox& aViewBox,
     return gfxMatrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0); // singular
   }
 
-  gfxMatrix tm = nsSVGUtils::GetViewBoxTransform(
+  gfxMatrix tm = SVGContentUtils::GetViewBoxTransform(
     static_cast<nsSVGPatternElement*>(mContent),
     viewportWidth, viewportHeight,
     viewBoxRect.x, viewBoxRect.y,
