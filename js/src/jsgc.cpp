@@ -1206,7 +1206,6 @@ MarkConservativeStackRoots(JSTracer *trc, bool useSavedRoots)
     ConservativeGCData *cgcd = &rt->conservativeGC;
     if (!cgcd->hasStackToScan()) {
 #ifdef JS_THREADSAFE
-        JS_ASSERT(!rt->suspendCount);
         JS_ASSERT(!rt->requestDepth);
 #endif
         return;
@@ -3758,6 +3757,9 @@ PartitionCompartments::processNode(Node v)
 void
 PartitionCompartments::partition()
 {
+    if (failed())
+        return;
+
     for (Node n = 0; n < runtime->compartments.length(); n++) {
         if (discoveryTime[n] == Undefined)
             processNode(n);
@@ -5839,13 +5841,7 @@ PurgeJITCaches(JSCompartment *c)
         JSScript *script = i.get<JSScript>();
 
         /* Discard JM caches. */
-        for (int constructing = 0; constructing <= 1; constructing++) {
-            for (int barriers = 0; barriers <= 1; barriers++) {
-                mjit::JITScript *jit = script->getJIT((bool) constructing, (bool) barriers);
-                if (jit)
-                    jit->purgeCaches();
-            }
-        }
+        mjit::PurgeCaches(script);
 
 #ifdef JS_ION
 

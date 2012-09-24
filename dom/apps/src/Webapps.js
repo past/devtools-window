@@ -11,6 +11,7 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/DOMRequestHelper.jsm");
 Cu.import("resource://gre/modules/ObjectWrapper.jsm");
+Cu.import("resource://gre/modules/AppsUtils.jsm");
 
 XPCOMUtils.defineLazyServiceGetter(this, "cpmm",
                                    "@mozilla.org/childprocessmessagemanager;1",
@@ -31,21 +32,6 @@ function WebappsRegistry() {
 
 WebappsRegistry.prototype = {
   __proto__: DOMRequestIpcHelper.prototype,
-
-  /** from https://developer.mozilla.org/en/OpenWebApps/The_Manifest
-   * only the name property is mandatory
-   */
-  checkManifest: function(aManifest, aInstallOrigin) {
-    if (aManifest.name == undefined)
-      return false;
-
-    if (aManifest.installs_allowed_from) {
-      return aManifest.installs_allowed_from.some(function(aOrigin) {
-        return aOrigin == "*" || aOrigin == aInstallOrigin;
-      });
-    }
-    return true;
-  },
 
   // Hosted apps can't be trusted or certified, so just check that the
   // manifest doesn't ask for those.
@@ -68,6 +54,7 @@ WebappsRegistry.prototype = {
         Services.DOMRequest.fireSuccess(req, createApplicationObject(this._window, app));
         break;
       case "Webapps:Install:Return:KO":
+      dump("XxXxX Webapps:Install:Return:KO\n");
         Services.DOMRequest.fireError(req, msg.error || "DENIED");
         break;
       case "Webapps:GetSelf:Return:OK":
@@ -106,32 +93,32 @@ WebappsRegistry.prototype = {
 
     xhr.addEventListener("load", (function() {
       if (xhr.status == 200) {
+        let manifest;
         try {
-          let manifest = JSON.parse(xhr.responseText, installOrigin);
-          if (!this.checkManifest(manifest, installOrigin)) {
-            Services.DOMRequest.fireError(request, "INVALID_MANIFEST");
-          } else {
-            if (!this.checkAppStatus(manifest)) {
-              Services.DOMRequest.fireError(request, "INVALID_SECURITY_LEVEL");
-            } else {
-              let receipts = (aParams && aParams.receipts && Array.isArray(aParams.receipts)) ? aParams.receipts : [];
-              let categories = (aParams && aParams.categories && Array.isArray(aParams.categories)) ? aParams.categories : [];
-              cpmm.sendAsyncMessage("Webapps:Install", { app: { installOrigin: installOrigin,
-                                                                origin: this._getOrigin(aURL),
-                                                                manifestURL: aURL,
-                                                                manifest: manifest,
-                                                                receipts: receipts,
-                                                                categories: categories },
-                                                                from: installURL,
-                                                                oid: this._id,
-                                                                requestID: requestID });
-            }
-          }
-        } catch(e) {
+          manifest = JSON.parse(xhr.responseText, installOrigin);
+        } catch (e) {
           Services.DOMRequest.fireError(request, "MANIFEST_PARSE_ERROR");
+          return;
         }
-      }
-      else {
+
+        if (!AppsUtils.checkManifest(manifest, installOrigin)) {
+          Services.DOMRequest.fireError(request, "INVALID_MANIFEST");
+        } else if (!this.checkAppStatus(manifest)) {
+          Services.DOMRequest.fireError(request, "INVALID_SECURITY_LEVEL");
+        } else {
+          let receipts = (aParams && aParams.receipts && Array.isArray(aParams.receipts)) ? aParams.receipts : [];
+          let categories = (aParams && aParams.categories && Array.isArray(aParams.categories)) ? aParams.categories : [];
+          cpmm.sendAsyncMessage("Webapps:Install", { app: { installOrigin: installOrigin,
+                                                            origin: this._getOrigin(aURL),
+                                                            manifestURL: aURL,
+                                                            manifest: manifest,
+                                                            receipts: receipts,
+                                                            categories: categories },
+                                                            from: installURL,
+                                                            oid: this._id,
+                                                            requestID: requestID });
+        }
+      } else {
         Services.DOMRequest.fireError(request, "MANIFEST_URL_ERROR");
       }
     }).bind(this), false);
@@ -168,6 +155,8 @@ WebappsRegistry.prototype = {
 
   uninit: function() {
     this._mgmt = null;
+    cpmm.sendAsyncMessage("Webapps:UnregisterForMessages",
+                          ["Webapps:Install:Return:OK"]);
   },
 
   // mozIDOMApplicationRegistry2 implementation
@@ -198,6 +187,8 @@ WebappsRegistry.prototype = {
 
     let util = this._window.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils);
     this._id = util.outerWindowID;
+    cpmm.sendAsyncMessage("Webapps:RegisterForMessages",
+                          ["Webapps:Install:Return:OK"]);
   },
 
   classID: Components.ID("{fff440b3-fae2-45c1-bf03-3b5a2e432270}"),
@@ -270,6 +261,8 @@ WebappsApplication.prototype = {
     this.initHelper(aWindow, ["Webapps:Uninstall:Return:OK",
                               "Webapps:Uninstall:Return:KO",
                               "Webapps:OfflineCache"]);
+    cpmm.sendAsyncMessage("Webapps:RegisterForMessages",
+                          ["Webapps:Uninstall:Return:OK", "Webapps:OfflineCache"]);
   },
 
   set onprogress(aCallback) {
@@ -300,6 +293,8 @@ WebappsApplication.prototype = {
 
   uninit: function() {
     this._onprogress = null;
+    cpmm.sendAsyncMessage("Webapps:UnregisterForMessages",
+                          ["Webapps:Uninstall:Return:OK", "Webapps:OfflineCache"]);
   },
 
   receiveMessage: function(aMessage) {
@@ -356,6 +351,9 @@ function WebappsApplicationMgmt(aWindow) {
                             "Webapps:Install:Return:OK", "Webapps:Uninstall:Return:OK",
                             "Webapps:GetNotInstalled:Return:OK"]);
 
+  cpmm.sendAsyncMessage("Webapps:RegisterForMessages",
+                        ["Webapps:Install:Return:OK", "Webapps:Uninstall:Return:OK"]);
+
   this._oninstall = null;
   this._onuninstall = null;
 }
@@ -372,6 +370,8 @@ WebappsApplicationMgmt.prototype = {
   uninit: function() {
     this._oninstall = null;
     this._onuninstall = null;
+    cpmm.sendAsyncMessage("Webapps:UnregisterForMessages",
+                          ["Webapps:Install:Return:OK", "Webapps:Uninstall:Return:OK"]);
   },
 
   getAll: function() {

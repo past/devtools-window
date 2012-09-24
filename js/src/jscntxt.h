@@ -165,11 +165,8 @@ struct ConservativeGCData
     JS_NEVER_INLINE void recordStackTop();
 
 #ifdef JS_THREADSAFE
-    void updateForRequestEnd(unsigned suspendCount) {
-        if (suspendCount)
-            recordStackTop();
-        else
-            nativeStackTop = NULL;
+    void updateForRequestEnd() {
+        nativeStackTop = NULL;
     }
 #endif
 
@@ -181,15 +178,16 @@ struct ConservativeGCData
 class SourceDataCache
 {
     typedef HashMap<ScriptSource *,
-                    JSFixedString *,
+                    JSStableString *,
                     DefaultHasher<ScriptSource *>,
                     SystemAllocPolicy> Map;
-     Map *map_;
-   public:
+    Map *map_;
+
+  public:
     SourceDataCache() : map_(NULL) {}
-    JSFixedString *lookup(ScriptSource *ss);
-    void put(ScriptSource *ss, JSFixedString *);
-     void purge();
+    JSStableString *lookup(ScriptSource *ss);
+    void put(ScriptSource *ss, JSStableString *);
+    void purge();
 };
 
 struct EvalCacheLookup
@@ -502,9 +500,6 @@ struct JSRuntime : js::RuntimeFriendFields
     void                 *activityCallbackArg;
 
 #ifdef JS_THREADSAFE
-    /* Number of JS_SuspendRequest calls withot JS_ResumeRequest. */
-    unsigned            suspendCount;
-
     /* The request depth for this thread. */
     unsigned            requestDepth;
 

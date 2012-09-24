@@ -80,7 +80,7 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
         if (!obj)
             return true;
     }
-    JSFunction *fun = obj->toFunction();
+    RootedFunction fun(cx, obj->toFunction());
 
     /*
      * Mark the function's script as uninlineable, to expand any of its
@@ -131,7 +131,7 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
         // detecting its use early.
         JSScript *script = iter.script();
         if (!script->hasIonScript())
-            ion::ForbidCompilation(script);
+            ion::ForbidCompilation(cx, script);
 #endif
 
         vp.setObject(*argsobj);
@@ -152,7 +152,7 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
         jsbytecode *prevpc = fp->prevpc(&inlined);
         if (inlined) {
             mjit::JITChunk *chunk = fp->prev()->jit()->chunk(prevpc);
-            JSFunction *fun = chunk->inlineFrames()[inlined->inlineIndex].fun;
+            RawFunction fun = chunk->inlineFrames()[inlined->inlineIndex].fun;
             fun->script()->uninlineable = true;
             MarkTypeObjectFlags(cx, fun, OBJECT_FLAG_UNINLINEABLE);
         }
@@ -312,10 +312,12 @@ fun_resolve(JSContext *cx, HandleObject obj, HandleId id, unsigned flags,
         JS_ASSERT(!IsInternalFunctionObject(obj));
 
         RootedValue v(cx);
-        if (JSID_IS_ATOM(id, cx->names().length))
-            v.setInt32(fun->nargs - fun->hasRest());
-        else
+        if (JSID_IS_ATOM(id, cx->names().length)) {
+            uint16_t defaults = fun->isInterpreted() ? fun->script()->ndefaults : 0;
+            v.setInt32(fun->nargs - defaults - fun->hasRest());
+        } else {
             v.setString(fun->atom() == NULL ?  cx->runtime->emptyString : fun->atom());
+        }
 
         if (!DefineNativeProperty(cx, fun, id, v, JS_PropertyStub, JS_StrictPropertyStub,
                                   JSPROP_PERMANENT | JSPROP_READONLY, 0, 0)) {
@@ -633,14 +635,15 @@ js::FunctionToString(JSContext *cx, HandleFunction fun, bool bodyOnly, bool lamb
     }
     if (haveSource) {
         RootedScript script(cx, fun->script());
-        RootedString src(cx, fun->script()->sourceData(cx));
+        RootedString srcStr(cx, fun->script()->sourceData(cx));
+        if (!srcStr)
+            return NULL;
+        Rooted<JSStableString *> src(cx, srcStr->ensureStable(cx));
         if (!src)
             return NULL;
-        const jschar *chars = src->getChars(cx);
-        if (!chars)
-            return NULL;
-        bool exprBody = fun->flags & JSFUN_EXPR_CLOSURE;
 
+        const jschar *chars = src->chars();
+        bool exprBody = fun->flags & JSFUN_EXPR_CLOSURE;
         // The source data for functions created by calling the Function
         // constructor is only the function's body.
         bool funCon = script->sourceStart == 0 && script->scriptSource()->argumentsNotIncluded();
@@ -1365,19 +1368,19 @@ Function(JSContext *cx, unsigned argc, Value *vp)
     const jschar *chars;
     size_t length;
 
-    SkipRoot skip(cx, &chars);
-
-    if (args.length()) {
-        JSString *str = ToString(cx, args[args.length() - 1]);
-        if (!str)
-            return false;
-        strAnchor.set(str);
-        chars = str->getChars(cx);
-        length = str->length();
-    } else {
-        chars = cx->runtime->emptyString->chars();
-        length = 0;
-    }
+    JSString *str;
+    if (!args.length())
+        str = cx->runtime->emptyString;
+    else
+        str = ToString(cx, args[args.length() - 1]);
+    if (!str)
+        return false;
+    JSStableString *stable = str->ensureStable(cx);
+    if (!stable)
+        return false;
+    strAnchor.set(str);
+    chars = stable->chars();
+    length = stable->length();
 
     /*
      * NB: (new Function) is not lexically closed by its caller, it's just an
