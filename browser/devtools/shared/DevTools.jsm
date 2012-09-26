@@ -339,7 +339,7 @@ Toolbox.prototype = {
     for (let [id, definition] of gDevTools.getToolDefinitions()) {
       let radio = this._doc.createElement("radio");
       radio.setAttribute('label',definition.label);
-      radio.className = "toolbox-tab"
+      radio.className = "toolbox-tab devtools-tab";
       radio.id = "toolbox-tab-" + id;
       // todo: accessibility
       radio.addEventListener("click", function() {

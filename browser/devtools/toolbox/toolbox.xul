@@ -3,6 +3,7 @@
    - License, v. 2.0. If a copy of the MPL was not distributed with this
    - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
 <?xml-stylesheet href="chrome://browser/skin/" type="text/css"?>
+<?xml-stylesheet href="chrome://browser/content/devtools/shared/common.css" type="text/css"?>
 <?xml-stylesheet href="chrome://browser/content/devtools/toolbox/toolbox.css" type="text/css"?>
 <?xml-stylesheet href="chrome://browser/skin/devtools/common.css" type="text/css"?>
 <!DOCTYPE window [
@@ -13,8 +14,14 @@
 <?xul-overlay href="chrome://browser/content/source-editor-overlay.xul"?>
 
 <window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
-  <radiogroup id="toolbox-tabs" orient="horizontal">
-  </radiogroup>
+  <toolbar class="devtools-tabbar">
+    <radiogroup id="toolbox-tabs" orient="horizontal" flex="1">
+    </radiogroup>
+    <toolbarbutton checked="true" class="toolbox-dock-button toolbox-dock-bottom"></toolbarbutton>
+    <toolbarbutton class="toolbox-dock-button toolbox-dock-right"></toolbarbutton>
+    <toolbarbutton class="toolbox-dock-button toolbox-dock-window"></toolbarbutton>
+    <toolbarbutton class="devtools-closebutton"></toolbarbutton>
+  </toolbar>
   <deck id="toolbox-deck" flex="1">
   </deck>
 </window>
