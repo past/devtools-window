@@ -204,11 +204,6 @@ function Toolbox(aTarget, aHost, aDefaultToolId) {
 
   this.on("tool-registered", this._handleEvent);
   this.on("tool-unregistered", this._handleEvent);
-
-  for (let [toolId, tool] of gDevTools.getToolDefinitions()) {
-    let instance = tool.build();
-    this._toolInstances.set(toolId, instance);
-  }
 }
 
 Toolbox.prototype = {
@@ -385,7 +380,7 @@ Toolbox.prototype = {
       let definition = gDevTools.getToolDefinitions().get(id);
 
       iframe.addEventListener('DOMContentLoaded', function() {
-        let instance = definition.build(iframe);
+        let instance = definition.build(iframe.contentWindow, this.target);
         this._toolInstances.set(id, instance);
       }.bind(this), true);
 

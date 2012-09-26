@@ -7449,22 +7449,12 @@ var DevTools = {
   openForCurrentTab: function DT_openForCurrentTab() {
     // test registration
     gDevTools.registerTool({
-      id: "test",
-      label: "Test Tool",
-      url: "chrome://browser/content/devtools/toolbox/test.html",
-      build: function(tabFrame) {
-        dump("build called for test tool\n");
-        return {};
-      }
-    });
-
-    gDevTools.registerTool({
-      id: "test2",
-      label: "Test Tool 2",
-      url: "chrome://browser/content/devtools/toolbox/test.html",
-      build: function(tabFrame) {
-        dump("build called for test tool\n");
-        return {};
+      id: "STyleeditor",
+      label: "Style Editor",
+      url: "chrome://browser/content/devtools/styleeditor/styleeditor.xul",
+      build: function(aIFrameWindow, aTarget) {
+        aIFrameWindow.init(aTarget.value.linkedBrowser.contentDocument);
+        return aIFrameWindow;
       }
     });
 
@@ -7476,7 +7466,7 @@ var DevTools = {
       type: gDevTools.HostType.IN_BROWSER,
       element: gBrowser
     }
-    gDevTools.openToolbox(target, host, "test");
+    gDevTools.openToolbox(target, host, "styleeditor");
   }
 }
 
