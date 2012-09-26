@@ -1180,9 +1180,6 @@
           <toolbarbutton id="developer-toolbar-inspector"
                          class="developer-toolbar-button"
                          observes="devtoolsMenuBroadcaster_Inspect"/>
-          <toolbarbutton id="developer-toolbar-styleeditor"
-                         class="developer-toolbar-button"
-                         observes="devtoolsMenuBroadcaster_StyleEditor"/>
           <toolbarbutton id="developer-toolbar-debugger"
                          class="developer-toolbar-button"
                          observes="devtoolsMenuBroadcaster_Debugger"/>
@@ -1197,7 +1194,6 @@
                <menuitem observes="devtoolsMenuBroadcaster_RemoteDebugger"/>
                <menuitem observes="devtoolsMenuBroadcaster_ChromeDebugger"/>
                <menuitem observes="devtoolsMenuBroadcaster_Scratchpad"/>
-               <menuitem observes="devtoolsMenuBroadcaster_StyleEditor"/>
                <menuitem observes="devtoolsMenuBroadcaster_PageSource"/>
                <menuitem observes="devtoolsMenuBroadcaster_ErrorConsole"/>
                <menuseparator/>

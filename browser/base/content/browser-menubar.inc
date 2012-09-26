@@ -527,7 +527,6 @@
                   <menuitem id="menu_remoteDebugger" observes="devtoolsMenuBroadcaster_RemoteDebugger"/>
                   <menuitem id="menu_chromeDebugger" observes="devtoolsMenuBroadcaster_ChromeDebugger"/>
                   <menuitem id="menu_scratchpad" observes="devtoolsMenuBroadcaster_Scratchpad" accesskey="&scratchpad.accesskey;"/>
-                  <menuitem id="menu_styleeditor" observes="devtoolsMenuBroadcaster_StyleEditor" accesskey="&styleeditor.accesskey;"/>
                   <menuitem id="menu_pageSource" observes="devtoolsMenuBroadcaster_PageSource" accesskey="&pageSourceCmd.accesskey;"/>
                   <menuitem id="javascriptConsole" observes="devtoolsMenuBroadcaster_ErrorConsole" accesskey="&errorConsoleCmd.accesskey;"/>
                   <menuseparator id="devToolsEndSeparator"/>

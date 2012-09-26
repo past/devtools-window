@@ -97,7 +97,6 @@
     <command id="Tools:RemoteDebugger" oncommand="DebuggerUI.toggleRemoteDebugger();" disabled="true" hidden="true"/>
     <command id="Tools:ChromeDebugger" oncommand="DebuggerUI.toggleChromeDebugger();" disabled="true" hidden="true"/>
     <command id="Tools:Scratchpad" oncommand="Scratchpad.openScratchpad();" disabled="true" hidden="true"/>
-    <command id="Tools:StyleEditor" oncommand="StyleEditor.toggle();" disabled="true" hidden="true"/>
     <command id="Tools:ResponsiveUI" oncommand="ResponsiveUI.toggle();" disabled="true" hidden="true"/>
     <command id="Tools:Addons" oncommand="BrowserOpenAddonsMgr();"/>
     <command id="Tools:ErrorConsole" oncommand="toJavaScriptConsole()" disabled="true" hidden="true"/>
@@ -222,11 +221,6 @@
                  label="&scratchpad.label;"
                  command="Tools:Scratchpad"
                  key="key_scratchpad"/>
-    <broadcaster id="devtoolsMenuBroadcaster_StyleEditor"
-                 label="&styleeditor.label;"
-                 type="checkbox" autocheck="false"
-                 command="Tools:StyleEditor"
-                 key="key_styleeditor"/>
     <broadcaster id="devtoolsMenuBroadcaster_ResponsiveUI"
                  label="&responsiveDesignTool.label;"
                  type="checkbox" autocheck="false"
@@ -322,8 +316,6 @@
     />
     <key id="key_scratchpad" keycode="&scratchpad.keycode;" modifiers="shift"
          keytext="&scratchpad.keytext;" command="Tools:Scratchpad"/>
-    <key id="key_styleeditor" keycode="&styleeditor.keycode;" modifiers="shift"
-         keytext="&styleeditor.keytext;" command="Tools:StyleEditor"/>
     <key id="openFileKb" key="&openFileCmd.commandkey;" command="Browser:OpenFile"  modifiers="accel"/>
     <key id="key_savePage" key="&savePageCmd.commandkey;" command="Browser:SavePage" modifiers="accel"/>
     <key id="printKb" key="&printCmd.commandkey;" command="cmd_print"  modifiers="accel"/>
