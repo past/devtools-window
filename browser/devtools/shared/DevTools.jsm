@@ -485,7 +485,7 @@ Toolbox.prototype = {
     for (let [id, definition] of gDevTools.getToolDefinitions()) {
       let radio = doc.createElement("radio");
       radio.setAttribute('label',definition.label);
-      radio.className = "toolbox-tab"
+      radio.className = "toolbox-tab devtools-tab";
       radio.id = "toolbox-tab-" + id;
       radio.addEventListener("command", function(id) {
         this.selectTool(id);
