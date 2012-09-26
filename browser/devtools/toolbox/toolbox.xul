@@ -13,8 +13,14 @@
 <?xul-overlay href="chrome://browser/content/source-editor-overlay.xul"?>
 
 <window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
-  <radiogroup id="toolbox-tabs" orient="horizontal">
-  </radiogroup>
+  <hbox>
+    <radiogroup id="toolbox-tabs" orient="horizontal">
+    </radiogroup>
+    <hbox flex="1" pack="end">
+      <button id="toolbox-dock" label="Dock/Undock">
+      </button>
+    </hbox>
+  </hbox>
   <deck id="toolbox-deck" flex="1">
   </deck>
 </window>
