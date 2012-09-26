@@ -217,7 +217,6 @@ function Toolbox(aTarget, aHostType, aDefaultToolId) {
   this._target = aTarget;
   this._hostType = aHostType;
   this._defaultToolId = aDefaultToolId;
-  this._currentToolId = this._defaultToolId;
   this._toolInstances = new Map();
 
   this._onLoad = this._onLoad.bind(this);
@@ -245,16 +244,12 @@ Toolbox.prototype = {
        *         The ID of the registered tool.
        */
       case "tool-registered":
+        toolId = args[0];
+
         let defs = gDevTools.getToolDefinitions();
         let tool = defs.get(toolId);
 
-        toolId = args[0];
-
-        // tool may not exist if the killswitch is set to false.
-        if (tool) {
-          let instance = tool.build();
-          this._toolInstances.set(toolId, instance);
-        }
+        this._buildTabForTool(tool);
         break;
 
       /**
@@ -265,7 +260,34 @@ Toolbox.prototype = {
       case "tool-unregistered":
         toolId = args[0];
 
+        let doc = this._frame.contentWindow.document;
+        let radio = doc.getElementById("toolbox-tab-" + toolId);
+        let panel = doc.getElementById("toolbox-panel-" + toolId);
+
+        if (this._currentToolId == toolId) {
+          let nextToolName = null;
+          if (radio.nextSibling) {
+            nextToolName = radio.nextSibling.getAttribute("toolid");
+          }
+          if (radio.previousSibling) {
+            nextToolName = radio.previousSibling.getAttribute("toolid");
+          }
+          if (nextToolName) {
+            this.selectTool(nextToolName);
+          }
+        }
+
+        if (radio) {
+          radio.parentNode.removeChild(radio);
+        }
+
+        if (panel) {
+          panel.parentNode.removeChild(panel);
+        }
+
         if (this._toolInstances.has(toolId)) {
+          let instance = this._toolInstances.get(toolId);
+          instance.destroy();
           this._toolInstances.delete(toolId);
         }
         break;
@@ -478,33 +500,41 @@ Toolbox.prototype = {
    * Add tabs to the toolbox UI for registered tools
    */
   _buildTabs: function TBOX_buildTabs() {
+    for (let [id, definition] of gDevTools.getToolDefinitions()) {
+      this._buildTabForTool(definition);
+    }
+  },
+
+  _buildTabForTool: function TBOX_buildTabForTool(aToolDefinition) {
     let doc = this._frame.contentDocument;
     let tabs = doc.getElementById("toolbox-tabs");
     let deck = doc.getElementById("toolbox-deck");
 
-    for (let [id, definition] of gDevTools.getToolDefinitions()) {
-      let radio = doc.createElement("radio");
-      radio.setAttribute('label',definition.label);
-      radio.className = "toolbox-tab devtools-tab";
-      radio.id = "toolbox-tab-" + id;
-      radio.addEventListener("command", function(id) {
-        this.selectTool(id);
-      }
-      .bind(this, id));
+    let definition = aToolDefinition;
+    let id = definition.id;
 
-      let vbox = doc.createElement("vbox");
-      vbox.className = "toolbox-panel";
-      vbox.id = "toolbox-panel-" + id;
+    let radio = doc.createElement("radio");
+    radio.setAttribute("label", definition.label);
+    radio.className = "toolbox-tab devtools-tab";
+    radio.id = "toolbox-tab-" + id;
+    radio.setAttribute("toolid", id);
+    radio.addEventListener("command", function(id) {
+      this.selectTool(id);
+    }.bind(this, id));
 
-      let iframe = doc.createElement('iframe');
-      iframe.className = "toolbox-panel-iframe";
-      iframe.id = "toolbox-panel-iframe-" + id;
-      iframe.setAttribute("flex", 1);
+    let vbox = doc.createElement("vbox");
+    vbox.className = "toolbox-panel";
+    vbox.id = "toolbox-panel-" + id;
 
-      tabs.appendChild(radio);
-      vbox.appendChild(iframe);
-      deck.appendChild(vbox);
-    }
+    let iframe = doc.createElement("iframe");
+    iframe.className = "toolbox-panel-iframe";
+    iframe.id = "toolbox-panel-iframe-" + id;
+    iframe.setAttribute("toolid", id);
+    iframe.setAttribute("flex", 1);
+
+    tabs.appendChild(radio);
+    vbox.appendChild(iframe);
+    deck.appendChild(vbox);
   },
 
   /**
@@ -522,10 +552,12 @@ Toolbox.prototype = {
     let index = -1;
     let tabs = tabstrip.childNodes;
     for (let i = 0; i < tabs.length; i++) {
-      if (tabs[i] == tab) {
+      if (tabs[i] === tab) {
         index = i;
+        break;
       }
     }
+
     tabstrip.selectedIndex = index;
 
     // and select the right iframe
@@ -547,6 +579,8 @@ Toolbox.prototype = {
       iframe.addEventListener('DOMContentLoaded', boundLoad, true);
       iframe.setAttribute('src', definition.url);
     }
+
+    this._currentToolId = id;
   },
 
   /**
