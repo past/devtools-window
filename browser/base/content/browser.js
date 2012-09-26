@@ -1472,14 +1472,6 @@ var gBrowserInit = {
       cmd.removeAttribute("hidden");
     }
 
-    // Enable Style Editor?
-    let styleEditorEnabled = gPrefService.getBoolPref(StyleEditor.prefEnabledName);
-    if (styleEditorEnabled) {
-      let cmd = document.getElementById("Tools:StyleEditor");
-      cmd.removeAttribute("disabled");
-      cmd.removeAttribute("hidden");
-    }
-
 #ifdef MENUBAR_CAN_AUTOHIDE
     // If the user (or the locale) hasn't enabled the top-level "Character
     // Encoding" menu via the "browser.menu.showCharacterEncoding" preference,
@@ -7470,41 +7462,6 @@ XPCOMUtils.defineLazyGetter(ResponsiveUI, "ResponsiveUIManager", function() {
   Cu.import("resource:///modules/devtools/responsivedesign.jsm", tmp);
   return tmp.ResponsiveUIManager;
 });
-
-var StyleEditor = {
-  prefEnabledName: "devtools.styleeditor.enabled",
-  /**
-   * Opens the style editor. If the UI is already open, it will be focused.
-   *
-   * @param {CSSStyleSheet} [aSelectedStyleSheet] default Stylesheet.
-   * @param {Number} [aLine] Line to which the caret should be moved (one-indexed).
-   * @param {Number} [aCol] Column to which the caret should be moved (one-indexed).
-   */
-  openChrome: function SE_openChrome(aSelectedStyleSheet, aLine, aCol)
-  {
-    let contentWindow = gBrowser.selectedBrowser.contentWindow;
-    let win = this.StyleEditorManager.getEditorForWindow(contentWindow);
-    if (win) {
-      this.StyleEditorManager.selectEditor(win);
-      return win;
-    } else {
-      return this.StyleEditorManager.newEditor(contentWindow,
-                                               aSelectedStyleSheet, aLine, aCol);
-    }
-  },
-
-  toggle: function SE_toggle()
-  {
-    this.StyleEditorManager.toggleEditor(gBrowser.contentWindow);
-  }
-};
-
-XPCOMUtils.defineLazyGetter(StyleEditor, "StyleEditorManager", function() {
-  let tmp = {};
-  Cu.import("resource:///modules/devtools/StyleEditor.jsm", tmp);
-  return new tmp.StyleEditorManager(window);
-});
-
 
 XPCOMUtils.defineLazyGetter(window, "gShowPageResizers", function () {
 #ifdef XP_WIN

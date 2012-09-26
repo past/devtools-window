@@ -2577,10 +2577,6 @@ html|*#gcli-output-frame {
   -moz-image-region: rect(16px, 16px, 32px, 0);
 }
 
-#developer-toolbar-styleeditor {
-  -moz-image-region: rect(32px, 16px, 48px, 0);
-}
-
 #developer-toolbar-debugger {
   -moz-image-region: rect(48px, 16px, 64px, 0);
 }

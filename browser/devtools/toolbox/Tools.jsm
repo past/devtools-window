@@ -33,4 +33,14 @@ let defaultTools = [
     dump("build called for test tool\n");
     return {};
   }
-}];
+},
+{
+  id: "styleeditor",
+  label: "Style Editor",
+  url: "chrome://browser/content/styleeditor.xul",
+  build: function(aIFrameWindow, aTarget) {
+    aIFrameWindow.init(aTarget.value.linkedBrowser.contentWindow);
+    return aIFrameWindow;
+  }
+},
+];

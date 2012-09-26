@@ -540,11 +540,9 @@ Toolbox.prototype = {
       let definition = gDevTools.getToolDefinitions().get(id);
       let boundLoad = function() {
         iframe.removeEventListener('DOMContentLoaded', boundLoad, true);
-
         let instance = definition.build(iframe.contentWindow, this.target);
         this._toolInstances.set(id, instance);
-      }
-      .bind(this)
+      }.bind(this)
 
       iframe.addEventListener('DOMContentLoaded', boundLoad, true);
       iframe.setAttribute('src', definition.url);
