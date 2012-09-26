@@ -7453,49 +7453,6 @@ var Scratchpad = {
   }
 };
 
-var DevTools = {
-  openForCurrentTab: function DT_openForCurrentTab() {
-    // test registration
-    gDevTools.registerTool({
-      id: "test",
-      label: "Tool 1",
-      url: "chrome://browser/content/devtools/toolbox/test.html",
-      build: function(iframe) {
-        dump("build called for test tool\n");
-        return {};
-      }
-    });
-
-    gDevTools.registerTool({
-      id: "test2",
-      label: "Tool 2",
-      url: "chrome://browser/content/devtools/toolbox/test2.html",
-      build: function(iframe) {
-        dump("build called for test tool\n");
-        return {};
-      }
-    });
-
-    gDevTools.registerTool({
-      id: "debugger",
-      label: "Debugger",
-      url: "chrome://browser/content/debugger.xul",
-      build: function(iframe) {
-        dump("build called for test tool\n");
-        return {};
-      }
-    });
-
-    let target = {
-      type: gDevTools.TargetType.TAB,
-      value: gBrowser.selectedTab
-    }
-    let hostType = gDevTools.HostType.WINDOW;
-
-    gDevTools.openToolbox(target, hostType, "test");
-  }
-}
-
 XPCOMUtils.defineLazyGetter(Scratchpad, "ScratchpadManager", function() {
   let tmp = {};
   Cu.import("resource:///modules/devtools/scratchpad-manager.jsm", tmp);

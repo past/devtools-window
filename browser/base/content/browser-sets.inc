@@ -88,7 +88,7 @@
 
     <command id="Tools:Search" oncommand="BrowserSearch.webSearch();"/>
     <command id="Tools:Downloads" oncommand="BrowserDownloadsUI();"/>
-    <command id="Tools:DevToolbox" oncommand="DevTools.openForCurrentTab();"/>
+    <command id="Tools:DevToolbox" oncommand="gDevTools.openForTab(gBrowser.selectedTab);"/>
     <command id="Tools:DevToolbar" oncommand="DeveloperToolbar.toggle();" disabled="true" hidden="true"/>
     <command id="Tools:DevToolbarFocus" oncommand="DeveloperToolbar.focusToggle();" disabled="true"/>
     <command id="Tools:WebConsole" oncommand="HUDConsoleUI.toggleHUD();"/>
@@ -260,7 +260,7 @@
 
 #
 # Search Command Key Logic works like this:
-# 
+#
 # Unix: Ctrl+K (cross platform binding)
 #       Ctrl+J (in case of emacs Ctrl-K conflict)
 # Mac:  Cmd+K (cross platform binding)

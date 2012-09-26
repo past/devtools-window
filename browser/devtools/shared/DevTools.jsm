@@ -8,6 +8,7 @@ const Cu = Components.utils;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
+Cu.import("resource:///modules/devtools/Tools.jsm");
 
 const EXPORTED_SYMBOLS = [ "gDevTools" ];
 
@@ -146,13 +147,13 @@ DevTools.prototype = {
    * Create a toolbox to debug aTarget using a window displayed in aHostType
    * (optionally with aDefaultToolId opened)
    */
-  openToolbox: function DT_openToolbox(aTarget, aHost, aDefaultToolId) {
+  openToolbox: function DT_openToolbox(aTarget, aHostType, aDefaultToolId) {
     if (this._toolboxes.has(aTarget.value)) {
       // only allow one toolbox per target
       return null;
     }
 
-    let tb = new Toolbox(aTarget, aHost, aDefaultToolId);
+    let tb = new Toolbox(aTarget, aHostType, aDefaultToolId);
     this._toolboxes.set(aTarget, tb);
     tb.open();
 
@@ -160,10 +161,24 @@ DevTools.prototype = {
   },
 
   /**
+   * Open a toolbox for the given browser tab
+   */
+  openForTab: function DT_openForTab(tab) {
+    let target = {
+      type: gDevTools.TargetType.TAB,
+      value: tab
+    }
+    // todo: remember last used host type
+    let hostType = gDevTools.HostType.IN_BROWSER;
+
+    this.openToolbox(target, hostType, "test");
+  },
+
+  /**
    * Return a map(DevToolsTarget, DevToolBox) of all the Toolboxes
    * map is a copy, not reference (can't be altered)
    */
-  getToolBoxes: function DT_getToolBoxes(x) {
+  getToolBoxes: function DT_getToolBoxes() {
     let toolboxes = new Map();
 
     for (let [key, value] of this._toolboxes) {
@@ -183,6 +198,13 @@ DevTools.prototype = {
  * create it here so that the object exports correctly.
  */
 const gDevTools = new DevTools();
+
+/**
+ * Register the set of default tools
+ */
+for each (let definition in defaultTools) {
+  gDevTools.registerTool(definition)
+}
 
 //------------------------------------------------------------------------------
 
@@ -322,7 +344,7 @@ Toolbox.prototype = {
    *  Create the docked UI in the target tab to load the toolbox into
    */
   _createDock: function TBOX_createDock() {
-    // switch to the target tab in the browser
+    // switch to the target tab
     let tab = this._target.value;
     let browserWindow = tab.ownerDocument.defaultView;
     browserWindow.focus();
@@ -402,7 +424,8 @@ Toolbox.prototype = {
     this._createWindow(function(windowFrame) {
       this._frame = windowFrame;
       this._loadInFrame();
-    }.bind(this));
+    }
+    .bind(this));
   },
 
   /**
@@ -429,7 +452,8 @@ Toolbox.prototype = {
   _undockToWindow: function TBOX_undockToWindow() {
     this._createWindow(function (windowFrame) {
       this._switchHosts(gDevTools.HostType.WINDOW, windowFrame);
-    }.bind(this));
+    }
+    .bind(this));
   },
 
   /**
@@ -465,7 +489,8 @@ Toolbox.prototype = {
       radio.id = "toolbox-tab-" + id;
       radio.addEventListener("command", function(id) {
         this.selectTool(id);
-      }.bind(this, id));
+      }
+      .bind(this, id));
 
       let vbox = doc.createElement("vbox");
       vbox.className = "toolbox-panel";
@@ -503,6 +528,7 @@ Toolbox.prototype = {
     }
     tabstrip.selectedIndex = index;
 
+    // and select the right iframe
     let deck = doc.getElementById("toolbox-deck");
     deck.selectedIndex = index;
 
