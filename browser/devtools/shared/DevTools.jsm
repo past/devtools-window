@@ -202,7 +202,7 @@ const gDevTools = new DevTools();
 /**
  * Register the set of default tools
  */
-for each (let definition in defaultTools) {
+for (let definition of defaultTools) {
   gDevTools.registerTool(definition)
 }
 

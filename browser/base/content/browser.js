@@ -2606,7 +2606,7 @@ let BrowserOnClick = {
         // we can fetch a site-specific report, for phishing, we redirect
         // to the generic page describing phishing protection.
 
-        // We log even if malware/phishing info URL couldn't be found:
+        // We log even if malware/phishing info URL couldn't be found: 
         // the measurement is for how many users clicked the WHY BLOCKED button
         secHistogram.add(nsISecTel[bucketName + "WHY_BLOCKED"]);
 
@@ -3170,7 +3170,7 @@ const DOMLinkHandler = {
                                  aLink, aLink.type, null)
                                  != Ci.nsIContentPolicy.ACCEPT)
       return null;
-
+    
     try {
       uri.userPass = "";
     } catch(e) {
@@ -6129,10 +6129,10 @@ function warnAboutClosingWindow() {
         otherPBWindowExists = true;
       if (win.toolbar.visible)
         warnAboutClosingTabs = true;
-      // If the current window is not in private browsing mode we don't need to
-      // look for other pb windows, we can leave the loop when finding the
-      // first non-popup window. If however the current window is in private
-      // browsing mode then we need at least one other pb and one non-popup
+      // If the current window is not in private browsing mode we don't need to 
+      // look for other pb windows, we can leave the loop when finding the 
+      // first non-popup window. If however the current window is in private 
+      // browsing mode then we need at least one other pb and one non-popup 
       // window to break out early.
       if ((!isPBWindow || otherPBWindowExists) && warnAboutClosingTabs)
         break;
