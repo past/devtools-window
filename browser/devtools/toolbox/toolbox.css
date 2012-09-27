@@ -27,14 +27,14 @@
   transform: translateY(1px);
 }
 
-.toolbox-dock-bottom {
+#toolbox-dock-bottom {
   background-image: url("chrome://browser/skin/devtools/dock-bottom.svg");
 }
 
-.toolbox-dock-right {
+#toolbox-dock-right {
   background-image: url("chrome://browser/skin/devtools/dock-right.svg");
 }
 
-.toolbox-dock-window {
+#toolbox-dock-window {
   background-image: url("chrome://browser/skin/devtools/dock-window.svg");
 }

@@ -18,11 +18,13 @@
     <radiogroup id="toolbox-tabs" orient="horizontal" flex="1">
     </radiogroup>
     <hbox flex="1" pack="end">
-      <toolbarbutton checked="true" class="toolbox-dock-button toolbox-dock-bottom"></toolbarbutton>
-      <toolbarbutton class="toolbox-dock-button toolbox-dock-right"></toolbarbutton>
-      <toolbarbutton class="toolbox-dock-button toolbox-dock-window"></toolbarbutton>
-      <toolbarbutton class="devtools-closebutton"></toolbarbutton>
-      <button id="toolbox-dock" label="Dock/Undock"></button>
+      <toolbarbutton checked="true" id="toolbox-dock-bottom" class="toolbox-dock-button"
+                     data-position="BOTTOM"></toolbarbutton>
+      <toolbarbutton id="toolbox-dock-right" class="toolbox-dock-button"
+                     data-position="RIGHT"></toolbarbutton>
+      <toolbarbutton id="toolbox-dock-window" class="toolbox-dock-button"
+                     data-position="WINDOW"></toolbarbutton>
+      <toolbarbutton id="toolbox-close" class="devtools-closebutton"></toolbarbutton>
     </hbox>
   </toolbar>
   <deck id="toolbox-deck" flex="1">
