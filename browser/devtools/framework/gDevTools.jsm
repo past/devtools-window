@@ -5,6 +5,7 @@
 "use strict";
 
 const Cu = Components.utils;
+const Ci = Components.interfaces;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
@@ -208,6 +209,72 @@ for (let definition of defaultTools) {
 }
 
 //------------------------------------------------------------------------------
+
+XPCOMUtils.defineLazyModuleGetter(this, "gcli",
+                                  "resource:///modules/devtools/gcli.jsm");
+Components.utils.import("resource://gre/modules/devtools/Require.jsm");
+Components.utils.import("resource://gre/modules/devtools/Console.jsm");
+
+var Requisition = require("gcli/cli").Requisition;
+
+XPCOMUtils.defineLazyGetter(this, "prefBranch", function() {
+  var prefService = Components.classes["@mozilla.org/preferences-service;1"]
+          .getService(Components.interfaces.nsIPrefService);
+  return prefService.getBranch(null)
+          .QueryInterface(Components.interfaces.nsIPrefBranch2);
+});
+
+/**
+ * Read a toolbarSpec from preferences
+ */
+function getToolbarSpec() {
+  var value = prefBranch.getComplexValue(this.name, Ci.nsISupportsString).data;
+  return JSON.parse(value);
+}
+
+/**
+ * A toolbarSpec is an array of buttonSpecs. A buttonSpec is an array of
+ * strings each of which is a GCLI command (including args if needed).
+ */
+function createButtons(toolbarSpec, document) {
+  var reply = [];
+  var requisition = new Requisition();
+
+  toolbarSpec.forEach(function(buttonSpec) {
+    var button = document.createElement("toolbarbutton");
+    reply.push(button);
+
+    if (typeof buttonSpec == "string") {
+      buttonSpec = { typed: buttonSpec };
+    }
+    // Ask GCLI to parse the typed string (doesn't execute it)
+    requisition.update(buttonSpec.typed);
+
+    // Ignore invalid commands
+    var command = requisition.commandAssignment.value;
+    if (command == null) {
+      // TODO: Have a broken icon
+      // button.icon = 'Broken';
+      button.label = "Unknown";
+      button.tooltip = "Unknown command: " + buttonSpec.typed;
+      button.disabled = true;
+    }
+    else {
+      button.icon = command.icon;
+      button.tooltip = command.manual;
+
+      button.oncommand = function() {
+        requisition.update(buttonSpec.typed);
+        if (requisition.getStatus() == Status.VALID) {
+          requisition.exec();
+        }
+        else {
+          console.error('incomplete commands not yet supported');
+        }
+      };
+    }
+  });
+}
 
 /**
  * A "Toolbox" is the component that holds all the tools for one specific
