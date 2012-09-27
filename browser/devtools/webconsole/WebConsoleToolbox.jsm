@@ -54,19 +54,9 @@ function WebConsoleToolInstance(aIFrameWindow, aTarget) {
   }
 
   let tab = this._target.value;
-console.error(aIFrameWindow);
-  this.hud = HUDService.activateHUDForContext(tab, false, aIFrameWindow.document.defaultView.parent.document.querySelector('#toolbox-panel-iframe-webconsole'));
-
-  /*
-  let gBrowser = tab.ownerDocument.defaultView.gBrowser;
-  HUDService.wakeup();
-  gBrowser.tabContainer.addEventListener("TabClose", HUDService.onTabClose, false);
-  gBrowser.tabContainer.addEventListener("TabSelect", HUDService.onTabSelect, false);
-  window.addEventListener("unload", HUDService.onWindowUnload, false);
-  this.hud = new WebConsole(aTab);
-  HUDService.hudReferences[hudId] = this.hud;
-  HeadsUpDisplayUICommands.refreshCommand();
-  */
+  let parentDoc = aIFrameWindow.document.defaultView.parent.document;
+  let iframe = parentDoc.querySelector('#toolbox-panel-iframe-webconsole');
+  this.hud = HUDService.activateHUDForContext(tab, false, iframe);
 }
 
 WebConsoleToolInstance.prototype = {

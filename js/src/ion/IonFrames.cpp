@@ -118,6 +118,14 @@ IonFrameIterator::isNative() const
 }
 
 bool
+IonFrameIterator::isOOLNativeGetter() const
+{
+    if (type_ != IonFrame_Exit)
+        return false;
+    return exitFrame()->footer()->ionCode() == ION_FRAME_OOL_NATIVE_GETTER;
+}
+
+bool
 IonFrameIterator::isDOMExit() const
 {
     if (type_ != IonFrame_Exit)
@@ -252,7 +260,7 @@ CloseLiveIterator(JSContext *cx, const InlineFrameIterator &frame, uint32 localS
         si.skip();
 
     Value v = si.read();
-    JSObject *obj = &v.toObject();
+    RootedObject obj(cx, &v.toObject());
 
     if (cx->isExceptionPending())
         UnwindIteratorForException(cx, obj);
@@ -527,6 +535,13 @@ MarkIonExitFrame(JSTracer *trc, const IonFrameIterator &frame)
         size_t len = native->argc() + 2;
         Value *vp = native->vp();
         gc::MarkValueRootRange(trc, len, vp, "ion-native-args");
+        return;
+    }
+
+    if (frame.isOOLNativeGetter()) {
+        IonOOLNativeGetterExitFrameLayout *oolgetter = frame.exitFrame()->oolNativeGetterExit();
+        gc::MarkValueRoot(trc, oolgetter->vp(), "ion-ool-getter-callee");
+        gc::MarkValueRoot(trc, oolgetter->vp() + 1, "ion-ool-getter-this");
         return;
     }
 
