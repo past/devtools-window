@@ -1280,11 +1280,11 @@ window[tabsontop="false"] richlistitem[type~="action"][actiontype="switchtab"][s
   text-decoration: underline;
 }
 
-#editSharePopupText {
+#unsharePopupText {
   height: 48px;
 }
 
-#editSharePopupBottomButtons {
+#unsharePopupBottomButtons {
   margin-top: 1em;
 }
 
@@ -3362,7 +3362,6 @@ html|*#gcli-output-frame {
   width: 32px;
   height: 32px;
   margin: 10px;
-  list-style-image: url("chrome://browser/skin/social/social.png");
 }
 
 #social-statusarea-username {
@@ -3371,6 +3370,7 @@ html|*#gcli-output-frame {
   cursor: pointer;
   min-width: 0;
   margin: 0 6px;
+  list-style-image: none;
 }
 
 #social-statusarea-username:hover {
@@ -3432,6 +3432,7 @@ html|*#gcli-output-frame {
   width: 100%;
   margin: 0;
   padding: 2px;
+  -moz-padding-start: 6px;
   border: none;
   border-bottom: 1px solid #404040;
   cursor: pointer;
