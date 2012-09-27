@@ -1174,33 +1174,9 @@
             <hbox class="gclitoolbar-complete-node"/>
             <textbox class="gclitoolbar-input-node" rows="1"/>
           </stack>
-          <toolbarbutton id="developer-toolbar-webconsole"
+          <toolbarbutton id="developer-toolbar-toolbox-button"
                          class="developer-toolbar-button"
-                         observes="devtoolsMenuBroadcaster_WebConsole"/>
-          <toolbarbutton id="developer-toolbar-inspector"
-                         class="developer-toolbar-button"
-                         observes="devtoolsMenuBroadcaster_Inspect"/>
-          <toolbarbutton id="developer-toolbar-debugger"
-                         class="developer-toolbar-button"
-                         observes="devtoolsMenuBroadcaster_Debugger"/>
-          <toolbarbutton id="developer-toolbar-other-tools"
-                         type="menu"
-                         class="developer-toolbar-button"
-                         label="&devToolbarOtherToolsButton.label;">
-            <menupopup position="before_end">
-               <menuitem observes="devtoolsMenuBroadcaster_DevToolbox"/>
-               <menuitem observes="devtoolsMenuBroadcaster_DevToolbar"/>
-               <menuitem observes="devtoolsMenuBroadcaster_ResponsiveUI"/>
-               <menuitem observes="devtoolsMenuBroadcaster_RemoteDebugger"/>
-               <menuitem observes="devtoolsMenuBroadcaster_ChromeDebugger"/>
-               <menuitem observes="devtoolsMenuBroadcaster_Scratchpad"/>
-               <menuitem observes="devtoolsMenuBroadcaster_PageSource"/>
-               <menuitem observes="devtoolsMenuBroadcaster_ErrorConsole"/>
-               <menuseparator/>
-               <menuitem observes="devtoolsMenuBroadcaster_GetMoreTools"/>
-            </menupopup>
-          </toolbarbutton>
-
+                         observes="devtoolsMenuBroadcaster_DevToolbox"/>
 #ifndef XP_MACOSX
           <toolbarbutton id="developer-toolbar-closebutton"
                          class="devtools-closebutton"

@@ -21,7 +21,7 @@ let defaultTools = [
   {
     id: "styleeditor",
     label: "Style Editor",
-    url: "data:text/html;charset=utf-8,<body/>",
+    url: "chrome://browser/content/styleeditor.xul",
     build: function(aIFrameWindow, aTarget) {
       aIFrameWindow.init(aTarget.value.linkedBrowser.contentWindow);
       return aIFrameWindow;
