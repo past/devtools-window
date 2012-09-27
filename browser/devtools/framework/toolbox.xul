@@ -4,7 +4,7 @@
    - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
 <?xml-stylesheet href="chrome://browser/skin/" type="text/css"?>
 <?xml-stylesheet href="chrome://browser/content/devtools/shared/common.css" type="text/css"?>
-<?xml-stylesheet href="chrome://browser/content/devtools/toolbox/toolbox.css" type="text/css"?>
+<?xml-stylesheet href="chrome://browser/content/devtools/framework/toolbox.css" type="text/css"?>
 <?xml-stylesheet href="chrome://browser/skin/devtools/common.css" type="text/css"?>
 <!DOCTYPE window [
 <!ENTITY % debuggerDTD SYSTEM "chrome://browser/locale/devtools/debugger.dtd" >

@@ -8,7 +8,7 @@ const Cu = Components.utils;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
-Cu.import("resource:///modules/devtools/Tools.jsm");
+Cu.import("resource:///modules/devtools/ToolsDefinitions.jsm");
 
 const EXPORTED_SYMBOLS = [ "gDevTools" ];
 
@@ -231,8 +231,8 @@ function Toolbox(aTarget, aHostType, aDefaultToolId) {
 }
 
 Toolbox.prototype = {
-  URL: "chrome://browser/content/devtools/toolbox/toolbox.xul",
-  WINDOW_URL: "chrome://browser/content/devtools/toolbox/toolbox-window.xul",
+  URL: "chrome://browser/content/devtools/framework/toolbox.xul",
+  WINDOW_URL: "chrome://browser/content/devtools/framework/toolbox-window.xul",
 
   _handleEvent: function TB_handleEvent(aEventId, ...args) {
     let toolId;
