@@ -6,41 +6,26 @@
 
 const EXPORTED_SYMBOLS = [ "defaultTools" ];
 
+Components.utils.import("resource:///modules/WebConsoleToolbox.jsm");
+
 let defaultTools = [
-{
-  id: "test",
-  label: "Tool 1",
-  url: "chrome://browser/content/devtools/toolbox/test.html",
-  build: function(iframe) {
-    dump("build called for test tool\n");
-    return {};
-  }
-},
-{
-  id: "test2",
-  label: "Tool 2",
-  url: "chrome://browser/content/devtools/toolbox/test2.html",
-  build: function(iframe) {
-    dump("build called for test tool\n");
-    return {};
-  }
-},
-{
-  id: "debugger",
-  label: "Debugger",
-  url: "chrome://browser/content/debugger.xul",
-  build: function(iframe) {
-    dump("build called for test tool\n");
-    return {};
-  }
-},
-{
-  id: "styleeditor",
-  label: "Style Editor",
-  url: "chrome://browser/content/styleeditor.xul",
-  build: function(aIFrameWindow, aTarget) {
-    aIFrameWindow.init(aTarget.value.linkedBrowser.contentWindow);
-    return aIFrameWindow;
-  }
-},
+  {
+    id: "debugger",
+    label: "Debugger",
+    url: "chrome://browser/content/debugger.xul",
+    build: function(iframe) {
+      dump("build called for test tool\n");
+      return {};
+    }
+  },
+  {
+    id: "styleeditor",
+    label: "Style Editor",
+    url: "data:text/html;charset=utf-8,<body/>",
+    build: function(aIFrameWindow, aTarget) {
+      aIFrameWindow.init(aTarget.value.linkedBrowser.contentWindow);
+      return aIFrameWindow;
+    }
+  },
+  WebConsoleToolbox.toolSpec,
 ];
