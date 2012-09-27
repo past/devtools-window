@@ -7,6 +7,8 @@
 <window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
         id="devtools-toolbox-window"
         title="Developer Tools"
+        macanimationtype="document"
+        fullscreenbutton="true"
         windowtype="DevTools:Toolbox"
         width="700" height="320"
         persist="screenX screenY width height sizemode">
