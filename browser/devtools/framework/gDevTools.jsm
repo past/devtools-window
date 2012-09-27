@@ -228,17 +228,23 @@ XPCOMUtils.defineLazyGetter(this, "prefBranch", function() {
  * Read a toolbarSpec from preferences
  */
 function getToolbarSpec() {
-  var value = prefBranch.getComplexValue(this.name, Ci.nsISupportsString).data;
-  return JSON.parse(value);
+  try {
+    var value = prefBranch.getComplexValue("devtools.window.toolbarspec", Ci.nsISupportsString).data;
+    return JSON.parse(value);
+  }
+  catch (ex) {
+    return [ "tilt toggle", "scratchpad open", "screenshot" ];
+  }
 }
 
 /**
  * A toolbarSpec is an array of buttonSpecs. A buttonSpec is an array of
  * strings each of which is a GCLI command (including args if needed).
  */
-function createButtons(toolbarSpec, document) {
+function createButtons(toolbarSpec, document, window) {
   var reply = [];
-  var requisition = new Requisition();
+  var requisition = window.DeveloperToolbar.display.requisition;
+  //var requisition = new Requisition();
 
   toolbarSpec.forEach(function(buttonSpec) {
     var button = document.createElement("toolbarbutton");
@@ -255,26 +261,44 @@ function createButtons(toolbarSpec, document) {
     if (command == null) {
       // TODO: Have a broken icon
       // button.icon = 'Broken';
-      button.label = "Unknown";
-      button.tooltip = "Unknown command: " + buttonSpec.typed;
-      button.disabled = true;
+      button.setAttribute("label", "💩");
+      button.setAttribute("tooltip", "Unknown command: " + buttonSpec.typed);
+      button.setAttribute("disabled", "true");
     }
     else {
-      button.icon = command.icon;
-      button.tooltip = command.manual;
+      button.setAttribute("icon", "command.icon");
+      button.setAttribute("tooltip", "command.manual");
+      button.setAttribute("label", buttonSpec.typed.substring(0, 1));
 
-      button.oncommand = function() {
+      button.addEventListener("click", function() {
         requisition.update(buttonSpec.typed);
-        if (requisition.getStatus() == Status.VALID) {
+        //if (requisition.getStatus() == Status.VALID) {
           requisition.exec();
+        /*
         }
         else {
           console.error('incomplete commands not yet supported');
         }
-      };
+        */
+      }, false);
+
+      // Allow the command button to be toggleable
+      /*
+      if (command.checkedState) {
+        button.setAttribute("type", "checkbox");
+        button.setAttribute("checked", command.checkedState.get() ? "true" : "false");
+        command.checkedState.on("change", function() {
+          button.checked = command.checkedState.get();
+        });
+      }
+      */
     }
   });
+
+  return reply;
 }
+
+//------------------------------------------------------------------------------
 
 /**
  * A "Toolbox" is the component that holds all the tools for one specific
@@ -444,8 +468,7 @@ Toolbox.prototype = {
     this._createWindow(function(windowFrame) {
       this._frame = windowFrame;
       this._loadInFrame();
-    }
-    .bind(this));
+    }.bind(this));
   },
 
   /**
@@ -453,10 +476,9 @@ Toolbox.prototype = {
    */
   _changeToHost: function TBOX_changeToHost(hostType) {
     if (hostType == gDevTools.HostType.WINDOW) {
-      this._createWindow(function (iframe) {
+      this._createWindow(function(iframe) {
         this._switchHosts(hostType, iframe);
-      }
-      .bind(this));
+      }.bind(this));
       return;
     }
 
@@ -585,6 +607,7 @@ Toolbox.prototype = {
     closeButton.addEventListener("command", this.destroy, true);
 
     this._buildTabs();
+    this._buildButtons();
 
     this.selectTool(this._defaultToolId);
   },
@@ -600,11 +623,20 @@ Toolbox.prototype = {
       this._window.removeEventListener("load", boundLoad, true);
       let frame = this._window.document.getElementById("toolbox-iframe");
       onLoad(frame);
-    }
-    .bind(this);
+    }.bind(this);
 
     this._window.addEventListener("load", boundLoad, true);
     this._window.focus();
+  },
+
+  _buildButtons: function TBOX_buildButtons() {
+    let doc = this._frame.contentDocument;
+    let container = doc.getElementById("toolbox-buttons");
+    let toolbarSpec = getToolbarSpec();
+    let buttons = createButtons(toolbarSpec, doc, this._frame.ownerDocument.defaultView);
+    buttons.forEach(function(button) {
+      container.appendChild(button);
+    }.bind(this));
   },
 
   /**

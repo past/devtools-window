@@ -15,9 +15,10 @@
 
 <window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
   <toolbar class="devtools-tabbar">
-    <radiogroup id="toolbox-tabs" orient="horizontal" flex="1">
+    <radiogroup id="toolbox-tabs" orient="horizontal">
     </radiogroup>
     <hbox flex="1" pack="end">
+      <hbox id="toolbox-buttons"/>
       <toolbarbutton checked="true" id="toolbox-dock-bottom" class="toolbox-dock-button"
                      data-position="BOTTOM"></toolbarbutton>
       <toolbarbutton id="toolbox-dock-right" class="toolbox-dock-button"
