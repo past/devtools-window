@@ -210,8 +210,8 @@ for (let definition of defaultTools) {
 
 //------------------------------------------------------------------------------
 
-XPCOMUtils.defineLazyModuleGetter(this, "gcli",
-                                  "resource:///modules/devtools/gcli.jsm");
+Components.utils.import('resource://gre/modules/XPCOMUtils.jsm');
+Components.utils.import("resource:///modules/devtools/gcli.jsm");
 Components.utils.import("resource://gre/modules/devtools/Require.jsm");
 Components.utils.import("resource://gre/modules/devtools/Console.jsm");
 
