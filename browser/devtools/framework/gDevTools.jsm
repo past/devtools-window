@@ -155,24 +155,32 @@ DevTools.prototype = {
     }
 
     let tb = new Toolbox(aTarget, aHostType, aDefaultToolId);
-    this._toolboxes.set(aTarget, tb);
+
+    this._toolboxes.set(aTarget.value, tb);
+    tb.once("destroyed", function() {
+      this._toolboxes.delete(aTarget.value);
+    }.bind(this));
+
     tb.open();
 
     return tb;
   },
 
   /**
-   * Open a toolbox for the given browser tab
+   * Toggle a toolbox for the given browser tab
    */
-  openForTab: function DT_openForTab(tab) {
-    let target = {
-      type: gDevTools.TargetType.TAB,
-      value: tab
+  toggleToolboxForTab: function DT_openForTab(tab) {
+    if (this._toolboxes.has(tab)) {
+      this._toolboxes.get(tab).destroy();
+    } else {
+      let target = {
+        type: gDevTools.TargetType.TAB,
+        value: tab
+      }
+      // todo: remember last used host type
+      let hostType = gDevTools.HostType.BOTTOM;
+      this.openToolbox(target, hostType, "debugger");
     }
-    // todo: remember last used host type
-    let hostType = gDevTools.HostType.BOTTOM;
-
-    this.openToolbox(target, hostType, "debugger");
   },
 
   /**
@@ -641,6 +649,7 @@ Toolbox.prototype = {
       this._destroyWindow();
     }
     this._frame = null;
+    this.emit("destroyed");
   },
 
   /**
