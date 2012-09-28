@@ -9,6 +9,7 @@ const Cu = Components.utils;
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 Cu.import("resource:///modules/devtools/Tools.jsm");
+Cu.import("resource:///modules/devtools/Hosts.jsm");
 
 const EXPORTED_SYMBOLS = [ "gDevTools" ];
 
@@ -191,7 +192,7 @@ DevTools.prototype = {
   destroy: function DT_destroy() {
     delete this._tools;
     delete this._toolboxes;
-  },
+  }
 };
 
 /**
@@ -226,13 +227,15 @@ function Toolbox(aTarget, aHostType, aDefaultToolId) {
 
   new EventEmitter(this);
 
+  let hostTab = this._getHostTab();
+  this._host = new Hosts[aHostType](hostTab);
+
   this.on("tool-registered", this._handleEvent);
   this.on("tool-unregistered", this._handleEvent);
 }
 
 Toolbox.prototype = {
   URL: "chrome://browser/content/devtools/toolbox/toolbox.xul",
-  WINDOW_URL: "chrome://browser/content/devtools/toolbox/toolbox-window.xul",
 
   _handleEvent: function TB_handleEvent(aEventId, ...args) {
     let toolId;
@@ -328,7 +331,7 @@ Toolbox.prototype = {
   },
 
   set hostType(aValue) {
-    this._hostType = aValue;
+    this._switchToHost(aValue);
   },
 
   /**
@@ -346,172 +349,31 @@ Toolbox.prototype = {
    * Open the toolbox
    */
   open: function TBOX_open() {
-    if (this._hostType == gDevTools.HostType.BOTTOM) {
-      this._openBottom();
-    }
-    else if (this._hostType == gDevTools.HostType.RIGHT) {
-      this._openSidebar();
-    }
-    else if (this._hostType == gDevTools.HostType.WINDOW) {
-      this._openWindow();
-    }
-  },
-
-  _openBottom: function TBOX_openInDock() {
-    this._frame = this._createDock();
-    this._loadInFrame();
-  },
-
-  /**
-   * Create the toolbox in the target tab
-   */
-  _openSidebar: function TBOX_openInTab() {
-    this._frame = this._createSidebar();
-    this._loadInFrame();
-  },
-
-  /**
-   * Create the toolbox in a new window
-   */
-  _openWindow: function TBOX_openInWindow() {
-    this._createWindow(function(windowFrame) {
-      this._frame = windowFrame;
-      this._loadInFrame();
+    this._host.createUI(function (iframe) {
+      iframe.addEventListener("DOMContentLoaded", this._onLoad, true);
+      iframe.setAttribute("src", this.URL);
     }
     .bind(this));
-  },
-
-  /**
-   * switch to a new host for the toolbox
-   */
-  _changeToHost: function TBOX_changeToHost(hostType) {
-    if (hostType == gDevTools.HostType.WINDOW) {
-      this._createWindow(function (iframe) {
-        this._switchHosts(hostType, iframe);
-      }
-      .bind(this));
-      return;
-    }
-
-    let iframe;
-    if (hostType == gDevTools.HostType.BOTTOM) {
-      iframe = this._createDock();
-    }
-    else if (hostType == gDevTools.HostType.RIGHT) {
-      iframe = this._createSidebar();
-    }
-    iframe.setAttribute("src", "about:blank");
-
-    this._switchHosts(hostType, iframe);
-  },
-
-  /**
-   * Switch toolbox to a new host that's already been created
-   *
-   * @param gDevTools.HostType newHostType
-   *        The new host type for the toolbox
-   * @param iframe newFrame
-   *        The new iframe to load the toolbox into
-   */
-  _switchHosts: function TBOX_switchHosts(newHostType, newFrame) {
-    // make the host the new parent of the toolbox's document
-    newFrame.QueryInterface(Components.interfaces.nsIFrameLoaderOwner);
-    newFrame.swapFrameLoaders(this._frame);
-
-    // destroy the old UI
-    this.destroy();
-
-    this._frame = newFrame;
-
-    let doc = this._frame.contentDocument;
-    let dockButton = doc.getElementById("toolbox-dock-" + this._hostType);
-    dockButton.checked = false;
-    let newButton = doc.getElementById("toolbox-dock-" + newHostType);
-    newButton.checked = true;
-
-    this._hostType = newHostType;
-  },
-
-  /**
-   *  Create the the UI docked to the right of the target tab
-   */
-  _createSidebar: function TBOX_createSidebar() {
-    this._switchToTarget();
-
-    let tab = this._target.value;
-    let gBrowser = tab.ownerDocument.defaultView.gBrowser;
-    let ownerDocument = gBrowser.ownerDocument;
-
-    this._vertSplitter = ownerDocument.createElement("splitter");
-    this._vertSplitter.setAttribute("class", "devtools-vertical-splitter");
-
-    let iframe = ownerDocument.createElement("iframe");
-    iframe.height = "200px";
-
-    this._sidebar = gBrowser.getSidebarContainer(tab.linkedBrowser);
-    this._sidebar.appendChild(this._vertSplitter);
-    this._sidebar.appendChild(iframe);
-
-    return iframe;
-  },
-
-
-  /**
-   * Switch to the target tab in the browser
-   */
-  _switchToTarget: function TBOX_switchToTarget() {
-    let tab = this._target.value;
-    let browserWindow = tab.ownerDocument.defaultView;
-    browserWindow.focus();
-    browserWindow.gBrowser.selectedTab = tab;
-  },
-
-  /**
-   *  Create the docked UI in the target tab to load the toolbox into
-   */
-  _createDock: function TBOX_createDock() {
-    this._switchToTarget();
-
-    let tab = this._target.value;
-    let gBrowser = tab.ownerDocument.defaultView.gBrowser;
-    let ownerDocument = gBrowser.ownerDocument;
-
-    this._horSplitter = ownerDocument.createElement("splitter");
-    this._horSplitter.setAttribute("class", "devtools-horizontal-splitter");
-
-    let iframe = ownerDocument.createElement("iframe");
-    iframe.height = "200px";
-
-    this._nbox = gBrowser.getNotificationBox(tab.linkedBrowser);
-    this._nbox.appendChild(this._horSplitter);
-    this._nbox.appendChild(iframe);
-
-    return iframe;
-  },
-
-  /**
-   * Load the toolbox into the iframe
-   */
-  _loadInFrame: function TBOX_loadInWindow() {
-    this._frame.addEventListener("DOMContentLoaded", this._onLoad, true);
-    this._frame.setAttribute("src", this.URL);
   },
 
   /**
    * Onload handler for the toolbox's iframe
    */
   _onLoad: function TBOX_onLoad() {
-    this._frame.removeEventListener("DOMContentLoaded", this._onLoad, true);
+    let frame = this._host.frame;
+    frame.removeEventListener("DOMContentLoaded", this._onLoad, true);
 
     // add event listeners to the docking buttons
-    let doc = this._frame.contentDocument;
-    let dockButtons = doc.getElementsByClassName("toolbox-dock-button");
-    for (let i = 0; i < dockButtons.length; i++) {
-      let button = dockButtons[i];
+    let doc = frame.contentDocument;
+    let buttons = doc.getElementsByClassName("toolbox-dock-button");
+
+    for (let i = 0; i < buttons.length; i++) {
+      let button = buttons[i];
       button.addEventListener("command", function() {
         let position = button.getAttribute("data-position");
-        this._changeToHost(gDevTools.HostType[position]);
-      }.bind(this), true);
+        this._switchToHost(gDevTools.HostType[position]);
+      }
+      .bind(this), true);
     }
 
     let closeButton = doc.getElementById("toolbox-close");
@@ -523,24 +385,6 @@ Toolbox.prototype = {
   },
 
   /**
-   * Create a separate devtools window
-   */
-  _createWindow: function TBOX_createWindow(onLoad) {
-    let flags = "chrome,centerscreen,resizable,dialog=no";
-    this._window = Services.ww.openWindow(null, this.WINDOW_URL, "_blank",
-                                              flags, null);
-    let boundLoad = function() {
-      this._window.removeEventListener("load", boundLoad, true);
-      let frame = this._window.document.getElementById("toolbox-iframe");
-      onLoad(frame);
-    }
-    .bind(this);
-
-    this._window.addEventListener("load", boundLoad, true);
-    this._window.focus();
-  },
-
-  /**
    * Add tabs to the toolbox UI for registered tools
    */
   _buildTabs: function TBOX_buildTabs() {
@@ -549,8 +393,14 @@ Toolbox.prototype = {
     }
   },
 
+  /**
+   * Build a tab for one tool definition and add to the toolbox
+   *
+   * @param {string} aToolDefinition
+   *        Tool definition of the tool to build a tab for.
+   */
   _buildTabForTool: function TBOX_buildTabForTool(aToolDefinition) {
-    let doc = this._frame.contentDocument;
+    let doc = this._host.frame.contentDocument;
     let tabs = doc.getElementById("toolbox-tabs");
     let deck = doc.getElementById("toolbox-deck");
 
@@ -584,11 +434,11 @@ Toolbox.prototype = {
   /**
    * Switch to the tool with the given id
    *
-   * @param string id
+   * @param {string} id
    *        The id of the tool to switch to
    */
   selectTool: function TBOX_selectTool(id) {
-    let doc = this._frame.contentDocument;
+    let doc = this._host.frame.contentDocument;
     let tab = doc.getElementById("toolbox-tab-" + id);
     let tabstrip = doc.getElementById("toolbox-tabs");
 
@@ -627,49 +477,65 @@ Toolbox.prototype = {
     this._currentToolId = id;
   },
 
+
+  /**
+   * Switch to a new host for the toolbox
+   */
+  _switchToHost: function TBOX_switchToHost(hostType) {
+    // create a new host object
+    let hostTab = this._getHostTab();
+    let newHost = new Hosts[hostType](hostTab);
+
+    newHost.createUI(function(iframe) {
+      // change toolbox document's parent to the new host
+      iframe.QueryInterface(Components.interfaces.nsIFrameLoaderOwner);
+      iframe.swapFrameLoaders(this._host.frame);
+
+      // destroy old host's UI
+      this._host.destroyUI();
+
+      this._host = newHost;
+      this._hostType = hostType;
+      this._setDockButtons();
+    }.bind(this));
+  },
+
+  /**
+   * Get the most appropriate host tab, either the target or the current tab
+   */
+  _getHostTab: function TBOX_getHostTab() {
+    if (this._target.TargetType == gDevTools.TargetType.TAB) {
+      return this._target.value;
+    }
+    else {
+      let browserWindow = Services.wm.getMostRecentWindow("navigator:browser");
+      return browserWindow.gBrowser.selectedTab;
+    }
+  },
+
+  /**
+   * Set the docking buttons to reflect the current host
+   */
+  _setDockButtons: function TBOX_setDockButtons() {
+    let doc = this._host.frame.contentDocument;
+
+    let buttons = doc.querySelectorAll(".toolbox-dock-button");
+    for (let button of buttons) {
+      if (button.id == "toolbox-dock-" + this._hostType) {
+        button.checked = true;
+      }
+      else {
+        button.checked = false;
+      }
+    }
+  },
+
   /**
    * Remove all UI elements, detach from target and clear up
    */
   destroy: function TBOX_destroy() {
-    if (this.hostType == gDevTools.HostType.BOTTOM) {
-      this._destroyDock();
-    }
-    else if (this.hostType == gDevTools.HostType.RIGHT) {
-      this._destroySidebar();
-    }
-    else if (this.hostType == gDevTools.HostType.WINDOW) {
-      this._destroyWindow();
-    }
-    this._frame = null;
-  },
-
-  /**
-   * Clean up and remove the docked toolbox UI
-   */
-  _destroyDock: function TBOX_destroyWindow() {
-    this._nbox.removeChild(this._horSplitter);
-    this._nbox.removeChild(this._frame);
-
-    this._horSplitter = null;
-    this._nbox = null;
-  },
-
-  /**
-   * Clean up and remove the docked toolbox UI
-   */
-  _destroySidebar: function TBOX_destroyWindow() {
-    this._sidebar.removeChild(this._vertSplitter);
-    this._sidebar.removeChild(this._frame);
-
-    this._vertSplitter = null;
-    this._sidebar = null;
-  },
-
-  /**
-   * Clean up and close the toolbox window
-   */
-  _destroyWindow: function TBOX_destroyWindow() {
-    this._window.close();
+    this._host.destroyUI();
+    delete this._host;
   }
 };
 
