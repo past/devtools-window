@@ -19,11 +19,11 @@
     </radiogroup>
     <hbox flex="1" pack="end">
       <toolbarbutton checked="true" id="toolbox-dock-bottom" class="toolbox-dock-button"
-                     data-position="BOTTOM"></toolbarbutton>
+                     data-position="bottom"></toolbarbutton>
       <toolbarbutton id="toolbox-dock-right" class="toolbox-dock-button"
-                     data-position="RIGHT"></toolbarbutton>
+                     data-position="right"></toolbarbutton>
       <toolbarbutton id="toolbox-dock-window" class="toolbox-dock-button"
-                     data-position="WINDOW"></toolbarbutton>
+                     data-position="window"></toolbarbutton>
       <toolbarbutton id="toolbox-close" class="devtools-closebutton"></toolbarbutton>
     </hbox>
   </toolbar>

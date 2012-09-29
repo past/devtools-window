@@ -5,7 +5,9 @@
 "use strict";
 
 const Cu = Components.utils;
+
 Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
 const EXPORTED_SYMBOLS = [ "Hosts" ];
 
@@ -20,6 +22,8 @@ let Hosts = {
  */
 function BottomHost(hostTab) {
   this.hostTab = hostTab;
+
+  new EventEmitter(this);
 }
 
 BottomHost.prototype = {
@@ -31,7 +35,7 @@ BottomHost.prototype = {
    *        Callback called when the UI has been created, the iframe
    *        is the first argument to the callback.
    */
-  createUI: function BH_create(callback) {
+  createUI: function BH_createUI(callback) {
     let gBrowser = this.hostTab.ownerDocument.defaultView.gBrowser;
     let ownerDocument = gBrowser.ownerDocument;
 
@@ -45,13 +49,7 @@ BottomHost.prototype = {
     this._nbox.appendChild(this._splitter);
     this._nbox.appendChild(this.frame);
 
-    let boundLoad = function() {
-      this.frame.removeEventListener("DOMContentLoaded", boundLoad, true)
-      callback(this.frame);
-    }.bind(this);
-
-    this.frame.addEventListener("DOMContentLoaded", boundLoad, true);
-    this.frame.setAttribute("src", "about:blank");
+    loadFrame(this.frame, callback);
 
     focusTab(this.hostTab);
   },
@@ -59,7 +57,7 @@ BottomHost.prototype = {
   /**
    * Destroy the bottom dock
    */
-  destroyUI: function BH_destroy() {
+  destroyUI: function BH_destroyUI() {
     this._nbox.removeChild(this._splitter);
     this._nbox.removeChild(this.frame);
   }
@@ -71,6 +69,8 @@ BottomHost.prototype = {
  */
 function RightHost(hostTab) {
   this.hostTab = hostTab;
+
+  new EventEmitter(this);
 }
 
 RightHost.prototype = {
@@ -82,7 +82,7 @@ RightHost.prototype = {
    *        Callback called when the UI has been created, the iframe
    *        is the first argument to the callback.
    */
-  createUI: function RH_create(callback) {
+  createUI: function RH_createUI(callback) {
     let gBrowser = this.hostTab.ownerDocument.defaultView.gBrowser;
     let ownerDocument = gBrowser.ownerDocument;
 
@@ -96,13 +96,7 @@ RightHost.prototype = {
     this._sidebar.appendChild(this._splitter);
     this._sidebar.appendChild(this.frame);
 
-    let boundLoad = function() {
-      this.frame.removeEventListener("DOMContentLoaded", boundLoad, true)
-      callback(this.frame);
-    }.bind(this);
-
-    this.frame.addEventListener("DOMContentLoaded", boundLoad, true);
-    this.frame.setAttribute("src", "about:blank");
+    loadFrame(this.frame, callback);
 
     focusTab(this.hostTab);
   },
@@ -110,7 +104,7 @@ RightHost.prototype = {
   /**
    * Destroy the sidebar
    */
-  destroyUI: function RH_destroy() {
+  destroyUI: function RH_destroyUI() {
     this._sidebar.removeChild(this._splitter);
     this._sidebar.removeChild(this.frame);
   }
@@ -120,7 +114,7 @@ RightHost.prototype = {
  * Host object for the toolbox in a separate window
  */
 function WindowHost() {
-
+  new EventEmitter(this);
 }
 
 WindowHost.prototype = {
@@ -134,32 +128,51 @@ WindowHost.prototype = {
    *        Callback called when the UI has been created, the iframe
    *        is the first argument to the callback.
    */
-  createUI: function(callback) {
+  createUI: function WH_createUI(callback) {
     let flags = "chrome,centerscreen,resizable,dialog=no";
     let win = Services.ww.openWindow(null, this.WINDOW_URL, "_blank",
                                      flags, null);
 
-    win.addEventListener("load", function onLoad() {
-      win.removeEventListener("load", onLoad, true);
+    let boundLoad = function(event) {
+      win.removeEventListener("load", boundLoad, true);
       this.frame = win.document.getElementById("toolbox-iframe");
       callback(this.frame);
     }
-    .bind(this), true);
+    .bind(this);
+    win.addEventListener("load", boundLoad, true);
+
+    let boundClose = function(event) {
+      win.removeEventListener("close", boundClose, true);
+      this.emit("window-closed");
+    }
+    .bind(this);
+    win.addEventListener("close", boundClose, true);
 
     win.focus();
 
     this._window = win;
   },
 
-
   /**
    * Destroy the window
    */
-  destroyUI: function() {
+  destroyUI: function WH_destroyUI() {
     this._window.close();
   }
 }
 
+
+/**
+ * Load initial blank page into iframe and call callback when loaded
+ */
+function loadFrame(frame, callback) {
+  frame.addEventListener("DOMContentLoaded", function onLoad() {
+    frame.removeEventListener("DOMContentLoaded", onLoad, true);
+    callback(frame);
+  }, true);
+
+  frame.setAttribute("src", "about:blank");
+}
 
 /**
  *  Switch to the given tab in a browser and focus the browser window
