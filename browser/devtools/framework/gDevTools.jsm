@@ -12,8 +12,8 @@ const PREF_LAST_TOOL = "devtools.toolbox.selectedTool";
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
-Cu.import("resource:///modules/devtools/ToolsDefinitions.jsm");
-Cu.import("resource:///modules/devtools/Hosts.jsm");
+Cu.import("resource:///modules/devtools/ToolDefinitions.jsm");
+Cu.import("resource:///modules/devtools/ToolboxHosts.jsm");
 
 const EXPORTED_SYMBOLS = [ "gDevTools" ];
 
