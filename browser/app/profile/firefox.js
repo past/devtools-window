@@ -1012,6 +1012,7 @@ pref("devtools.commands.dir", "");
 pref("devtools.toolbox.footer.height", 250);
 pref("devtools.toolbox.sidebar.width", 500);
 pref("devtools.toolbox.host", "bottom");
+pref("devtools.toolbox.selectedTool", "webconsole");
 
 // Enable the Inspector
 pref("devtools.inspector.enabled", true);

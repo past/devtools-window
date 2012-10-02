@@ -8,6 +8,7 @@ const Cu = Components.utils;
 const Ci = Components.interfaces;
 
 const PREF_LAST_HOST = "devtools.toolbox.host";
+const PREF_LAST_TOOL = "devtools.toolbox.selectedTool";
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
@@ -181,9 +182,13 @@ DevTools.prototype = {
         type: gDevTools.TargetType.TAB,
         value: tab
       }
-      // todo: remember last used host type
       let hostType = Services.prefs.getCharPref(PREF_LAST_HOST);
-      this.openToolbox(target, hostType, "webconsole");
+      let selectedTool = Services.prefs.getCharPref(PREF_LAST_TOOL);
+      if (!this._tools.get(selectedTool)) {
+        selectedTool = "webconsole";
+      }
+
+      this.openToolbox(target, hostType, selectedTool);
     }
   },
 
@@ -560,7 +565,6 @@ Toolbox.prototype = {
         break;
       }
     }
-
     tabstrip.selectedIndex = index;
 
     // and select the right iframe
@@ -568,20 +572,24 @@ Toolbox.prototype = {
     deck.selectedIndex = index;
 
     let iframe = doc.getElementById("toolbox-panel-iframe-" + id);
+
+    // only build the tab's content if we haven't already
     if (!iframe.toolLoaded) {
-      // only build the tab's content if we haven't already
       iframe.toolLoaded = true;
 
       let definition = gDevTools.getToolDefinitions().get(id);
+
       let boundLoad = function() {
         iframe.removeEventListener("DOMContentLoaded", boundLoad, true);
         let instance = definition.build(iframe.contentWindow, this.target);
         this._toolInstances.set(id, instance);
-      }.bind(this)
-
+      }
+      .bind(this)
       iframe.addEventListener("DOMContentLoaded", boundLoad, true);
       iframe.setAttribute("src", definition.url);
     }
+
+    Services.prefs.setCharPref(PREF_LAST_TOOL, id);
 
     this._currentToolId = id;
   },
