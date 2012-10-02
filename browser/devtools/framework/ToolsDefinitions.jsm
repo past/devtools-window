@@ -9,15 +9,8 @@ const EXPORTED_SYMBOLS = [ "defaultTools" ];
 Components.utils.import("resource:///modules/WebConsoleToolbox.jsm");
 
 let defaultTools = [
-  {
-    id: "debugger",
-    label: "Debugger",
-    url: "chrome://browser/content/debugger.xul",
-    build: function(iframe) {
-      dump("build called for test tool\n");
-      return {};
-    }
-  },
+  WebConsoleToolbox.toolSpec,
+
   {
     id: "styleeditor",
     label: "Style Editor",
@@ -26,6 +19,5 @@ let defaultTools = [
       aIFrameWindow.init(aTarget.value.linkedBrowser.contentWindow);
       return aIFrameWindow;
     }
-  },
-  WebConsoleToolbox.toolSpec,
+  }
 ];

@@ -183,7 +183,7 @@ DevTools.prototype = {
       }
       // todo: remember last used host type
       let hostType = Services.prefs.getCharPref(PREF_LAST_HOST);
-      this.openToolbox(target, hostType, "debugger");
+      this.openToolbox(target, hostType, "webconsole");
     }
   },
 
