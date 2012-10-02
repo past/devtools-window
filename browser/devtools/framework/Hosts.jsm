@@ -87,7 +87,7 @@ RightHost.prototype = {
     let ownerDocument = gBrowser.ownerDocument;
 
     this._splitter = ownerDocument.createElement("splitter");
-    this._splitter.setAttribute("class", "devtools-vertical-splitter");
+    this._splitter.setAttribute("class", "devtools-side-splitter");
 
     this.frame = ownerDocument.createElement("iframe");
     this.frame.height = "200px";
