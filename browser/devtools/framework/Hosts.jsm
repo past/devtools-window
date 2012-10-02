@@ -27,6 +27,8 @@ function BottomHost(hostTab) {
 }
 
 BottomHost.prototype = {
+  type: "bottom",
+
   heightPref: "devtools.toolbox.footer.height",
 
   /**
@@ -78,6 +80,8 @@ function RightHost(hostTab) {
 }
 
 RightHost.prototype = {
+  type: "right",
+
   widthPref: "devtools.toolbox.sidebar.width",
 
   /**
@@ -126,6 +130,8 @@ function WindowHost() {
 }
 
 WindowHost.prototype = {
+  type: "window",
+
   WINDOW_URL: "chrome://browser/content/devtools/framework/toolbox-window.xul",
 
   /**

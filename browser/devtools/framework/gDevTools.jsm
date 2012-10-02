@@ -7,6 +7,8 @@
 const Cu = Components.utils;
 const Ci = Components.interfaces;
 
+const PREF_LAST_HOST = "devtools.toolbox.host";
+
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 Cu.import("resource:///modules/devtools/ToolsDefinitions.jsm");
@@ -180,7 +182,7 @@ DevTools.prototype = {
         value: tab
       }
       // todo: remember last used host type
-      let hostType = gDevTools.HostType.BOTTOM;
+      let hostType = Services.prefs.getCharPref(PREF_LAST_HOST);
       this.openToolbox(target, hostType, "debugger");
     }
   },
@@ -316,7 +318,6 @@ function createButtons(toolbarSpec, document, window) {
  */
 function Toolbox(aTarget, aHostType, aDefaultToolId) {
   this._target = aTarget;
-  this._hostType = aHostType;
   this._defaultToolId = aDefaultToolId;
   this._toolInstances = new Map();
 
@@ -326,7 +327,7 @@ function Toolbox(aTarget, aHostType, aDefaultToolId) {
 
   new EventEmitter(this);
 
-  this._host = this._createHost();
+  this._host = this._createHost(aHostType);
 
   this.on("tool-registered", this._handleEvent);
   this.on("tool-unregistered", this._handleEvent);
@@ -425,7 +426,7 @@ Toolbox.prototype = {
    * tab. See HostType for more details.
    */
   get hostType() {
-    return this._hostType;
+    return this._host.type;
   },
 
   set hostType(aValue) {
@@ -586,15 +587,12 @@ Toolbox.prototype = {
   },
 
   /**
-   * Create a host object based on the given host type,
-   * or current host type.
+   * Create a host object based on the given host type.
    *
-   * @param [optional] string hostType
+   * @param string hostType
    *        The host type of the new host object
    */
   _createHost: function TBOX_createHost(hostType) {
-    hostType = hostType || this._hostType;
-
     let hostTab = this._getHostTab();
     let newHost = new Hosts[hostType](hostTab);
 
@@ -609,7 +607,7 @@ Toolbox.prototype = {
    * bottom, sidebar, separate window.
    */
   _switchToHost: function TBOX_switchToHost(hostType) {
-    if (hostType == this._hostType) {
+    if (hostType == this._host.type) {
       return;
     }
 
@@ -625,7 +623,8 @@ Toolbox.prototype = {
       this._host.off("window-closed", this.destroy);
 
       this._host = newHost;
-      this._hostType = hostType;
+
+      Services.prefs.setCharPref(PREF_LAST_HOST, this._host.type);
 
       this._setDockButtons();
     }
@@ -653,7 +652,7 @@ Toolbox.prototype = {
 
     let buttons = doc.querySelectorAll(".toolbox-dock-button");
     for (let button of buttons) {
-      if (button.id == "toolbox-dock-" + this._hostType) {
+      if (button.id == "toolbox-dock-" + this._host.type) {
         button.checked = true;
       }
       else {
