@@ -27,6 +27,8 @@ function BottomHost(hostTab) {
 }
 
 BottomHost.prototype = {
+  heightPref: "devtools.toolbox.footer.height",
+
   /**
    * Create a box at the bottom of the host tab and call a callback with
    * The iframe to populate the toolbox in.
@@ -43,7 +45,7 @@ BottomHost.prototype = {
     this._splitter.setAttribute("class", "devtools-horizontal-splitter");
 
     this.frame = ownerDocument.createElement("iframe");
-    this.frame.height = "200px";
+    this.frame.height = Services.prefs.getIntPref(this.heightPref);
 
     this._nbox = gBrowser.getNotificationBox(this.hostTab.linkedBrowser);
     this._nbox.appendChild(this._splitter);
@@ -58,6 +60,8 @@ BottomHost.prototype = {
    * Destroy the bottom dock
    */
   destroyUI: function BH_destroyUI() {
+    Services.prefs.setIntPref(this.heightPref, this.frame.height);
+
     this._nbox.removeChild(this._splitter);
     this._nbox.removeChild(this.frame);
   }
@@ -74,6 +78,8 @@ function RightHost(hostTab) {
 }
 
 RightHost.prototype = {
+  widthPref: "devtools.toolbox.sidebar.width",
+
   /**
    * Create a box at the right side of the host tab and call a callback with
    * The iframe to populate the toolbox in.
@@ -90,7 +96,7 @@ RightHost.prototype = {
     this._splitter.setAttribute("class", "devtools-side-splitter");
 
     this.frame = ownerDocument.createElement("iframe");
-    this.frame.height = "200px";
+    this.frame.width = Services.prefs.getIntPref(this.widthPref);
 
     this._sidebar = gBrowser.getSidebarContainer(this.hostTab.linkedBrowser);
     this._sidebar.appendChild(this._splitter);
@@ -105,6 +111,8 @@ RightHost.prototype = {
    * Destroy the sidebar
    */
   destroyUI: function RH_destroyUI() {
+    Services.prefs.setIntPref(this.widthPref, this.frame.width);
+
     this._sidebar.removeChild(this._splitter);
     this._sidebar.removeChild(this.frame);
   }
