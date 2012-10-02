@@ -609,6 +609,10 @@ Toolbox.prototype = {
    * bottom, sidebar, separate window.
    */
   _switchToHost: function TBOX_switchToHost(hostType) {
+    if (hostType == this._hostType) {
+      return;
+    }
+
     let newHost = this._createHost(hostType);
 
     newHost.createUI(function(iframe) {
