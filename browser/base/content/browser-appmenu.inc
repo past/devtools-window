@@ -146,9 +146,6 @@
           <menuitem id="appmenu_webConsole" observes="devtoolsMenuBroadcaster_WebConsole"/>
           <menuitem id="appmenu_pageinspect" observes="devtoolsMenuBroadcaster_Inspect"/>
           <menuitem id="appmenu_responsiveUI" observes="devtoolsMenuBroadcaster_ResponsiveUI"/>
-          <menuitem id="appmenu_debugger" observes="devtoolsMenuBroadcaster_Debugger"/>
-          <menuitem id="appmenu_remoteDebugger" observes="devtoolsMenuBroadcaster_RemoteDebugger"/>
-          <menuitem id="appmenu_chromeDebugger" observes="devtoolsMenuBroadcaster_ChromeDebugger"/>
           <menuitem id="appmenu_scratchpad" observes="devtoolsMenuBroadcaster_Scratchpad"/>
           <menuitem id="appmenu_pageSource" observes="devtoolsMenuBroadcaster_PageSource"/>
           <menuitem id="appmenu_errorConsole" observes="devtoolsMenuBroadcaster_ErrorConsole"/>

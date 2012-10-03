@@ -93,9 +93,6 @@
     <command id="Tools:DevToolbarFocus" oncommand="DeveloperToolbar.focusToggle();" disabled="true"/>
     <command id="Tools:WebConsole" oncommand="HUDConsoleUI.toggleHUD();"/>
     <command id="Tools:Inspect" oncommand="InspectorUI.toggleInspectorUI();"/>
-    <command id="Tools:Debugger" oncommand="DebuggerUI.toggleDebugger();" disabled="true" hidden="true"/>
-    <command id="Tools:RemoteDebugger" oncommand="DebuggerUI.toggleRemoteDebugger();" disabled="true" hidden="true"/>
-    <command id="Tools:ChromeDebugger" oncommand="DebuggerUI.toggleChromeDebugger();" disabled="true" hidden="true"/>
     <command id="Tools:Scratchpad" oncommand="Scratchpad.openScratchpad();" disabled="true" hidden="true"/>
     <command id="Tools:ResponsiveUI" oncommand="ResponsiveUI.toggle();" disabled="true" hidden="true"/>
     <command id="Tools:Addons" oncommand="BrowserOpenAddonsMgr();"/>
@@ -207,17 +204,6 @@
                  type="checkbox" autocheck="false"
                  command="Tools:Inspect"
                  key="key_inspect"/>
-    <broadcaster id="devtoolsMenuBroadcaster_Debugger"
-                 label="&debuggerMenu.label2;"
-                 type="checkbox" autocheck="false"
-                 command="Tools:Debugger"
-                 key="key_debugger"/>
-    <broadcaster id="devtoolsMenuBroadcaster_RemoteDebugger"
-                 label="&remoteDebuggerMenu.label;"
-                 command="Tools:RemoteDebugger"/>
-    <broadcaster id="devtoolsMenuBroadcaster_ChromeDebugger"
-                 label="&chromeDebuggerMenu.label;"
-                 command="Tools:ChromeDebugger"/>
     <broadcaster id="devtoolsMenuBroadcaster_Scratchpad"
                  label="&scratchpad.label;"
                  command="Tools:Scratchpad"
@@ -288,13 +274,6 @@
     <key id="key_devToolbar" keycode="&devToolbar.keycode;" modifiers="shift"
          keytext="&devToolbar.keytext;" command="Tools:DevToolbarFocus"/>
     <key id="key_webConsole" key="&webConsoleCmd.commandkey;" oncommand="HUDConsoleUI.toggleHUD();"
-#ifdef XP_MACOSX
-        modifiers="accel,alt"
-#else
-        modifiers="accel,shift"
-#endif
-    />
-    <key id="key_debugger" key="&debuggerMenu.commandkey;" command="Tools:Debugger"
 #ifdef XP_MACOSX
         modifiers="accel,alt"
 #else

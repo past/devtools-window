@@ -125,12 +125,6 @@ XPCOMUtils.defineLazyGetter(this, "InspectorUI", function() {
   return new tmp.InspectorUI(window);
 });
 
-XPCOMUtils.defineLazyGetter(this, "DebuggerUI", function() {
-  let tmp = {};
-  Cu.import("resource:///modules/devtools/DebuggerUI.jsm", tmp);
-  return new tmp.DebuggerUI(window);
-});
-
 XPCOMUtils.defineLazyGetter(this, "Tilt", function() {
   let tmp = {};
   Cu.import("resource:///modules/devtools/Tilt.jsm", tmp);
@@ -1427,32 +1421,6 @@ var gBrowserInit = {
       if (gPrefService.getBoolPref("devtools.toolbar.visible")) {
         DeveloperToolbar.show(false);
       }
-    }
-
-    // Enable Debugger?
-    let enabled = gPrefService.getBoolPref("devtools.debugger.enabled");
-    if (enabled) {
-      let cmd = document.getElementById("Tools:Debugger");
-      cmd.removeAttribute("disabled");
-      cmd.removeAttribute("hidden");
-    }
-
-    // Enable Remote Debugger?
-    let enabled = gPrefService.getBoolPref("devtools.debugger.remote-enabled");
-    if (enabled) {
-      let cmd = document.getElementById("Tools:RemoteDebugger");
-      cmd.removeAttribute("disabled");
-      cmd.removeAttribute("hidden");
-    }
-
-    // Enable Chrome Debugger?
-    let enabled = gPrefService.getBoolPref("devtools.chrome.enabled") &&
-                  gPrefService.getBoolPref("devtools.debugger.chrome-enabled") &&
-                  gPrefService.getBoolPref("devtools.debugger.remote-enabled");
-    if (enabled) {
-      let cmd = document.getElementById("Tools:ChromeDebugger");
-      cmd.removeAttribute("disabled");
-      cmd.removeAttribute("hidden");
     }
 
     // Enable Error Console?
