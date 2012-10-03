@@ -12,5 +12,5 @@
         windowtype="DevTools:Toolbox"
         width="700" height="320"
         persist="screenX screenY width height sizemode">
-  <iframe id="toolbox-iframe" src="about:blank" flex="1"></iframe>
+  <iframe id="toolbox-iframe" flex="1"></iframe>
 </window>

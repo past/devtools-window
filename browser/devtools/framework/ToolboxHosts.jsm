@@ -5,7 +5,9 @@
 "use strict";
 
 const Cu = Components.utils;
+
 Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
 const EXPORTED_SYMBOLS = [ "Hosts" ];
 
@@ -20,9 +22,15 @@ let Hosts = {
  */
 function BottomHost(hostTab) {
   this.hostTab = hostTab;
+
+  new EventEmitter(this);
 }
 
 BottomHost.prototype = {
+  type: "bottom",
+
+  heightPref: "devtools.toolbox.footer.height",
+
   /**
    * Create a box at the bottom of the host tab and call a callback with
    * The iframe to populate the toolbox in.
@@ -31,7 +39,7 @@ BottomHost.prototype = {
    *        Callback called when the UI has been created, the iframe
    *        is the first argument to the callback.
    */
-  createUI: function BH_create(callback) {
+  createUI: function BH_createUI(callback) {
     let gBrowser = this.hostTab.ownerDocument.defaultView.gBrowser;
     let ownerDocument = gBrowser.ownerDocument;
 
@@ -39,19 +47,13 @@ BottomHost.prototype = {
     this._splitter.setAttribute("class", "devtools-horizontal-splitter");
 
     this.frame = ownerDocument.createElement("iframe");
-    this.frame.height = "200px";
+    this.frame.height = Services.prefs.getIntPref(this.heightPref);
 
     this._nbox = gBrowser.getNotificationBox(this.hostTab.linkedBrowser);
     this._nbox.appendChild(this._splitter);
     this._nbox.appendChild(this.frame);
 
-    let boundLoad = function() {
-      this.frame.removeEventListener("DOMContentLoaded", boundLoad, true)
-      callback(this.frame);
-    }.bind(this);
-
-    this.frame.addEventListener("DOMContentLoaded", boundLoad, true);
-    this.frame.setAttribute("src", "about:blank");
+    loadFrame(this.frame, callback);
 
     focusTab(this.hostTab);
   },
@@ -59,7 +61,9 @@ BottomHost.prototype = {
   /**
    * Destroy the bottom dock
    */
-  destroyUI: function BH_destroy() {
+  destroyUI: function BH_destroyUI() {
+    Services.prefs.setIntPref(this.heightPref, this.frame.height);
+
     this._nbox.removeChild(this._splitter);
     this._nbox.removeChild(this.frame);
   }
@@ -71,9 +75,15 @@ BottomHost.prototype = {
  */
 function RightHost(hostTab) {
   this.hostTab = hostTab;
+
+  new EventEmitter(this);
 }
 
 RightHost.prototype = {
+  type: "right",
+
+  widthPref: "devtools.toolbox.sidebar.width",
+
   /**
    * Create a box at the right side of the host tab and call a callback with
    * The iframe to populate the toolbox in.
@@ -82,27 +92,21 @@ RightHost.prototype = {
    *        Callback called when the UI has been created, the iframe
    *        is the first argument to the callback.
    */
-  createUI: function RH_create(callback) {
+  createUI: function RH_createUI(callback) {
     let gBrowser = this.hostTab.ownerDocument.defaultView.gBrowser;
     let ownerDocument = gBrowser.ownerDocument;
 
     this._splitter = ownerDocument.createElement("splitter");
-    this._splitter.setAttribute("class", "devtools-vertical-splitter");
+    this._splitter.setAttribute("class", "devtools-side-splitter");
 
     this.frame = ownerDocument.createElement("iframe");
-    this.frame.height = "200px";
+    this.frame.width = Services.prefs.getIntPref(this.widthPref);
 
     this._sidebar = gBrowser.getSidebarContainer(this.hostTab.linkedBrowser);
     this._sidebar.appendChild(this._splitter);
     this._sidebar.appendChild(this.frame);
 
-    let boundLoad = function() {
-      this.frame.removeEventListener("DOMContentLoaded", boundLoad, true)
-      callback(this.frame);
-    }.bind(this);
-
-    this.frame.addEventListener("DOMContentLoaded", boundLoad, true);
-    this.frame.setAttribute("src", "about:blank");
+    loadFrame(this.frame, callback);
 
     focusTab(this.hostTab);
   },
@@ -110,7 +114,9 @@ RightHost.prototype = {
   /**
    * Destroy the sidebar
    */
-  destroyUI: function RH_destroy() {
+  destroyUI: function RH_destroyUI() {
+    Services.prefs.setIntPref(this.widthPref, this.frame.width);
+
     this._sidebar.removeChild(this._splitter);
     this._sidebar.removeChild(this.frame);
   }
@@ -120,10 +126,12 @@ RightHost.prototype = {
  * Host object for the toolbox in a separate window
  */
 function WindowHost() {
-
+  new EventEmitter(this);
 }
 
 WindowHost.prototype = {
+  type: "window",
+
   WINDOW_URL: "chrome://browser/content/devtools/framework/toolbox-window.xul",
 
   /**
@@ -134,32 +142,51 @@ WindowHost.prototype = {
    *        Callback called when the UI has been created, the iframe
    *        is the first argument to the callback.
    */
-  createUI: function(callback) {
+  createUI: function WH_createUI(callback) {
     let flags = "chrome,centerscreen,resizable,dialog=no";
     let win = Services.ww.openWindow(null, this.WINDOW_URL, "_blank",
                                      flags, null);
 
-    win.addEventListener("load", function onLoad() {
-      win.removeEventListener("load", onLoad, true);
+    let boundLoad = function(event) {
+      win.removeEventListener("load", boundLoad, true);
       this.frame = win.document.getElementById("toolbox-iframe");
       callback(this.frame);
     }
-    .bind(this), true);
+    .bind(this);
+    win.addEventListener("load", boundLoad, true);
+
+    let boundClose = function(event) {
+      win.removeEventListener("close", boundClose, true);
+      this.emit("window-closed");
+    }
+    .bind(this);
+    win.addEventListener("close", boundClose, true);
 
     win.focus();
 
     this._window = win;
   },
 
-
   /**
    * Destroy the window
    */
-  destroyUI: function() {
+  destroyUI: function WH_destroyUI() {
     this._window.close();
   }
 }
 
+
+/**
+ * Load initial blank page into iframe and call callback when loaded
+ */
+function loadFrame(frame, callback) {
+  frame.addEventListener("DOMContentLoaded", function onLoad() {
+    frame.removeEventListener("DOMContentLoaded", onLoad, true);
+    callback(frame);
+  }, true);
+
+  frame.setAttribute("src", "about:blank");
+}
 
 /**
  *  Switch to the given tab in a browser and focus the browser window

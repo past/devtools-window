@@ -1008,6 +1008,12 @@ pref("devtools.toolbar.visible", false);
 pref("devtools.gcli.allowSet", false);
 pref("devtools.commands.dir", "");
 
+// Toolbox preferences
+pref("devtools.toolbox.footer.height", 250);
+pref("devtools.toolbox.sidebar.width", 500);
+pref("devtools.toolbox.host", "bottom");
+pref("devtools.toolbox.selectedTool", "webconsole");
+
 // Enable the Inspector
 pref("devtools.inspector.enabled", true);
 pref("devtools.inspector.htmlHeight", 112);
