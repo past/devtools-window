@@ -7,10 +7,13 @@
 const Cu = Components.utils;
 const Ci = Components.interfaces;
 
+const PREF_LAST_HOST = "devtools.toolbox.host";
+const PREF_LAST_TOOL = "devtools.toolbox.selectedTool";
+
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
-Cu.import("resource:///modules/devtools/ToolsDefinitions.jsm");
-Cu.import("resource:///modules/devtools/Hosts.jsm");
+Cu.import("resource:///modules/devtools/ToolDefinitions.jsm");
+Cu.import("resource:///modules/devtools/ToolboxHosts.jsm");
 
 const EXPORTED_SYMBOLS = [ "gDevTools" ];
 
@@ -179,9 +182,13 @@ DevTools.prototype = {
         type: gDevTools.TargetType.TAB,
         value: tab
       }
-      // todo: remember last used host type
-      let hostType = gDevTools.HostType.BOTTOM;
-      this.openToolbox(target, hostType, "debugger");
+      let hostType = Services.prefs.getCharPref(PREF_LAST_HOST);
+      let selectedTool = Services.prefs.getCharPref(PREF_LAST_TOOL);
+      if (!this._tools.get(selectedTool)) {
+        selectedTool = "webconsole";
+      }
+
+      this.openToolbox(target, hostType, selectedTool);
     }
   },
 
@@ -316,7 +323,6 @@ function createButtons(toolbarSpec, document, window) {
  */
 function Toolbox(aTarget, aHostType, aDefaultToolId) {
   this._target = aTarget;
-  this._hostType = aHostType;
   this._defaultToolId = aDefaultToolId;
   this._toolPanels = new Map();
 
@@ -326,8 +332,7 @@ function Toolbox(aTarget, aHostType, aDefaultToolId) {
 
   new EventEmitter(this);
 
-  let hostTab = this._getHostTab();
-  this._host = new Hosts[aHostType](hostTab);
+  this._host = this._createHost(aHostType);
 
   this.on("tool-registered", this._handleEvent);
   this.on("tool-unregistered", this._handleEvent);
@@ -426,7 +431,7 @@ Toolbox.prototype = {
    * tab. See HostType for more details.
    */
   get hostType() {
-    return this._hostType;
+    return this._host.type;
   },
 
   set hostType(aValue) {
@@ -462,7 +467,6 @@ Toolbox.prototype = {
     let frame = this._host.frame;
     frame.removeEventListener("DOMContentLoaded", this._onLoad, true);
 
-    // add event listeners to the docking buttons
     let doc = frame.contentDocument;
     let buttons = doc.getElementsByClassName("toolbox-dock-button");
 
@@ -470,7 +474,7 @@ Toolbox.prototype = {
       let button = buttons[i];
       button.addEventListener("command", function() {
         let position = button.getAttribute("data-position");
-        this._switchToHost(gDevTools.HostType[position]);
+        this._switchToHost(position);
       }
       .bind(this), true);
     }
@@ -561,7 +565,6 @@ Toolbox.prototype = {
         break;
       }
     }
-
     tabstrip.selectedIndex = index;
 
     // and select the right iframe
@@ -569,32 +572,54 @@ Toolbox.prototype = {
     deck.selectedIndex = index;
 
     let iframe = doc.getElementById("toolbox-panel-iframe-" + id);
+
+    // only build the tab's content if we haven't already
     if (!iframe.toolLoaded) {
-      // only build the tab's content if we haven't already
       iframe.toolLoaded = true;
 
       let definition = gDevTools.getToolDefinitions().get(id);
+
       let boundLoad = function() {
-        iframe.removeEventListener('DOMContentLoaded', boundLoad, true);
+        iframe.removeEventListener("DOMContentLoaded", boundLoad, true);
         let instance = definition.build(iframe.contentWindow, this.target);
         this._toolPanels.set(id, instance);
       }.bind(this)
 
       iframe.addEventListener('DOMContentLoaded', boundLoad, true);
-      iframe.setAttribute('src', definition.url);
+      iframe.setAttribute("src", definition.url);
     }
+
+    Services.prefs.setCharPref(PREF_LAST_TOOL, id);
 
     this._currentToolId = id;
   },
 
-
   /**
-   * Switch to a new host for the toolbox
+   * Create a host object based on the given host type.
+   *
+   * @param string hostType
+   *        The host type of the new host object
    */
-  _switchToHost: function TBOX_switchToHost(hostType) {
-    // create a new host object
+  _createHost: function TBOX_createHost(hostType) {
     let hostTab = this._getHostTab();
     let newHost = new Hosts[hostType](hostTab);
+
+    // clean up the toolbox if its window is closed
+    newHost.on("window-closed", this.destroy);
+
+    return newHost;
+  },
+
+  /**
+   * Switch to a new host for the toolbox UI. E.g.
+   * bottom, sidebar, separate window.
+   */
+  _switchToHost: function TBOX_switchToHost(hostType) {
+    if (hostType == this._host.type) {
+      return;
+    }
+
+    let newHost = this._createHost(hostType);
 
     newHost.createUI(function(iframe) {
       // change toolbox document's parent to the new host
@@ -603,11 +628,15 @@ Toolbox.prototype = {
 
       // destroy old host's UI
       this._host.destroyUI();
+      this._host.off("window-closed", this.destroy);
 
       this._host = newHost;
-      this._hostType = hostType;
+
+      Services.prefs.setCharPref(PREF_LAST_HOST, this._host.type);
+
       this._setDockButtons();
-    }.bind(this));
+    }
+    .bind(this));
   },
 
   /**
@@ -618,8 +647,8 @@ Toolbox.prototype = {
       return this._target.value;
     }
     else {
-      let browserWindow = Services.wm.getMostRecentWindow("navigator:browser");
-      return browserWindow.gBrowser.selectedTab;
+      let win = Services.wm.getMostRecentWindow("navigator:browser");
+      return win.gBrowser.selectedTab;
     }
   },
 
@@ -631,7 +660,7 @@ Toolbox.prototype = {
 
     let buttons = doc.querySelectorAll(".toolbox-dock-button");
     for (let button of buttons) {
-      if (button.id == "toolbox-dock-" + this._hostType) {
+      if (button.id == "toolbox-dock-" + this._host.type) {
         button.checked = true;
       }
       else {
@@ -645,7 +674,9 @@ Toolbox.prototype = {
    */
   destroy: function TBOX_destroy() {
     this._host.destroyUI();
-    delete this._host;
+
+    this.off("tool-registered", this._handleEvent);
+    this.off("tool-unregistered", this._handleEvent);
 
     this.emit("destroyed");
   }
