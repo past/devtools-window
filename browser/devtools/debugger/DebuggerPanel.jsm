@@ -9,15 +9,18 @@ const Cc = Components.classes;
 const Ci = Components.interfaces;
 const Cu = Components.utils;
 
-Cu.import("resource://gre/modules/devtools/gDevTools.jsm");
-Cu.import("resource://gre/modules/devtools/EventEmitter.jsm");
-
 const EXPORTED_SYMBOLS = ["DebuggerDefinition"];
+
+Cu.import("resource://gre/modules/devtools/EventEmitter.jsm");
+Cu.import("resource://gre/modules/devtools/dbg-server.jsm");
+Cu.import('resource://gre/modules/XPCOMUtils.jsm');
+XPCOMUtils.defineLazyModuleGetter(this, "gDevTools", "resource:///modules/devtools/gDevTools.jsm");
 
 const DebuggerDefinition = {
   id: "jsdebugger",
   killswitch: "devtools.debugger.enabled",
   icon: "chrome://browser/skin/devtools/tools-icons-small.png",
+  url: "chrome://browser/content/debugger.xul",
   label: "Debugger", // FIXME: e10s
 
   isTargetSupported: function(aTarget) {

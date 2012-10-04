@@ -7,6 +7,7 @@ const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 let EXPORTED_SYMBOLS = [ ];
 
 Cu.import("resource:///modules/devtools/gcli.jsm");
+Cu.import("resource:///modules/devtools/gDevTools.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "HUDService",
@@ -31,10 +32,12 @@ gcli.addCommand({
   returnType: "html",
   exec: function(args, context) {
     let win = HUDService.currentContext();
-    let dbg = win.DebuggerUI.getDebugger();
+
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
     if (!dbg) {
       return gcli.lookup("breakaddDebuggerStopped");
     }
+
     let breakpoints = dbg.breakpoints;
 
     if (Object.keys(breakpoints).length === 0) {
@@ -77,7 +80,10 @@ gcli.addCommand({
         name: "selection",
         data: function() {
           let win = HUDService.currentContext();
-          let dbg = win.DebuggerUI.getDebugger();
+          let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
+          if (!dbg) {
+            return gcli.lookup("breakaddDebuggerStopped");
+          }
           let files = [];
           if (dbg) {
             let scriptsView = dbg.contentWindow.DebuggerView.Scripts;
@@ -100,7 +106,7 @@ gcli.addCommand({
   exec: function(args, context) {
     args.type = "line";
     let win = HUDService.currentContext();
-    let dbg = win.DebuggerUI.getDebugger();
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
     if (!dbg) {
       return gcli.lookup("breakaddDebuggerStopped");
     }
@@ -132,7 +138,7 @@ gcli.addCommand({
         min: 0,
         max: function() {
           let win = HUDService.currentContext();
-          let dbg = win.DebuggerUI.getDebugger();
+          let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
           if (!dbg) {
             return gcli.lookup("breakaddDebuggerStopped");
           }
@@ -145,7 +151,7 @@ gcli.addCommand({
   returnType: "html",
   exec: function(args, context) {
     let win = HUDService.currentContext();
-    let dbg = win.DebuggerUI.getDebugger();
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
     if (!dbg) {
       return gcli.lookup("breakaddDebuggerStopped");
     }

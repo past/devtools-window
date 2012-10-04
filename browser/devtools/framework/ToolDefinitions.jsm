@@ -7,11 +7,9 @@
 const EXPORTED_SYMBOLS = [ "defaultTools" ];
 
 Components.utils.import("resource:///modules/WebConsolePanel.jsm");
-Components.utils.import("resource:///modules/DebuggerPanel.jsm");
+Components.utils.import("resource:///modules/devtools/DebuggerPanel.jsm");
 
 let defaultTools = [
-  WebConsoleToolbox.toolSpec,
-
   {
     id: "styleeditor",
     label: "Style Editor",

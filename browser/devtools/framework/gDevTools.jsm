@@ -10,12 +10,12 @@ const Ci = Components.interfaces;
 const PREF_LAST_HOST = "devtools.toolbox.host";
 const PREF_LAST_TOOL = "devtools.toolbox.selectedTool";
 
+const EXPORTED_SYMBOLS = [ "gDevTools" ];
+
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 Cu.import("resource:///modules/devtools/ToolDefinitions.jsm");
 Cu.import("resource:///modules/devtools/ToolboxHosts.jsm");
-
-const EXPORTED_SYMBOLS = [ "gDevTools" ];
 
 /**
  * gDevTools is a singleton that controls Firefox Developer Tools.
