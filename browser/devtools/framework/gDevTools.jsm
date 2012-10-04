@@ -205,6 +205,17 @@ DevTools.prototype = {
     return toolboxes;
   },
 
+  /**
+   * Return a tool panel for a target.
+   */
+  getPanelForTarget: function(aToolName, aTargetValue) {
+    let toolbox = this.getToolboxes().get(aTargetValue);
+    if (!toolbox) {
+      return undefined;
+    }
+    return toolbox.getToolPanels().get("jsdebugger");
+  },
+
   destroy: function DT_destroy() {
     delete this._tools;
     delete this._toolboxes;
