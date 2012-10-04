@@ -7,6 +7,7 @@
 const EXPORTED_SYMBOLS = [ "defaultTools" ];
 
 Components.utils.import("resource:///modules/WebConsolePanel.jsm");
+Components.utils.import("resource:///modules/DebuggerPanel.jsm");
 
 let defaultTools = [
   WebConsoleToolbox.toolSpec,
@@ -21,4 +22,5 @@ let defaultTools = [
     }
   },
   WebConsoleDefinition,
+  DebuggerDefinition,
 ];
