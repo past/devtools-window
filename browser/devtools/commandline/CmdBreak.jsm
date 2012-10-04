@@ -81,9 +81,6 @@ gcli.addCommand({
         data: function() {
           let win = HUDService.currentContext();
           let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
-          if (!dbg) {
-            return gcli.lookup("breakaddDebuggerStopped");
-          }
           let files = [];
           if (dbg) {
             let scriptsView = dbg.contentWindow.DebuggerView.Scripts;

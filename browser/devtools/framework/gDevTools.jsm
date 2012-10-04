@@ -209,7 +209,7 @@ DevTools.prototype = {
    * Return a tool panel for a target.
    */
   getPanelForTarget: function(aToolName, aTargetValue) {
-    let toolbox = this.getToolboxes().get(aTargetValue);
+    let toolbox = this.getToolBoxes().get(aTargetValue);
     if (!toolbox) {
       return undefined;
     }
