@@ -186,14 +186,6 @@ let DebuggerView = {
   },
 
   /**
-   * Sets the close button hidden or visible. It's hidden by default.
-   * @param boolean aVisibleFlag
-   */
-  toggleCloseButton: function DV_toggleCloseButton(aVisibleFlag) {
-    document.getElementById("close").setAttribute("hidden", !aVisibleFlag);
-  },
-
-  /**
    * Sets the stackframes and breakpoints pane hidden or visible.
    *
    * @param object aFlags [optional]
@@ -1611,7 +1603,6 @@ ScriptsView.prototype = {
 function StackFramesView() {
   this._onFramesScroll = this._onFramesScroll.bind(this);
   this._onPauseExceptionsClick = this._onPauseExceptionsClick.bind(this);
-  this._onCloseButtonClick = this._onCloseButtonClick.bind(this);
   this._onResume = this._onResume.bind(this);
   this._onStepOver = this._onStepOver.bind(this);
   this._onStepIn = this._onStepIn.bind(this);
@@ -1809,13 +1800,6 @@ StackFramesView.prototype = {
   },
 
   /**
-   * Listener handling the close button click event.
-   */
-  _onCloseButtonClick: function DVF__onCloseButtonClick() {
-    DebuggerController.dispatchEvent("Debugger:Close");
-  },
-
-  /**
    * Listener handling the pause-on-exceptions click event.
    */
   _onPauseExceptionsClick: function DVF__onPauseExceptionsClick() {
@@ -1875,7 +1859,6 @@ StackFramesView.prototype = {
    * Initialization function, called when the debugger is initialized.
    */
   initialize: function DVF_initialize() {
-    let close = document.getElementById("close");
     let pauseOnExceptions = document.getElementById("pause-exceptions");
     let resume = DebuggerView._resumeButton;
     let stepOver = DebuggerView._stepOverButton;
@@ -1883,7 +1866,6 @@ StackFramesView.prototype = {
     let stepOut = DebuggerView._stepOutButton;
     let frames = DebuggerView._stackframes;
 
-    close.addEventListener("click", this._onCloseButtonClick, false);
     pauseOnExceptions.checked = DebuggerController.StackFrames.pauseOnExceptions;
     pauseOnExceptions.addEventListener("click", this._onPauseExceptionsClick, false);
     resume.addEventListener("click", this._onResume, false);
@@ -1902,7 +1884,6 @@ StackFramesView.prototype = {
    * Destruction function, called when the debugger is shut down.
    */
   destroy: function DVF_destroy() {
-    let close = document.getElementById("close");
     let pauseOnExceptions = document.getElementById("pause-exceptions");
     let resume = DebuggerView._resumeButton;
     let stepOver = DebuggerView._stepOverButton;
@@ -1910,7 +1891,6 @@ StackFramesView.prototype = {
     let stepOut = DebuggerView._stepOutButton;
     let frames = DebuggerView._stackframes;
 
-    close.removeEventListener("click", this._onCloseButtonClick, false);
     pauseOnExceptions.removeEventListener("click", this._onPauseExceptionsClick, false);
     resume.removeEventListener("click", this._onResume, false);
     stepOver.removeEventListener("click", this._onStepOver, false);
