@@ -97,7 +97,7 @@ DevTools.prototype = {
    *          (string|required)
    * - build: Function that takes a single parameter, a frame, which has been
    *          populated with the markup from |url|. And returns an instance of
-   *          ToolInstance (function|required)
+   *          ToolPanel (function|required)
    */
   registerTool: function DT_registerTool(aToolDefinition) {
     let toolId = aToolDefinition.id;
@@ -214,58 +214,3 @@ const gDevTools = new DevTools();
 for (let definition of defaultTools) {
   gDevTools.registerTool(definition)
 }
-
-
-//------------------------------------------------------------------------------
-
-/**
- * When a Toolbox is started it creates a DevToolInstance for each of the tools
- * by calling toolDefinition.build(). The returned object should
- * at least implement these functions. They will be used by the ToolBox.
- *
- * There may be no benefit in doing this as an abstract type, but if nothing
- * else gives us a place to write documentation.
- */
-function DevToolInstance(aTarget, aId) {
-  this._target = aTarget;
-  this._id = aId;
-}
-
-DevToolInstance.prototype = {
-  /**
-   * Get the target of a Tool so we're debugging something different.
-   * TODO: Not sure about that. Maybe it's the ToolBox's job to destroy the tool
-   * and start it again with a new target.
-   * JOE: If we think that, does the same go for Toolbox? I'm leaning towards
-   * Keeping these in both cases. Either way I like symmetry.
-   * Certainly target should be read-only to the public or we could have
-   * one tool in a toolbox having a different target to the others
-   */
-  get target() {
-    return this._target;
-  },
-
-  set target(aValue) {
-    this._target = aValue;
-  },
-
-  /**
-   * Get the type of this tool.
-   * TODO: If this function isn't used then it should be removed
-   */
-  get id() {
-    return this._id;
-  },
-
-  set id(aValue) {
-    this._id = value;
-  },
-
-  /**
-   * The Toolbox in which this Tool was hosted has been closed, possibly due to
-   * the target being closed. We should clear-up.
-   */
-  destroy: function DTI_destroy() {
-
-  }
-};

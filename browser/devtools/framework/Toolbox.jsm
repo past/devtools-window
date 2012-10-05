@@ -20,11 +20,11 @@ const EXPORTED_SYMBOLS = [ "Toolbox" ];
 /**
  * A "Toolbox" is the component that holds all the tools for one specific
  * target. Visually, it's a document (about:devtools) that includes the tools
- * tabs and all the iframes where the tool instances will be living in.
+ * tabs and all the iframes where the tool panels will be living in.
  */
 function Toolbox(target, hostType, selectedTool) {
   this._target = target;
-  this._toolInstances = new Map();
+  this._toolPanels = new Map();
 
   this._onLoad = this._onLoad.bind(this);
   this._handleEvent = this._handleEvent.bind(this);
@@ -109,25 +109,25 @@ Toolbox.prototype = {
           panel.parentNode.removeChild(panel);
         }
 
-        if (this._toolInstances.has(toolId)) {
-          let instance = this._toolInstances.get(toolId);
+        if (this._toolPanels.has(toolId)) {
+          let instance = this._toolPanels.get(toolId);
           instance.destroy();
-          this._toolInstances.delete(toolId);
+          this._toolPanels.delete(toolId);
         }
         break;
     }
   },
 
   /**
-   * Returns a *copy* of the _toolInstances collection.
+   * Returns a *copy* of the _toolPanels collection.
    */
-  getToolInstances: function TB_getToolInstances() {
-    let instances = new Map();
+  getToolPanels: function TB_getToolPanels() {
+    let panels = new Map();
 
-    for (let [key, value] of this._toolInstances) {
-      instances.set(key, value);
+    for (let [key, value] of this._toolPanels) {
+      panels.set(key, value);
     }
-    return instances;
+    return panels;
   },
 
   /**
@@ -299,7 +299,7 @@ Toolbox.prototype = {
       let boundLoad = function() {
         iframe.removeEventListener("DOMContentLoaded", boundLoad, true);
         let instance = definition.build(iframe.contentWindow, this.target);
-        this._toolInstances.set(id, instance);
+        this._toolPanels.set(id, instance);
       }
       .bind(this)
       iframe.addEventListener("DOMContentLoaded", boundLoad, true);
