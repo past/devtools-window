@@ -131,7 +131,6 @@ browser.jar:
         skin/classic/browser/devtools/goto-mdn.png                  (devtools/goto-mdn.png)
         skin/classic/browser/devtools/csshtmltree.css               (devtools/csshtmltree.css)
         skin/classic/browser/devtools/commandline.css                      (devtools/commandline.css)
-        skin/classic/browser/devtools/htmlpanel.css                 (devtools/htmlpanel.css)
         skin/classic/browser/devtools/markup-view.css               (devtools/markup-view.css)
         skin/classic/browser/devtools/orion.css                     (devtools/orion.css)
         skin/classic/browser/devtools/orion-container.css           (devtools/orion-container.css)
@@ -192,6 +191,7 @@ browser.jar:
         skin/classic/browser/devtools/responsive-vertical-resizer.png (devtools/responsive-vertical-resizer.png)
         skin/classic/browser/devtools/responsive-background.png     (devtools/responsive-background.png)
         skin/classic/browser/devtools/tools-icons-small.png         (devtools/tools-icons-small.png)
+        skin/classic/browser/devtools/floating-scrollbars.css       (devtools/floating-scrollbars.css)
 #ifdef MOZ_SERVICES_SYNC
         skin/classic/browser/sync-throbber.png
         skin/classic/browser/sync-16.png
@@ -334,7 +334,6 @@ browser.jar:
         skin/classic/aero/browser/devtools/goto-mdn.png              (devtools/goto-mdn.png)
         skin/classic/aero/browser/devtools/csshtmltree.css           (devtools/csshtmltree.css)
         skin/classic/aero/browser/devtools/commandline.css                  (devtools/commandline.css)
-        skin/classic/aero/browser/devtools/htmlpanel.css             (devtools/htmlpanel.css)
         skin/classic/aero/browser/devtools/markup-view.css           (devtools/markup-view.css)
         skin/classic/aero/browser/devtools/orion.css                 (devtools/orion.css)
         skin/classic/aero/browser/devtools/orion-container.css       (devtools/orion-container.css)
@@ -395,6 +394,7 @@ browser.jar:
         skin/classic/aero/browser/devtools/responsive-vertical-resizer.png (devtools/responsive-vertical-resizer.png)
         skin/classic/aero/browser/devtools/responsive-background.png (devtools/responsive-background.png)
         skin/classic/aero/browser/devtools/tools-icons-small.png     (devtools/tools-icons-small.png)
+        skin/classic/aero/browser/devtools/floating-scrollbars.css   (devtools/floating-scrollbars.css)
 #ifdef MOZ_SERVICES_SYNC
         skin/classic/aero/browser/sync-throbber.png
         skin/classic/aero/browser/sync-16.png

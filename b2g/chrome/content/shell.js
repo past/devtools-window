@@ -23,6 +23,8 @@ Cu.import('resource://gre/modules/PermissionSettings.jsm');
 Cu.import('resource://gre/modules/ObjectWrapper.jsm');
 Cu.import('resource://gre/modules/accessibility/AccessFu.jsm');
 Cu.import('resource://gre/modules/Payment.jsm');
+Cu.import("resource://gre/modules/AppsUtils.jsm");
+Cu.import('resource://gre/modules/UserAgentOverrides.jsm');
 
 XPCOMUtils.defineLazyServiceGetter(Services, 'env',
                                    '@mozilla.org/process/environment;1',
@@ -177,6 +179,7 @@ var shell = {
     CustomEventManager.init();
     WebappsHelper.init();
     AccessFu.attach(window);
+    UserAgentOverrides.init();
 
     // XXX could factor out into a settings->pref map.  Not worth it yet.
     SettingsListener.observe("debug.fps.enabled", false, function(value) {
@@ -187,8 +190,12 @@ var shell = {
     });
 
     this.contentBrowser.src = homeURL;
+    this.isHomeLoaded = false;
 
     ppmm.addMessageListener("content-handler", this);
+    ppmm.addMessageListener("dial-handler", this);
+    ppmm.addMessageListener("sms-handler", this);
+    ppmm.addMessageListener("mail-handler", this);
   },
 
   stop: function shell_stop() {
@@ -208,6 +215,7 @@ var shell = {
 #ifndef MOZ_WIDGET_GONK
     delete Services.audioManager;
 #endif
+    UserAgentOverrides.uninit();
   },
 
   // If this key event actually represents a hardware button, filter it here
@@ -312,6 +320,17 @@ var shell = {
         DOMApplicationRegistry.allAppsLaunchable = true;
 
         this.sendEvent(window, 'ContentStart');
+
+        content.addEventListener('load', function shell_homeLoaded() {
+          content.removeEventListener('load', shell_homeLoaded);
+          shell.isHomeLoaded = true;
+
+          if ('pendingChromeEvents' in shell) {
+            shell.pendingChromeEvents.forEach((shell.sendChromeEvent).bind(shell));
+          }
+          delete shell.pendingChromeEvents;
+        });
+
         break;
       case 'MozApplicationManifest':
         try {
@@ -357,6 +376,15 @@ var shell = {
   },
 
   sendChromeEvent: function shell_sendChromeEvent(details) {
+    if (!this.isHomeLoaded) {
+      if (!('pendingChromeEvents' in this)) {
+        this.pendingChromeEvents = [];
+      }
+
+      this.pendingChromeEvents.push(details);
+      return;
+    }
+
     this.sendEvent(getContentWindow(), "mozChromeEvent",
                    ObjectWrapper.wrap(details, getContentWindow()));
   },
@@ -373,17 +401,18 @@ var shell = {
   },
 
   receiveMessage: function shell_receiveMessage(message) {
-    if (message.name != 'content-handler') {
+    var names = { 'content-handler': 'view',
+                  'dial-handler'   : 'dial',
+                  'mail-handler'   : 'new',
+                  'sms-handler'    : 'new' }
+
+    if (!(message.name in names))
       return;
-    }
-    let handler = message.json;
+
+    let data = message.data;
     new MozActivity({
-      name: 'view',
-      data: {
-        type: handler.type,
-        url: handler.url,
-        extras: handler.extras
-      }
+      name: names[message.name],
+      data: data
     });
   }
 };
@@ -626,7 +655,7 @@ var WebappsHelper = {
           if (!aManifest)
             return;
 
-          let manifest = new DOMApplicationManifest(aManifest, json.origin);
+          let manifest = new ManifestHelper(aManifest, json.origin);
           shell.sendChromeEvent({
             "type": "webapps-launch",
             "url": manifest.fullLaunchPath(json.startPoint),

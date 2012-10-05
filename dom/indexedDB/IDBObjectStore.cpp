@@ -140,7 +140,7 @@ public:
 
   ~AddHelper()
   {
-    IDBObjectStore::ClearStructuredCloneBuffer(mCloneWriteInfo.mCloneBuffer);
+    IDBObjectStore::ClearCloneWriteInfo(mCloneWriteInfo);
   }
 
   virtual nsresult DoDatabaseWork(mozIStorageConnection* aConnection)
@@ -184,7 +184,7 @@ public:
 
   ~GetHelper()
   {
-    IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
+    IDBObjectStore::ClearCloneReadInfo(mCloneReadInfo);
   }
 
   virtual nsresult DoDatabaseWork(mozIStorageConnection* aConnection)
@@ -278,7 +278,7 @@ public:
 
   ~OpenCursorHelper()
   {
-    IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
+    IDBObjectStore::ClearCloneReadInfo(mCloneReadInfo);
   }
 
   virtual nsresult DoDatabaseWork(mozIStorageConnection* aConnection)
@@ -383,8 +383,7 @@ public:
   ~GetAllHelper()
   {
     for (uint32_t index = 0; index < mCloneReadInfos.Length(); index++) {
-      IDBObjectStore::ClearStructuredCloneBuffer(
-        mCloneReadInfos[index].mCloneBuffer);
+      IDBObjectStore::ClearCloneReadInfo(mCloneReadInfos[index]);
     }
   }
 
@@ -777,7 +776,7 @@ IDBObjectStore::UpdateIndexes(IDBTransaction* aTransaction,
   nsCOMPtr<mozIStorageStatement> stmt;
   nsresult rv;
 
-  NS_ASSERTION(aObjectDataId != LL_MININT, "Bad objectData id!");
+  NS_ASSERTION(aObjectDataId != INT64_MIN, "Bad objectData id!");
 
   NS_NAMED_LITERAL_CSTRING(objectDataId, "object_data_id");
 
@@ -935,6 +934,42 @@ IDBObjectStore::GetStructuredCloneReadInfoFromStatement(
   aInfo.mDatabase = aDatabase;
 
   return NS_OK;
+}
+
+// static
+void
+IDBObjectStore::ClearCloneWriteInfo(StructuredCloneWriteInfo& aWriteInfo)
+{
+  // This is kind of tricky, we only want to release stuff on the main thread,
+  // but we can end up being called on other threads if we have already been
+  // cleared on the main thread.
+  if (!aWriteInfo.mCloneBuffer.data() && !aWriteInfo.mFiles.Length()) {
+    return;
+  }
+
+  // If there's something to clear, we should be on the main thread.
+  NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
+
+  ClearStructuredCloneBuffer(aWriteInfo.mCloneBuffer);
+  aWriteInfo.mFiles.Clear();
+}
+
+// static
+void
+IDBObjectStore::ClearCloneReadInfo(StructuredCloneReadInfo& aReadInfo)
+{
+  // This is kind of tricky, we only want to release stuff on the main thread,
+  // but we can end up being called on other threads if we have already been
+  // cleared on the main thread.
+  if (!aReadInfo.mCloneBuffer.data() && !aReadInfo.mFiles.Length()) {
+    return;
+  }
+
+  // If there's something to clear, we should be on the main thread.
+  NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
+
+  ClearStructuredCloneBuffer(aReadInfo.mCloneBuffer);
+  aReadInfo.mFiles.Clear();
 }
 
 // static
@@ -1455,7 +1490,7 @@ IDBObjectStore::ConvertBlobsToActors(
 }
 
 IDBObjectStore::IDBObjectStore()
-: mId(LL_MININT),
+: mId(INT64_MIN),
   mKeyPath(0),
   mCachedKeyPath(JSVAL_VOID),
   mRooted(false),
@@ -2127,7 +2162,7 @@ IDBObjectStore::GetAll(const jsval& aKey,
   }
 
   if (aOptionalArgCount < 2 || aLimit == 0) {
-    aLimit = PR_UINT32_MAX;
+    aLimit = UINT32_MAX;
   }
 
   nsRefPtr<IDBRequest> request;
@@ -2738,7 +2773,7 @@ AddHelper::GetSuccessResult(JSContext* aCx,
 void
 AddHelper::ReleaseMainThreadObjects()
 {
-  IDBObjectStore::ClearStructuredCloneBuffer(mCloneWriteInfo.mCloneBuffer);
+  IDBObjectStore::ClearCloneWriteInfo(mCloneWriteInfo);
   ObjectStoreHelper::ReleaseMainThreadObjects();
 }
 
@@ -2891,7 +2926,7 @@ void
 GetHelper::ReleaseMainThreadObjects()
 {
   mKeyRange = nullptr;
-  IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
+  IDBObjectStore::ClearCloneReadInfo(mCloneReadInfo);
   ObjectStoreHelper::ReleaseMainThreadObjects();
 }
 
@@ -3303,7 +3338,7 @@ void
 OpenCursorHelper::ReleaseMainThreadObjects()
 {
   mKeyRange = nullptr;
-  IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
+  IDBObjectStore::ClearCloneReadInfo(mCloneReadInfo);
 
   mCursor = nullptr;
 
@@ -3679,7 +3714,7 @@ GetAllHelper::DoDatabaseWork(mozIStorageConnection* aConnection)
   }
 
   nsAutoCString limitClause;
-  if (mLimit != PR_UINT32_MAX) {
+  if (mLimit != UINT32_MAX) {
     limitClause.AssignLiteral(" LIMIT ");
     limitClause.AppendInt(mLimit);
   }
@@ -3754,8 +3789,7 @@ GetAllHelper::ReleaseMainThreadObjects()
 {
   mKeyRange = nullptr;
   for (uint32_t index = 0; index < mCloneReadInfos.Length(); index++) {
-    IDBObjectStore::ClearStructuredCloneBuffer(
-      mCloneReadInfos[index].mCloneBuffer);
+    IDBObjectStore::ClearCloneReadInfo(mCloneReadInfos[index]);
   }
   ObjectStoreHelper::ReleaseMainThreadObjects();
 }

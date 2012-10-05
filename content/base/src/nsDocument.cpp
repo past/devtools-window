@@ -1986,7 +1986,7 @@ nsDocument::Init()
   mRadioGroups.Init();
 
   // Force initialization.
-  nsINode::nsSlots* slots = GetSlots();
+  nsINode::nsSlots* slots = Slots();
 
   // Prepend self as mutation-observer whether we need it or not (some
   // subclasses currently do, other don't). This is because the code in
@@ -2458,7 +2458,7 @@ nsDocument::InitCSP(nsIChannel* aChannel)
   // ----- Figure out if we need to apply an app default CSP
   bool applyAppDefaultCSP = false;
   nsIPrincipal* principal = NodePrincipal();
-  PRUint16 appStatus = nsIPrincipal::APP_STATUS_NOT_INSTALLED;
+  uint16_t appStatus = nsIPrincipal::APP_STATUS_NOT_INSTALLED;
   bool unknownAppId;
   if (NS_SUCCEEDED(principal->GetUnknownAppId(&unknownAppId)) &&
       !unknownAppId &&
@@ -6399,7 +6399,8 @@ nsDocument::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
   // Load events must not propagate to |window| object, see bug 335251.
   if (aVisitor.mEvent->message != NS_LOAD) {
     nsGlobalWindow* window = static_cast<nsGlobalWindow*>(GetWindow());
-    aVisitor.mParentTarget = static_cast<nsIDOMEventTarget*>(window);
+    aVisitor.mParentTarget =
+      window ? window->GetTargetForEventTargetChain() : nullptr;
   }
   return NS_OK;
 }
@@ -6880,7 +6881,7 @@ nsDocument::RetrieveRelevantHeaders(nsIChannel *aChannel)
     }
   }
 
-  if (LL_IS_ZERO(modDate)) {
+  if (modDate == 0) {
     // We got nothing from our attempt to ask nsIFileChannel and
     // nsIHttpChannel for the last modified time. Return the current
     // time.
@@ -6888,7 +6889,7 @@ nsDocument::RetrieveRelevantHeaders(nsIChannel *aChannel)
   }
 
   mLastModified.Truncate();
-  if (LL_NE(modDate, LL_ZERO)) {
+  if (modDate != LL_ZERO) {
     PRExplodedTime prtime;
     PR_ExplodeTime(modDate, PR_LocalTimeParameters, &prtime);
     // "MM/DD/YYYY hh:mm:ss"
@@ -8237,7 +8238,7 @@ nsresult
 nsIDocument::ScheduleFrameRequestCallback(nsIFrameRequestCallback* aCallback,
                                           int32_t *aHandle)
 {
-  if (mFrameRequestCallbackCounter == PR_INT32_MAX) {
+  if (mFrameRequestCallbackCounter == INT32_MAX) {
     // Can't increment without overflowing; bail out
     return NS_ERROR_NOT_AVAILABLE;
   }
@@ -8423,7 +8424,7 @@ nsDocument::NotifyAudioAvailableListener()
 }
 
 nsresult
-nsDocument::RemoveImage(imgIRequest* aImage)
+nsDocument::RemoveImage(imgIRequest* aImage, uint32_t aFlags)
 {
   NS_ENSURE_ARG_POINTER(aImage);
 
@@ -8459,10 +8460,12 @@ nsDocument::RemoveImage(imgIRequest* aImage)
     rv = NS_SUCCEEDED(rv) ? rv2 : rv;
   }
 
-  // Request that the image be discarded if nobody else holds a lock on it.
-  // Do this even if !mLockingImages, because even if we didn't just unlock
-  // this image, it might still be a candidate for discarding.
-  aImage->RequestDiscard();
+  if (aFlags & REQUEST_DISCARD) {
+    // Request that the image be discarded if nobody else holds a lock on it.
+    // Do this even if !mLockingImages, because even if we didn't just unlock
+    // this image, it might still be a candidate for discarding.
+    aImage->RequestDiscard();
+  }
 
   return rv;
 }
@@ -9328,6 +9331,7 @@ nsDocument::RequestFullScreen(Element* aElement,
 
   // Remember this is the requesting full-screen document.
   sFullScreenDoc = do_GetWeakReference(static_cast<nsIDocument*>(this));
+  NS_ASSERTION(sFullScreenDoc, "nsDocument should support weak ref!");
 
 #ifdef DEBUG
   // Note assertions must run before SetWindowFullScreen() as that does
@@ -9674,6 +9678,10 @@ nsDocument::RequestPointerLock(Element* aElement)
   nsEventStateManager::sPointerLockedElement = do_GetWeakReference(aElement);
   nsEventStateManager::sPointerLockedDoc =
     do_GetWeakReference(static_cast<nsIDocument*>(this));
+  NS_ASSERTION(nsEventStateManager::sPointerLockedElement &&
+               nsEventStateManager::sPointerLockedDoc,
+               "aElement and this should support weak references!");
+
   DispatchPointerLockChange(this);
 }
 

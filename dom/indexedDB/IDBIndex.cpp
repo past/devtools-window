@@ -119,7 +119,7 @@ public:
 
   ~GetHelper()
   {
-    IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
+    IDBObjectStore::ClearCloneReadInfo(mCloneReadInfo);
   }
 
   virtual nsresult DoDatabaseWork(mozIStorageConnection* aConnection)
@@ -190,8 +190,7 @@ public:
   ~GetAllHelper()
   {
     for (uint32_t index = 0; index < mCloneReadInfos.Length(); index++) {
-      IDBObjectStore::ClearStructuredCloneBuffer(
-        mCloneReadInfos[index].mCloneBuffer);
+      IDBObjectStore::ClearCloneReadInfo(mCloneReadInfos[index]);
     }
   }
 
@@ -284,7 +283,7 @@ public:
 
   ~OpenCursorHelper()
   {
-    IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
+    IDBObjectStore::ClearCloneReadInfo(mCloneReadInfo);
   }
 
   virtual nsresult DoDatabaseWork(mozIStorageConnection* aConnection)
@@ -397,7 +396,7 @@ IDBIndex::Create(IDBObjectStore* aObjectStore,
 }
 
 IDBIndex::IDBIndex()
-: mId(LL_MININT),
+: mId(INT64_MIN),
   mKeyPath(0),
   mCachedKeyPath(JSVAL_VOID),
   mActorChild(nullptr),
@@ -852,7 +851,7 @@ IDBIndex::GetAll(const jsval& aKey,
   }
 
   if (aOptionalArgCount < 2 || aLimit == 0) {
-    aLimit = PR_UINT32_MAX;
+    aLimit = UINT32_MAX;
   }
 
   nsRefPtr<IDBRequest> request;
@@ -886,7 +885,7 @@ IDBIndex::GetAllKeys(const jsval& aKey,
   }
 
   if (aOptionalArgCount < 2 || aLimit == 0) {
-    aLimit = PR_UINT32_MAX;
+    aLimit = UINT32_MAX;
   }
 
   nsRefPtr<IDBRequest> request;
@@ -1215,7 +1214,7 @@ GetHelper::GetSuccessResult(JSContext* aCx,
 void
 GetHelper::ReleaseMainThreadObjects()
 {
-  IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
+  IDBObjectStore::ClearCloneReadInfo(mCloneReadInfo);
   GetKeyHelper::ReleaseMainThreadObjects();
 }
 
@@ -1323,7 +1322,7 @@ GetAllKeysHelper::DoDatabaseWork(mozIStorageConnection* /* aConnection */)
   }
 
   nsCString limitClause;
-  if (mLimit != PR_UINT32_MAX) {
+  if (mLimit != UINT32_MAX) {
     limitClause = NS_LITERAL_CSTRING(" LIMIT ");
     limitClause.AppendInt(mLimit);
   }
@@ -1490,7 +1489,7 @@ GetAllHelper::DoDatabaseWork(mozIStorageConnection* /* aConnection */)
   }
 
   nsCString limitClause;
-  if (mLimit != PR_UINT32_MAX) {
+  if (mLimit != UINT32_MAX) {
     limitClause = NS_LITERAL_CSTRING(" LIMIT ");
     limitClause.AppendInt(mLimit);
   }
@@ -1556,8 +1555,7 @@ void
 GetAllHelper::ReleaseMainThreadObjects()
 {
   for (uint32_t index = 0; index < mCloneReadInfos.Length(); index++) {
-    IDBObjectStore::ClearStructuredCloneBuffer(
-      mCloneReadInfos[index].mCloneBuffer);
+    IDBObjectStore::ClearCloneReadInfo(mCloneReadInfos[index]);
   }
   GetKeyHelper::ReleaseMainThreadObjects();
 }
@@ -2217,7 +2215,7 @@ OpenCursorHelper::EnsureCursor()
 void
 OpenCursorHelper::ReleaseMainThreadObjects()
 {
-  IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
+  IDBObjectStore::ClearCloneReadInfo(mCloneReadInfo);
 
   // These don't need to be released on the main thread but they're only valid
   // as long as mCursor is set.

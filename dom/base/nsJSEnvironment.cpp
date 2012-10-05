@@ -58,6 +58,7 @@
 #include "mozilla/dom/ImageData.h"
 
 #include "nsJSPrincipals.h"
+#include "jsdbgapi.h"
 
 #ifdef XP_MACOSX
 // AssertMacros.h defines 'check' and conflicts with AccessCheck.h
@@ -162,14 +163,14 @@ static bool sPostGCEventsToConsole;
 static bool sPostGCEventsToObserver;
 static bool sDisableExplicitCompartmentGC;
 static uint32_t sCCTimerFireCount = 0;
-static uint32_t sMinForgetSkippableTime = PR_UINT32_MAX;
+static uint32_t sMinForgetSkippableTime = UINT32_MAX;
 static uint32_t sMaxForgetSkippableTime = 0;
 static uint32_t sTotalForgetSkippableTime = 0;
 static uint32_t sRemovedPurples = 0;
 static uint32_t sForgetSkippableBeforeCC = 0;
 static uint32_t sPreviousSuspectedCount = 0;
 static uint32_t sCompartmentGCCount = NS_MAX_COMPARTMENT_GC_COUNT;
-static uint32_t sCleanupsSinceLastGC = PR_UINT32_MAX;
+static uint32_t sCleanupsSinceLastGC = UINT32_MAX;
 static bool sNeedsFullCC = false;
 static nsJSContext *sContextList = nullptr;
 
@@ -1730,6 +1731,7 @@ nsJSContext::CompileEventHandler(nsIAtom *aName,
                                  const nsAString& aBody,
                                  const char *aURL, uint32_t aLineNo,
                                  uint32_t aVersion,
+                                 bool aIsXBL,
                                  nsScriptObjectHolder<JSObject>& aHandler)
 {
   NS_ENSURE_TRUE(mIsInitialized, NS_ERROR_NOT_INITIALIZED);
@@ -1773,6 +1775,11 @@ nsJSContext::CompileEventHandler(nsIAtom *aName,
     return NS_ERROR_ILLEGAL_VALUE;
   }
 
+  // If this is an XBL function, make a note to that effect on its script.
+  if (aIsXBL) {
+    JS_SetScriptUserBit(JS_GetFunctionScript(mContext, fun), true);
+  }
+
   JSObject *handler = ::JS_GetFunctionObject(fun);
   return aHandler.set(handler);
 }
@@ -1789,6 +1796,7 @@ nsJSContext::CompileFunction(JSObject* aTarget,
                              uint32_t aLineNo,
                              uint32_t aVersion,
                              bool aShared,
+                             bool aIsXBL,
                              JSObject** aFunctionObject)
 {
   NS_ABORT_IF_FALSE(aFunctionObject,
@@ -1831,6 +1839,11 @@ nsJSContext::CompileFunction(JSObject* aTarget,
 
   if (!fun)
     return NS_ERROR_FAILURE;
+
+  // If this is an XBL function, make a note to that effect on its script.
+  if (aIsXBL) {
+    JS_SetScriptUserBit(JS_GetFunctionScript(mContext, fun), true);
+  }
 
   *aFunctionObject = JS_GetFunctionObject(fun);
   return NS_OK;
@@ -3095,7 +3108,7 @@ nsJSContext::CycleCollectNow(nsICycleCollectorListener *aListener,
   PRTime delta = GetCollectionTimeDelta();
 
   uint32_t cleanups = sForgetSkippableBeforeCC ? sForgetSkippableBeforeCC : 1;
-  uint32_t minForgetSkippableTime = (sMinForgetSkippableTime == PR_UINT32_MAX)
+  uint32_t minForgetSkippableTime = (sMinForgetSkippableTime == UINT32_MAX)
     ? 0 : sMinForgetSkippableTime;
 
   if (sPostGCEventsToConsole) {
@@ -3132,7 +3145,7 @@ nsJSContext::CycleCollectNow(nsICycleCollectorListener *aListener,
     }
   }
 
-  if (sPostGCEventsToConsole || sPostGCEventsToObserver) {
+  if (sPostGCEventsToObserver) {
     NS_NAMED_MULTILINE_LITERAL_STRING(kJSONFmt,
        NS_LL("{ \"timestamp\": %llu, ")
          NS_LL("\"duration\": %llu, ")
@@ -3172,7 +3185,7 @@ nsJSContext::CycleCollectNow(nsICycleCollectorListener *aListener,
       observerService->NotifyObservers(nullptr, "cycle-collection-statistics", json.get());
     }
   }
-  sMinForgetSkippableTime = PR_UINT32_MAX;
+  sMinForgetSkippableTime = UINT32_MAX;
   sMaxForgetSkippableTime = 0;
   sTotalForgetSkippableTime = 0;
   sRemovedPurples = 0;
@@ -3493,7 +3506,7 @@ DOMGCSliceCallback(JSRuntime *aRt, js::GCProgress aProgress, const js::GCDescrip
       }
     }
 
-    if (sPostGCEventsToConsole || sPostGCEventsToObserver) {
+    if (sPostGCEventsToObserver) {
       nsString json;
       json.Adopt(aDesc.formatJSON(aRt, PR_Now()));
       nsRefPtr<NotifyGCEndRunnable> notify = new NotifyGCEndRunnable(json);
@@ -3892,7 +3905,7 @@ ReadSourceFromFilename(JSContext *cx, const char *filename, jschar **src, uint32
   NS_ENSURE_SUCCESS(rv, rv);
   if (!rawLen)
     return NS_ERROR_FAILURE;
-  if (rawLen > PR_UINT32_MAX)
+  if (rawLen > UINT32_MAX)
     return NS_ERROR_FILE_TOO_BIG;
 
   // Allocate an internal buf the size of the file.

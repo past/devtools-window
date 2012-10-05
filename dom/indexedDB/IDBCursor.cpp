@@ -80,7 +80,7 @@ public:
 
   ~ContinueHelper()
   {
-    IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
+    IDBObjectStore::ClearCloneReadInfo(mCloneReadInfo);
   }
 
   virtual nsresult DoDatabaseWork(mozIStorageConnection* aConnection)
@@ -88,6 +88,8 @@ public:
 
   virtual nsresult GetSuccessResult(JSContext* aCx,
                                     jsval* aVal) MOZ_OVERRIDE;
+
+  virtual void ReleaseMainThreadObjects() MOZ_OVERRIDE;
 
   virtual nsresult
   PackArgumentsForParentProcess(CursorRequestParams& aParams) MOZ_OVERRIDE;
@@ -370,7 +372,7 @@ IDBCursor::~IDBCursor()
   if (mRooted) {
     NS_DROP_JS_OBJECTS(this, IDBCursor);
   }
-  IDBObjectStore::ClearStructuredCloneBuffer(mCloneReadInfo.mCloneBuffer);
+  IDBObjectStore::ClearCloneReadInfo(mCloneReadInfo);
 }
 
 nsresult
@@ -744,7 +746,7 @@ IDBCursor::Advance(int64_t aCount)
 {
   NS_ASSERTION(NS_IsMainThread(), "Wrong thread!");
 
-  if (aCount < 1 || aCount > PR_UINT32_MAX) {
+  if (aCount < 1 || aCount > UINT32_MAX) {
     return NS_ERROR_TYPE_ERR;
   }
 
@@ -851,6 +853,13 @@ ContinueHelper::GetSuccessResult(JSContext* aCx,
   }
 
   return NS_OK;
+}
+
+void
+ContinueHelper::ReleaseMainThreadObjects()
+{
+  IDBObjectStore::ClearCloneReadInfo(mCloneReadInfo);
+  CursorHelper::ReleaseMainThreadObjects();
 }
 
 nsresult

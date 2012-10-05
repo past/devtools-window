@@ -27,7 +27,7 @@ try {
 
 const kMessages =["SystemMessageManager:GetPending",
                   "SystemMessageManager:Register",
-                  "SystemMessageManager:Unregister"]
+                  "child-process-shutdown"]
 
 function debug(aMsg) {
   //dump("-- SystemMessageInternal " + Date.now() + " : " + aMsg + "\n");
@@ -40,7 +40,12 @@ function SystemMessageInternal() {
   // list of pending messages for each page here also.
   this._pages = [];
   this._listeners = {};
+
+  this._webappsRegistryReady = false;
+  this._bufferedSysMsgs = [];
+
   Services.obs.addObserver(this, "xpcom-shutdown", false);
+  Services.obs.addObserver(this, "webapps-registry-ready", false);
   kMessages.forEach((function(aMsg) {
     ppmm.addMessageListener(aMsg, this);
   }).bind(this));
@@ -48,26 +53,25 @@ function SystemMessageInternal() {
 
 SystemMessageInternal.prototype = {
   sendMessage: function sendMessage(aType, aMessage, aPageURI, aManifestURI) {
+    // Buffer system messages until the webapps' registration is ready,
+    // so that we can know the correct pages registered to be sent.
+    if (!this._webappsRegistryReady) {
+      this._bufferedSysMsgs.push({ how: "send",
+                                   type: aType,
+                                   msg: aMessage,
+                                   pageURI: aPageURI,
+                                   manifestURI: aManifestURI });
+      return;
+    }
+
     debug("Broadcasting " + aType + " " + JSON.stringify(aMessage));
     if (this._listeners[aManifestURI.spec]) {
-      let i;
-      let listener;
-      for (i = this._listeners[aManifestURI.spec].length - 1; i >= 0; i -= 1) {
-        listener = this._listeners[aManifestURI.spec][i];
-        try {
-          listener.sendAsyncMessage("SystemMessageManager:Message",
-                                     { type: aType,
-                                       msg: aMessage,
-                                       manifest: aManifestURI.spec })
-        } catch (e) {
-          // Remove once 777508 lands.
-          let index;
-          if ((index = this._listeners[aManifestURI.spec].indexOf(listener)) != -1) {
-            this._listeners[aManifestURI.spec].splice(index, 1);
-            dump("Remove dead MessageManager!\n");
-          }
-        }
-      };
+      this._listeners[aManifestURI.spec].forEach(function sendMsg(aListener) {
+        aListener.sendAsyncMessage("SystemMessageManager:Message",
+                                   { type: aType,
+                                     msg: aMessage,
+                                     manifest: aManifestURI.spec })
+      });
     }
 
     this._pages.forEach(function sendMess_openPage(aPage) {
@@ -82,28 +86,26 @@ SystemMessageInternal.prototype = {
   },
 
   broadcastMessage: function broadcastMessage(aType, aMessage) {
+    // Buffer system messages until the webapps' registration is ready,
+    // so that we can know the correct pages registered to be broadcasted.
+    if (!this._webappsRegistryReady) {
+      this._bufferedSysMsgs.push({ how: "broadcast",
+                                   type: aType,
+                                   msg: aMessage });
+      return;
+    }
+
     debug("Broadcasting " + aType + " " + JSON.stringify(aMessage));
     // Find pages that registered an handler for this type.
     this._pages.forEach(function(aPage) {
       if (aPage.type == aType) {
         if (this._listeners[aPage.manifest]) {
-          let i;
-          for (i = this._listeners[aPage.manifest].length - 1; i >= 0; i -= 1) {
-            let listener = this._listeners[aPage.manifest][i];
-            try {
-              listener.sendAsyncMessage("SystemMessageManager:Message",
-                                         { type: aType,
-                                           msg: aMessage,
-                                           manifest: aPage.manifest})
-            } catch (e) {
-              // Remove once 777508 lands.
-              let index;
-              if ((index = this._listeners[aPage.manifest].indexOf(listener)) != -1) {
-                this._listeners[aPage.manifest].splice(index, 1);
-                dump("Remove dead MessageManager!\n");
-              }
-            }
-          };
+          this._listeners[aPage.manifest].forEach(function sendMsg(aListener) {
+            aListener.sendAsyncMessage("SystemMessageManager:Message",
+                                       { type: aType,
+                                         msg: aMessage,
+                                         manifest: aPage.manifest})
+          });
         }
         this._processPage(aPage, aMessage);
       }
@@ -133,7 +135,7 @@ SystemMessageInternal.prototype = {
         this._listeners[manifest].push(aMessage.target);
         debug("listeners for " + manifest + " : " + this._listeners[manifest].length);
         break;
-      case "SystemMessageManager:Unregister":
+      case "child-process-shutdown":
         debug("Got Unregister from " + aMessage.target);
         let mm = aMessage.target;
         for (let manifest in this._listeners) {
@@ -175,13 +177,34 @@ SystemMessageInternal.prototype = {
   },
 
   observe: function observe(aSubject, aTopic, aData) {
-    if (aTopic == "xpcom-shutdown") {
-      kMessages.forEach((function(aMsg) {
-        ppmm.removeMessageListener(aMsg, this);
-      }).bind(this));
-      Services.obs.removeObserver(this, "xpcom-shutdown");
-      ppmm = null;
-      this._pages = null;
+    switch (aTopic) {
+      case "xpcom-shutdown":
+        kMessages.forEach((function(aMsg) {
+          ppmm.removeMessageListener(aMsg, this);
+        }).bind(this));
+        Services.obs.removeObserver(this, "xpcom-shutdown");
+        Services.obs.removeObserver(this, "webapps-registry-ready");
+        ppmm = null;
+        this._pages = null;
+        this._bufferedSysMsgs = null;
+        break;
+      case "webapps-registry-ready":
+        // After the webapps' registration has been done for sure,
+        // re-fire the buffered system messages if there is any.
+        this._webappsRegistryReady = true;
+        this._bufferedSysMsgs.forEach((function(aSysMsg) {
+          switch (aSysMsg.how) {
+            case "send":
+              this.sendMessage(
+                aSysMsg.type, aSysMsg.msg, aSysMsg.pageURI, aSysMsg.manifestURI);
+              break;
+            case "broadcast":
+              this.broadcastMessage(aSysMsg.type, aSysMsg.msg);
+              break;
+          }
+        }).bind(this));
+        this._bufferedSysMsgs = null;
+        break;
     }
   },
 

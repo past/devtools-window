@@ -557,15 +557,10 @@ class CallCompiler : public BaseCompiler
     {
         RecompilationMonitor monitor(cx);
 
-        if (f.script()->function()) {
-            f.script()->uninlineable = true;
-            MarkTypeObjectFlags(cx, f.script()->function(), types::OBJECT_FLAG_UNINLINEABLE);
-        }
-
-        /* Don't touch the IC if the call triggered a recompilation. */
-        if (monitor.recompiled())
-            return true;
-
+        /*
+         * When IonMonkey is enabled we never inline in JM. So do not cause any
+         * recompilation by setting the UNINLINEABLE flag.
+         */
         JS_ASSERT(!f.regs.inlined());
 
         Assembler masm;
@@ -693,10 +688,10 @@ class CallCompiler : public BaseCompiler
         for (size_t i = 0; i < argc + 1; i++) {
             /* Copy the argument onto the native stack. */
 #ifdef JS_NUNBOX32
-            masm.push(Address(t0, -((i + 1) * sizeof(Value)) + 4));
-            masm.push(Address(t0, -((i + 1) * sizeof(Value))));
+            masm.push(Address(t0, -int32_t((i + 1) * sizeof(Value)) + 4));
+            masm.push(Address(t0, -int32_t((i + 1) * sizeof(Value))));
 #elif defined JS_PUNBOX64
-            masm.push(Address(t0, -((i + 1) * sizeof(Value))));
+            masm.push(Address(t0, -int32_t((i + 1) * sizeof(Value))));
 #endif
         }
 
@@ -712,10 +707,10 @@ class CallCompiler : public BaseCompiler
         /* Call into Ion. */
         masm.loadPtr(Address(ionScript, ion::IonScript::offsetOfMethod()), t0);
 #if defined(JS_CPU_X86) || defined(JS_CPU_X64)
-        masm.loadPtr(Address(t0, ion::IonCode::OffsetOfCode()), t0);
+        masm.loadPtr(Address(t0, ion::IonCode::offsetOfCode()), t0);
         masm.call(t0);
 #elif defined(JS_CPU_ARM)
-        masm.loadPtr(Address(t0, ion::IonCode::OffsetOfCode()), JSC::ARMRegisters::ip);
+        masm.loadPtr(Address(t0, ion::IonCode::offsetOfCode()), JSC::ARMRegisters::ip);
         masm.callAddress(JS_FUNC_TO_DATA_PTR(void *, IonVeneer));
 #endif
 

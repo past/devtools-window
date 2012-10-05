@@ -150,17 +150,6 @@ size_t ListBase<LC>::sProtoMethodsCount = 0;
 template<class LC>
 ListBase<LC> ListBase<LC>::instance;
 
-bool
-DefineConstructor(JSContext *cx, JSObject *obj, DefineInterface aDefine, nsresult *aResult)
-{
-    bool enabled;
-    bool defined = aDefine(cx, obj, &enabled);
-    NS_ASSERTION(!defined || enabled,
-                 "We defined a constructor but the new bindings are disabled?");
-    *aResult = defined ? NS_OK : NS_ERROR_FAILURE;
-    return enabled;
-}
-
 template<class LC>
 typename ListBase<LC>::ListType*
 ListBase<LC>::getNative(JSObject *obj)
@@ -323,10 +312,8 @@ js::Class sInterfacePrototypeClass = {
 
 template<class LC>
 JSObject *
-ListBase<LC>::getPrototype(JSContext *cx, JSObject *receiver, bool *enabled)
+ListBase<LC>::getPrototype(JSContext *cx, JSObject *receiver)
 {
-    *enabled = true;
-
     XPCWrappedNativeScope *scope =
         XPCWrappedNativeScope::FindInJSObjectScope(cx, receiver);
     if (!scope)
@@ -405,10 +392,8 @@ ListBase<LC>::getPrototype(JSContext *cx, XPCWrappedNativeScope *scope,
 template<class LC>
 JSObject *
 ListBase<LC>::create(JSContext *cx, JSObject *scope, ListType *aList,
-                     nsWrapperCache* aWrapperCache, bool *triedToWrap)
+                     nsWrapperCache* aWrapperCache)
 {
-    *triedToWrap = true;
-
     JSObject *parent = WrapNativeParent(cx, scope, aList->GetParentObject());
     if (!parent)
         return NULL;
@@ -416,9 +401,7 @@ ListBase<LC>::create(JSContext *cx, JSObject *scope, ListType *aList,
     JSObject *global = js::GetGlobalForObjectCrossCompartment(parent);
     JSAutoCompartment ac(cx, global);
 
-    JSObject *proto = getPrototype(cx, global, triedToWrap);
-    if (!proto && !*triedToWrap)
-        aWrapperCache->ClearIsDOMBinding();
+    JSObject *proto = getPrototype(cx, global);
     if (!proto)
         return NULL;
     JSObject *obj = NewProxyObject(cx, &ListBase<LC>::instance,

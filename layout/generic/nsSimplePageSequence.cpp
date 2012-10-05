@@ -112,6 +112,7 @@ nsSimplePageSequenceFrame::nsSimplePageSequenceFrame(nsStyleContext* aContext) :
 nsSimplePageSequenceFrame::~nsSimplePageSequenceFrame()
 {
   delete mPageData;
+  ResetPrintCanvasList();
 }
 
 NS_QUERYFRAME_HEAD(nsSimplePageSequenceFrame)
@@ -672,19 +673,6 @@ nsSimplePageSequenceFrame::PrePrintNextPage(nsITimerCallback* aCallback, bool* a
   *aDone = doneCounter == mCurrentCanvasList.Length();
 
   return NS_OK;
-}
-
-void
-nsSimplePageSequenceFrame::InvalidateInternal(const nsRect& aDamageRect,
-                                              nscoord aX, nscoord aY,
-                                              nsIFrame* aForChild,
-                                              uint32_t aFlags)
-{
-  // xxx Invalidate the entire frame as otherwise invalidate of printCanvas
-  // don't work properly. This is hopefully no longer necessary once 539356
-  // lands.
-  nsContainerFrame::InvalidateInternal(
-      nsRect(nsPoint(0,0), GetSize()), 0, 0, aForChild, aFlags); 
 }
 
 NS_IMETHODIMP

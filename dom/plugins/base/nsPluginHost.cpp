@@ -31,7 +31,7 @@
 #include "nsIURL.h"
 #include "nsXPIDLString.h"
 #include "nsReadableUtils.h"
-#include "nsIProtocolProxyService.h"
+#include "nsIProtocolProxyService2.h"
 #include "nsIStreamConverterService.h"
 #include "nsIFile.h"
 #if defined(XP_MACOSX)
@@ -611,8 +611,7 @@ nsresult nsPluginHost::GetURLWithHeaders(nsNPAPIPluginInstance* pluginInst,
     return rv;
 
   if (target) {
-    nsCOMPtr<nsIPluginInstanceOwner> owner;
-    rv = pluginInst->GetOwner(getter_AddRefs(owner));
+    nsRefPtr<nsPluginInstanceOwner> owner = pluginInst->GetOwner();
     if (owner) {
       if ((0 == PL_strcmp(target, "newwindow")) ||
           (0 == PL_strcmp(target, "_new")))
@@ -700,8 +699,7 @@ nsresult nsPluginHost::PostURL(nsISupports* pluginInst,
   }
 
   if (target) {
-    nsCOMPtr<nsIPluginInstanceOwner> owner;
-    rv = instance->GetOwner(getter_AddRefs(owner));
+    nsRefPtr<nsPluginInstanceOwner> owner = instance->GetOwner();
     if (owner) {
       if ((0 == PL_strcmp(target, "newwindow")) ||
           (0 == PL_strcmp(target, "_new"))) {
@@ -743,10 +741,15 @@ nsresult nsPluginHost::FindProxyForURL(const char* url, char* *result)
 
   nsCOMPtr<nsIURI> uriIn;
   nsCOMPtr<nsIProtocolProxyService> proxyService;
+  nsCOMPtr<nsIProtocolProxyService2> proxyService2;
   nsCOMPtr<nsIIOService> ioService;
 
   proxyService = do_GetService(NS_PROTOCOLPROXYSERVICE_CONTRACTID, &res);
   if (NS_FAILED(res) || !proxyService)
+    return res;
+
+  proxyService2 = do_QueryInterface(proxyService, &res);
+  if (NS_FAILED(res) || !proxyService2)
     return res;
 
   ioService = do_GetService(NS_IOSERVICE_CONTRACTID, &res);
@@ -760,7 +763,8 @@ nsresult nsPluginHost::FindProxyForURL(const char* url, char* *result)
 
   nsCOMPtr<nsIProxyInfo> pi;
 
-  res = proxyService->Resolve(uriIn, 0, getter_AddRefs(pi));
+  // Remove this with bug 778201
+  res = proxyService2->DeprecatedBlockingResolve(uriIn, 0, getter_AddRefs(pi));
   if (NS_FAILED(res))
     return res;
 
@@ -1152,7 +1156,7 @@ nsPluginHost::TagForPlugin(nsNPAPIPlugin* aPlugin)
 
 nsresult nsPluginHost::SetUpPluginInstance(const char *aMimeType,
                                            nsIURI *aURL,
-                                           nsIPluginInstanceOwner *aOwner)
+                                           nsPluginInstanceOwner *aOwner)
 {
   NS_ENSURE_ARG_POINTER(aOwner);
 
@@ -1186,7 +1190,7 @@ nsresult nsPluginHost::SetUpPluginInstance(const char *aMimeType,
 nsresult
 nsPluginHost::TrySetUpPluginInstance(const char *aMimeType,
                                      nsIURI *aURL,
-                                     nsIPluginInstanceOwner *aOwner)
+                                     nsPluginInstanceOwner *aOwner)
 {
 #ifdef PLUGIN_LOGGING
   nsAutoCString urlSpec;
@@ -1979,13 +1983,13 @@ struct CompareFilesByTime
   bool 
   LessThan(const nsCOMPtr<nsIFile>& a, const nsCOMPtr<nsIFile>& b) const 
   {
-    return LL_CMP(GetPluginLastModifiedTime(a), <, GetPluginLastModifiedTime(b));
+    return GetPluginLastModifiedTime(a) < GetPluginLastModifiedTime(b);
   }
 
   bool
   Equals(const nsCOMPtr<nsIFile>& a, const nsCOMPtr<nsIFile>& b) const
   {
-    return LL_EQ(GetPluginLastModifiedTime(a), GetPluginLastModifiedTime(b));
+    return GetPluginLastModifiedTime(a) == GetPluginLastModifiedTime(b);
   }
 };
 
@@ -2059,7 +2063,7 @@ nsresult nsPluginHost::ScanPluginsDirectory(nsIFile *pluginsDir,
     if (pluginTag) {
       seenBefore = true;
       // If plugin changed, delete cachedPluginTag and don't use cache
-      if (LL_NE(fileModTime, pluginTag->mLastModifiedTime)) {
+      if (fileModTime != pluginTag->mLastModifiedTime) {
         // Plugins has changed. Don't use cached plugin info.
         enabled = (pluginTag->Flags() & NS_PLUGIN_FLAG_ENABLED) != 0;
         pluginTag = nullptr;
@@ -2190,7 +2194,7 @@ nsresult nsPluginHost::ScanPluginsDirectory(nsIFile *pluginsDir,
     
     // Don't add the same plugin again if it hasn't changed
     if (nsPluginTag* duplicate = FirstPluginWithPath(pluginTag->mFullPath)) {
-      if (LL_EQ(pluginTag->mLastModifiedTime, duplicate->mLastModifiedTime)) {
+      if (pluginTag->mLastModifiedTime == duplicate->mLastModifiedTime) {
         continue;
       }
     }
@@ -3064,8 +3068,7 @@ nsresult nsPluginHost::NewPluginURLStream(const nsString& aURL,
   // get the full URL of the document that the plugin is embedded
   //   in to create an absolute url in case aURL is relative
   nsCOMPtr<nsIDocument> doc;
-  nsCOMPtr<nsIPluginInstanceOwner> owner;
-  aInstance->GetOwner(getter_AddRefs(owner));
+  nsRefPtr<nsPluginInstanceOwner> owner = aInstance->GetOwner();
   if (owner) {
     rv = owner->GetDocument(getter_AddRefs(doc));
     if (NS_SUCCEEDED(rv) && doc) {
@@ -3081,10 +3084,9 @@ nsresult nsPluginHost::NewPluginURLStream(const nsString& aURL,
   if (NS_FAILED(rv))
     return rv;
 
-  nsCOMPtr<nsIPluginTagInfo> pti = do_QueryInterface(owner);
   nsCOMPtr<nsIDOMElement> element;
-  if (pti)
-    pti->GetDOMElement(getter_AddRefs(element));
+  if (owner)
+    owner->GetDOMElement(getter_AddRefs(element));
 
   int16_t shouldLoad = nsIContentPolicy::ACCEPT;
   rv = NS_CheckContentLoadPolicy(nsIContentPolicy::TYPE_OBJECT_SUBREQUEST,
@@ -3188,8 +3190,7 @@ nsPluginHost::DoURLLoadSecurityCheck(nsNPAPIPluginInstance *aInstance,
     return NS_OK;
 
   // get the URL of the document that loaded the plugin
-  nsCOMPtr<nsIPluginInstanceOwner> owner;
-  aInstance->GetOwner(getter_AddRefs(owner));
+  nsRefPtr<nsPluginInstanceOwner> owner = aInstance->GetOwner();
   if (!owner)
     return NS_ERROR_FAILURE;
 
@@ -3437,8 +3438,7 @@ nsPluginHost::HandleBadPlugin(PRLibrary* aLibrary, nsNPAPIPluginInstance *aInsta
   if (mDontShowBadPluginMessage)
     return NS_OK;
 
-  nsCOMPtr<nsIPluginInstanceOwner> owner;
-  aInstance->GetOwner(getter_AddRefs(owner));
+  nsRefPtr<nsPluginInstanceOwner> owner = aInstance->GetOwner();
 
   nsCOMPtr<nsIPrompt> prompt;
   GetPrompt(owner, getter_AddRefs(prompt));
@@ -3692,7 +3692,7 @@ nsPluginHost::CreateTempFileToPost(const char *aPostDataURL, nsIFile **aTmpFile)
   rv = inFile->GetNativePath(filename);
   if (NS_FAILED(rv)) return rv;
 
-  if (!LL_IS_ZERO(fileSize)) {
+  if (fileSize != 0) {
     nsCOMPtr<nsIInputStream> inStream;
     rv = NS_NewLocalFileInputStream(getter_AddRefs(inStream), inFile);
     if (NS_FAILED(rv)) return rv;
@@ -4070,8 +4070,7 @@ nsPluginHost::DestroyRunningInstances(nsISupportsArray* aReloadDocs, nsPluginTag
       // removing duplicates. These will be reframed (embedded) or reloaded (full-page) later
       // to kickstart our instances.
       if (aReloadDocs) {
-        nsCOMPtr<nsIPluginInstanceOwner> owner;
-        instance->GetOwner(getter_AddRefs(owner));
+        nsRefPtr<nsPluginInstanceOwner> owner = instance->GetOwner();
         if (owner) {
           nsCOMPtr<nsIDocument> doc;
           owner->GetDocument(getter_AddRefs(doc));
