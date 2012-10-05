@@ -35,24 +35,24 @@ const WebConsoleDefinition = {
   icon: "chrome://browser/skin/devtools/webconsole-tool-icon.png",
   url: "chrome://browser/content/devtools/webconsole.xul",
   label: l10n.getStr("ToolboxWebconosle.label"),
-  build: function(aIFrameWindow, aTarget) {
-    return new WebConsolePanel(aIFrameWindow, aTarget);
+  build: function(iframeWindow, target) {
+    return new WebConsolePanel(iframeWindow, target);
   }
 };
 
 /**
  * A DevToolPanel that controls the Web Console.
  */
-function WebConsolePanel(aIFrameWindow, aTarget) {
-  this._frameWindow = aIFrameWindow;
-  this._target = aTarget;
+function WebConsolePanel(iframeWindow, target) {
+  this._frameWindow = iframeWindow;
+  this._target = target;
 
   if (this._target.type !== "tab") {
     throw new Error("Unsupported tab type: " + this._target.type);
   }
 
   let tab = this._target.value;
-  let parentDoc = aIFrameWindow.document.defaultView.parent.document;
+  let parentDoc = iframeWindow.document.defaultView.parent.document;
   let iframe = parentDoc.querySelector('#toolbox-panel-iframe-webconsole');
   this.hud = HUDService.activateHUDForContext(tab, false, iframe);
 }

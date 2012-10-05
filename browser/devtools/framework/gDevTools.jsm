@@ -102,24 +102,24 @@ DevTools.prototype = {
    *          populated with the markup from |url|. And returns an instance of
    *          ToolPanel (function|required)
    */
-  registerTool: function DT_registerTool(aToolDefinition) {
-    let toolId = aToolDefinition.id;
+  registerTool: function DT_registerTool(toolDefinition) {
+    let toolId = toolDefinition.id;
 
-    aToolDefinition.killswitch = aToolDefinition.killswitch ||
+    toolDefinition.killswitch = toolDefinition.killswitch ||
       "devtools." + toolId + ".enabled";
-    this._tools.set(toolId, aToolDefinition);
+    this._tools.set(toolId, toolDefinition);
 
     this.emit("tool-registered", toolId);
   },
 
   /**
-   * Removes all tools that match the given |aToolId|
+   * Removes all tools that match the given |toolId|
    * Needed so that add-ons can remove themselves when they are deactivated
    */
-  unregisterTool: function DT_unregisterTool(aToolId) {
-    this._tools.delete(aToolId);
+  unregisterTool: function DT_unregisterTool(toolId) {
+    this._tools.delete(toolId);
 
-    this.emit("tool-unregistered", aToolId);
+    this.emit("tool-unregistered", toolId);
   },
 
   /**
@@ -146,20 +146,20 @@ DevTools.prototype = {
   },
 
   /**
-   * Create a toolbox to debug aTarget using a window displayed in aHostType
-   * (optionally with aDefaultToolId opened)
+   * Create a toolbox to debug |target| using a window displayed in |hostType|
+   * (optionally with |defaultToolId| opened)
    */
-  openToolbox: function DT_openToolbox(aTarget, aHostType, aDefaultToolId) {
-    if (this._toolboxes.has(aTarget.value)) {
+  openToolbox: function DT_openToolbox(target, hostType, defaultToolId) {
+    if (this._toolboxes.has(target.value)) {
       // only allow one toolbox per target
       return null;
     }
 
-    let tb = new Toolbox(aTarget, aHostType, aDefaultToolId);
+    let tb = new Toolbox(target, hostType, defaultToolId);
 
-    this._toolboxes.set(aTarget.value, tb);
+    this._toolboxes.set(target.value, tb);
     tb.once("destroyed", function() {
-      this._toolboxes.delete(aTarget.value);
+      this._toolboxes.delete(target.value);
     }.bind(this));
 
     tb.open();
@@ -198,8 +198,8 @@ DevTools.prototype = {
   /**
    * Return a tool panel for a target.
    */
-  getPanelForTarget: function(aToolName, aTargetValue) {
-    let toolbox = this.getToolBoxes().get(aTargetValue);
+  getPanelForTarget: function(toolName, targetValue) {
+    let toolbox = this.getToolBoxes().get(targetValue);
     if (!toolbox) {
       return undefined;
     }
