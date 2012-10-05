@@ -7,6 +7,7 @@ const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 let EXPORTED_SYMBOLS = [ ];
 
 Cu.import("resource:///modules/devtools/gcli.jsm");
+Cu.import("resource:///modules/devtools/gDevTools.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 /**
@@ -28,7 +29,7 @@ gcli.addCommand({
   params: [],
   exec: function(args, context) {
     let win = context.environment.chromeDocument.defaultView;
-    let dbg = win.DebuggerUI.getDebugger();
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
 
     if (dbg) {
       let controller = dbg.contentWindow.DebuggerController;
@@ -49,7 +50,7 @@ gcli.addCommand({
   params: [],
   exec: function(args, context) {
     let win = context.environment.chromeDocument.defaultView;
-    let dbg = win.DebuggerUI.getDebugger();
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
 
     if (dbg) {
       let controller = dbg.contentWindow.DebuggerController;
@@ -81,7 +82,7 @@ gcli.addCommand({
   params: [],
   exec: function(args, context) {
     let win = context.environment.chromeDocument.defaultView;
-    let dbg = win.DebuggerUI.getDebugger();
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
 
     if (dbg) {
       let controller = dbg.contentWindow.DebuggerController;
@@ -102,7 +103,7 @@ gcli.addCommand({
   params: [],
   exec: function(args, context) {
     let win = context.environment.chromeDocument.defaultView;
-    let dbg = win.DebuggerUI.getDebugger();
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
 
     if (dbg) {
       let controller = dbg.contentWindow.DebuggerController;
@@ -123,7 +124,7 @@ gcli.addCommand({
   params: [],
   exec: function(args, context) {
     let win = context.environment.chromeDocument.defaultView;
-    let dbg = win.DebuggerUI.getDebugger();
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
 
     if (dbg) {
       let controller = dbg.contentWindow.DebuggerController;

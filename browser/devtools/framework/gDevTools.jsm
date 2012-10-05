@@ -4,15 +4,18 @@
 
 "use strict";
 
+const EXPORTED_SYMBOLS = [ "gDevTools" ];
+
 const Cu = Components.utils;
 const Ci = Components.interfaces;
+
+const PREF_LAST_HOST = "devtools.toolbox.host";
+const PREF_LAST_TOOL = "devtools.toolbox.selectedTool";
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 Cu.import("resource:///modules/devtools/ToolDefinitions.jsm");
 Cu.import("resource:///modules/devtools/Toolbox.jsm");
-
-const EXPORTED_SYMBOLS = [ "gDevTools" ];
 
 /**
  * gDevTools is a singleton that controls Firefox Developer Tools.
@@ -194,6 +197,17 @@ DevTools.prototype = {
       toolboxes.set(key, value);
     }
     return toolboxes;
+  },
+
+  /**
+   * Return a tool panel for a target.
+   */
+  getPanelForTarget: function(aToolName, aTargetValue) {
+    let toolbox = this.getToolBoxes().get(aTargetValue);
+    if (!toolbox) {
+      return undefined;
+    }
+    return toolbox.getToolPanels().get("jsdebugger");
   },
 
   destroy: function DT_destroy() {

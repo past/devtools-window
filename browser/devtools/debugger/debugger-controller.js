@@ -60,8 +60,6 @@ let DebuggerController = {
       DebuggerView.StackFrames.initialize();
       DebuggerView.Breakpoints.initialize();
       DebuggerView.Properties.initialize();
-      DebuggerView.toggleCloseButton(!this._isRemoteDebugger &&
-                                     !this._isChromeDebugger);
 
       this.dispatchEvent("Debugger:Loaded");
       this._connect();
@@ -108,7 +106,7 @@ let DebuggerController = {
       Services.prompt.alert(null,
         L10N.getStr("remoteDebuggerPromptTitle"),
         L10N.getStr("remoteDebuggerConnectionFailedMessage"));
-      this.dispatchEvent("Debugger:Close");
+      this.dispatchEvent("Debugger:Disconnected");
       return false;
     }
 
@@ -117,9 +115,9 @@ let DebuggerController = {
       let prompt = new RemoteDebuggerPrompt();
       let result = prompt.show(!!this._remoteConnectionTimeout);
       // If the connection was not established before the user canceled the
-      // prompt, close the remote debugger.
+      // prompt, disconnect the remote debugger.
       if (!result && !DebuggerController.activeThread) {
-        this.dispatchEvent("Debugger:Close");
+        this.dispatchEvent("Debugger:Disconnected");
         return false;
       }
       Prefs.remoteHost = prompt.remote.host;
@@ -205,7 +203,7 @@ let DebuggerController = {
    * Stops debugging the current tab.
    */
   _onTabDetached: function DC__onTabDetached() {
-    this.dispatchEvent("Debugger:Close");
+    this.dispatchEvent("Debugger:Disconnected");
   },
 
   /**

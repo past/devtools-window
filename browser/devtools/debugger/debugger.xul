@@ -59,11 +59,6 @@
 
   <vbox id="body" flex="1">
     <toolbar id="dbg-toolbar" class="devtools-toolbar">
-#ifdef XP_MACOSX
-      <toolbarbutton id="close"
-                     tooltiptext="&debuggerUI.closeButton.tooltip;"
-                     class="devtools-closebutton"/>
-#endif
       <toolbarbutton id="toggle-panes"
                      class="devtools-toolbarbutton"
                      tabindex="0"/>
@@ -92,11 +87,6 @@
                 tabindex="0"
                 label="&debuggerUI.pauseExceptions;"/>
       <spacer flex="1"/>
-#ifndef XP_MACOSX
-      <toolbarbutton id="close"
-                     tooltiptext="&debuggerUI.closeButton.tooltip;"
-                     class="devtools-closebutton"/>
-#endif
     </toolbar>
     <panel id="scripts-search-panel"
            type="arrow"
