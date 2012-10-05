@@ -173,8 +173,7 @@ Toolbox.prototype = {
     this._host.createUI(function (iframe) {
       iframe.addEventListener("DOMContentLoaded", this._onLoad, true);
       iframe.setAttribute("src", this._URL);
-    }
-    .bind(this));
+    }.bind(this));
   },
 
   /**
@@ -311,8 +310,8 @@ Toolbox.prototype = {
         iframe.removeEventListener("DOMContentLoaded", boundLoad, true);
         let instance = definition.build(iframe.contentWindow, this.target);
         this._toolPanels.set(id, instance);
-      }
-      .bind(this)
+      }.bind(this);
+
       iframe.addEventListener("DOMContentLoaded", boundLoad, true);
       iframe.setAttribute("src", definition.url);
     }
@@ -363,8 +362,7 @@ Toolbox.prototype = {
       Services.prefs.setCharPref(this._prefs.LAST_HOST, this._host.type);
 
       this._setDockButtons();
-    }
-    .bind(this));
+    }.bind(this));
   },
 
   /**
