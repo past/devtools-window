@@ -4,7 +4,7 @@
 
 "use strict";
 
-const EXPORTED_SYMBOLS = [ "gDevTools" ];
+const EXPORTED_SYMBOLS = [ "gDevTools", "DevTools" ];
 
 const Cu = Components.utils;
 const Ci = Components.interfaces;
