@@ -31,53 +31,64 @@ function DevTools() {
   new EventEmitter(this);
 }
 
+/**
+ * Each toolbox has a |target| that indicates what is being debugged/inspected.
+ * A target is an object with this shape:
+ * {
+ *   type: TargetType.[TAB|REMOTE|CHROME],
+ *   value: ...
+ * }
+ *
+ * When type = TAB, then 'value' contains a XUL Tab
+ * When type = REMOTE, then 'value' contains an object with host and port
+ *   properties, for example:
+ *   { type: TargetType.TAB, value: { host: 'localhost', port: 4325 } }
+ * When type = CHROME, then 'value' contains a XUL window
+ */
+DevTools.TargetType = {
+  TAB: "tab",
+  REMOTE: "remote",
+  CHROME: "chrome"
+};
+
+/**
+ * The developer tools can be 'hosted' either embedded in a browser window, or
+ * in a separate tab. Other hosts may be possible here, like a separate XUL
+ * window.
+ *
+ * A Toolbox host is an object with this shape:
+ * {
+ *   type: HostType.[BOTTOM|TAB],
+ *   element: ...
+ * }
+ *
+ * Definition of the 'element' property is left as an exercise to the
+ * implementor.
+ */
+DevTools.HostType = {
+  BOTTOM: "bottom",
+  RIGHT: "right",
+  WINDOW: "window",
+  TAB: "tab"
+};
+
+/**
+ * Event constants.
+ * FIXME: The supported list of events needs finalizing and documenting.
+ */
+DevTools.ToolEvent = {
+  TOOLREADY: "devtools-tool-ready",
+  TOOLHIDE: "devtools-tool-hide",
+  TOOLSHOW: "devtools-tool-show",
+  TOOLCLOSED: "devtools-tool-closed",
+  TOOLBOXREADY: "devtools-toolbox-ready",
+  TOOLBOXCLOSED: "devtools-toolbox-closed",
+};
+
 DevTools.prototype = {
-  /**
-   * A Toolbox target is an object with this shape:
-   * {
-   *   type: TargetType.[TAB|REMOTE|CHROME],
-   *   value: ...
-   * }
-   *
-   * When type = TAB, then 'value' contains a XUL Tab
-   * When type = REMOTE, then 'value' contains an object with host and port
-   *   properties, for example:
-   *   { type: TargetType.TAB, value: { host: 'localhost', port: 4325 } }
-   * When type = CHROME, then 'value' contains a XUL window
-   */
-  TargetType: {
-    TAB: "tab",
-    REMOTE: "remote",
-    CHROME: "chrome"
-  },
-
-  /**
-   * The developer tools can be 'hosted' either embedded in a browser window, or
-   * in a separate tab. Other hosts may be possible here, like a separate XUL
-   * window. A Toolbox host is an object with this shape:
-   * {
-   *   type: HostType.[BOTTOM|TAB],
-   *   element: ...
-   * }
-   *
-   * Definition of the 'element' property is left as an exercise to the
-   * implementor.
-   */
-  HostType: {
-    BOTTOM: "bottom",
-    RIGHT: "right",
-    WINDOW: "window",
-    TAB: "tab"
-  },
-
-  ToolEvent: {
-    TOOLREADY: "devtools-tool-ready",
-    TOOLHIDE: "devtools-tool-hide",
-    TOOLSHOW: "devtools-tool-show",
-    TOOLCLOSED: "devtools-tool-closed",
-    TOOLBOXREADY: "devtools-toolbox-ready",
-    TOOLBOXCLOSED: "devtools-toolbox-closed",
-  },
+  TargetType: DevTools.TargetType,
+  HostType: DevTools.HostType,
+  ToolEvent: DevTools.ToolEvent,
 
   /**
    * Register a new developer tool.
