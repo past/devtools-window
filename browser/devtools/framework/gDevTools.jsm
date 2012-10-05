@@ -203,7 +203,7 @@ DevTools.prototype = {
     if (!toolbox) {
       return undefined;
     }
-    return toolbox.getToolPanels().get("jsdebugger");
+    return toolbox.getToolPanels().get(toolName);
   },
 
   destroy: function DT_destroy() {
