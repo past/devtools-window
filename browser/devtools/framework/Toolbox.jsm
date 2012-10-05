@@ -215,10 +215,21 @@ Toolbox.prototype = {
   },
 
   _buildButtons: function TBOX_buildButtons(frame) {
+    let window = frame.ownerDocument.defaultView;
+    // FIXME: Once we move the DeveloperToolbar into the Devtools Window we
+    // might not need this check.
+    if (!window.DeveloperToolbar || !window.DeveloperToolbar.display) {
+      return;
+    }
+
+    let requisition = window.DeveloperToolbar.display.requisition;
+
+    let toolbarSpec = getToolbarSpec();
     let doc = frame.contentDocument;
     let container = doc.getElementById("toolbox-buttons");
-    let toolbarSpec = getToolbarSpec();
-    let buttons = createButtons(toolbarSpec, doc, frame.ownerDocument.defaultView);
+
+    let buttons = createButtons(toolbarSpec, doc, requisition);
+
     buttons.forEach(function(button) {
       container.appendChild(button);
     }.bind(this));
@@ -434,10 +445,8 @@ function getToolbarSpec() {
  * A toolbarSpec is an array of buttonSpecs. A buttonSpec is an array of
  * strings each of which is a GCLI command (including args if needed).
  */
-function createButtons(toolbarSpec, document, window) {
+function createButtons(toolbarSpec, document, requisition) {
   var reply = [];
-  var requisition = window.DeveloperToolbar.display.requisition;
-  // var requisition = new Requisition();
 
   toolbarSpec.forEach(function(buttonSpec) {
     var button = document.createElement("toolbarbutton");
