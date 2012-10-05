@@ -369,7 +369,7 @@ Toolbox.prototype = {
    * Get the most appropriate host tab, either the target or the current tab
    */
   _getHostTab: function TBOX_getHostTab() {
-    if (this._target.TargetType == gDevTools.TargetType.TAB) {
+    if (this._target.type == gDevTools.TargetType.TAB) {
       return this._target.value;
     } else {
       let win = Services.wm.getMostRecentWindow("navigator:browser");
