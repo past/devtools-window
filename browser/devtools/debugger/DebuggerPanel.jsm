@@ -14,7 +14,8 @@ const EXPORTED_SYMBOLS = ["DebuggerDefinition"];
 Cu.import("resource://gre/modules/devtools/EventEmitter.jsm");
 Cu.import("resource://gre/modules/devtools/dbg-server.jsm");
 Cu.import('resource://gre/modules/XPCOMUtils.jsm');
-XPCOMUtils.defineLazyModuleGetter(this, "gDevTools", "resource:///modules/devtools/gDevTools.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "gDevTools",
+                                  "resource:///modules/devtools/gDevTools.jsm");
 
 const DebuggerDefinition = {
   id: "jsdebugger",

@@ -371,8 +371,7 @@ Toolbox.prototype = {
   _getHostTab: function TBOX_getHostTab() {
     if (this._target.TargetType == gDevTools.TargetType.TAB) {
       return this._target.value;
-    }
-    else {
+    } else {
       let win = Services.wm.getMostRecentWindow("navigator:browser");
       return win.gBrowser.selectedTab;
     }
