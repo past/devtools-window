@@ -14,27 +14,15 @@ XPCOMUtils.defineLazyModuleGetter(this, "WebConsoleUtils",
                                   "resource:///modules/WebConsoleUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "HUDService",
                                   "resource:///modules/HUDService.jsm");
-let console = (function() {
-  let tempScope = {};
-  Components.utils.import("resource://gre/modules/devtools/Console.jsm", tempScope);
-  return tempScope.console;
-})();
-
-XPCOMUtils.defineLazyGetter(this, "l10n", function() {
-  return WebConsoleUtils.l10n;
-});
-
-Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
 /**
  * The external API allowing us to be registered with DevTools.jsm
  */
 const WebConsoleDefinition = {
   id: "webconsole",
-  killswitch: "devtools.webconsole.enabled", // doesn't currently exist
   icon: "chrome://browser/skin/devtools/webconsole-tool-icon.png",
   url: "chrome://browser/content/devtools/webconsole.xul",
-  label: l10n.getStr("ToolboxWebconosle.label"),
+  label: WebConsoleUtils.l10n.getStr("ToolboxWebconosle.label"),
   build: function(iframeWindow, target) {
     return new WebConsolePanel(iframeWindow, target);
   }
