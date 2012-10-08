@@ -494,5 +494,7 @@ function createButtons(toolbarSpec, document, requisition) {
     }
   });
 
+  requisition.update('');
+
   return reply;
 }
