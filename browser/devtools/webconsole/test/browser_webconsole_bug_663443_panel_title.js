@@ -4,9 +4,6 @@
 
 const TEST_URI = "data:text/html;charset=utf-8,<p>test for bug 663443. test1";
 
-const POSITION_PREF = "devtools.webconsole.position";
-const POSITION_WINDOW = "window";
-
 function consoleOpened() {
   document.removeEventListener("popupshown", consoleOpened, false);
 
@@ -40,18 +37,23 @@ function testEnd() {
 }
 
 function test() {
+  // FIXME: This looks like a specific test against a bug that isn't
+  // relevant any more. Consider removing this test
+  /*
   addTab(TEST_URI);
   browser.addEventListener("load", function onLoad() {
     browser.removeEventListener("load", onLoad, true);
 
-    Services.prefs.setCharPref(POSITION_PREF, POSITION_WINDOW);
+    // FIXME: Fixing position no longer supported this way
+    Services.prefs.setCharPref("devtools.webconsole.position", "window");
 
     registerCleanupFunction(function() {
-      Services.prefs.clearUserPref(POSITION_PREF);
+      Services.prefs.clearUserPref("devtools.webconsole.position");
     });
-  
+
     document.addEventListener("popupshown", consoleOpened, false);
 
     openConsole();
   }, true);
+  */
 }

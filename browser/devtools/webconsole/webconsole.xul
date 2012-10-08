@@ -113,19 +113,6 @@
 
         <spacer flex="1"/>
 
-        <toolbarbutton label="&btnPosition.label;" type="menu"
-                       class="devtools-toolbarbutton"
-                       tooltiptext="&btnPosition.tooltip;">
-          <menupopup>
-            <menuitem label="&positionMenu.above;" type="checkbox"
-                      autocheck="false" consolePosition="above"/>
-            <menuitem label="&positionMenu.below;" type="checkbox"
-                      autocheck="false" consolePosition="below"/>
-            <menuitem label="&positionMenu.window;" type="checkbox"
-                      autocheck="false" consolePosition="window"/>
-          </menupopup>
-        </toolbarbutton>
-
         <textbox class="compact hud-filter-box devtools-searchinput" type="search"
                  placeholder="&filterBox.placeholder;"/>
         <toolbarbutton class="webconsole-clear-console-button devtools-toolbarbutton"

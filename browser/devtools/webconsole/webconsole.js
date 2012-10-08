@@ -165,10 +165,8 @@ const MIN_FONT_SIZE = 10;
  *
  * @param object aWebConsoleOwner
  *        The WebConsole owner object.
- * @param string aPosition
- *        Tells the UI location for the Web Console.
  */
-function WebConsoleFrame(aWebConsoleOwner, aPosition)
+function WebConsoleFrame(aWebConsoleOwner)
 {
   this.owner = aWebConsoleOwner;
   this.hudId = this.owner.hudId;
@@ -179,11 +177,10 @@ function WebConsoleFrame(aWebConsoleOwner, aPosition)
   this._networkRequests = {};
 
   this._toggleFilter = this._toggleFilter.bind(this);
-  this._onPositionConsoleCommand = this._onPositionConsoleCommand.bind(this);
 
   this._initDefaultFilterPrefs();
   this._commandController = new CommandController(this);
-  this.positionConsole(aPosition, window);
+  this.positionConsole(window);
 
   this.jsterm = new JSTerm(this);
   this.jsterm.inputNode.focus();
@@ -325,7 +322,6 @@ WebConsoleFrame.prototype = {
     this.inputNode = doc.querySelector(".jsterm-input-node");
 
     this._setFilterTextBoxEvents();
-    this._initPositionUI();
     this._initFilterButtons();
 
     let fontSize = Services.prefs.getIntPref("devtools.webconsole.fontSize");
@@ -425,31 +421,6 @@ WebConsoleFrame.prototype = {
   },
 
   /**
-   * Initialize the UI for re-positioning the console
-   * @private
-   */
-  _initPositionUI: function WCF__initPositionUI()
-  {
-    let doc = this.document;
-
-    let itemAbove = doc.querySelector("menuitem[consolePosition='above']");
-    itemAbove.addEventListener("command", this._onPositionConsoleCommand, false);
-
-    let itemBelow = doc.querySelector("menuitem[consolePosition='below']");
-    itemBelow.addEventListener("command", this._onPositionConsoleCommand, false);
-
-    let itemWindow = doc.querySelector("menuitem[consolePosition='window']");
-    itemWindow.addEventListener("command", this._onPositionConsoleCommand, false);
-
-    this.positionMenuitems = {
-      last: null,
-      above: itemAbove,
-      below: itemBelow,
-      window: itemWindow,
-    };
-  },
-
-  /**
    * Creates one of the filter buttons on the toolbar.
    *
    * @private
@@ -483,34 +454,18 @@ WebConsoleFrame.prototype = {
   },
 
   /**
-   * Handle the "command" event for the buttons that allow the user to
-   * reposition the Web Console UI.
-   *
-   * @private
-   * @param nsIDOMEvent aEvent
-   */
-  _onPositionConsoleCommand: function WCF__onPositionConsoleCommand(aEvent)
-  {
-    let position = aEvent.target.getAttribute("consolePosition");
-    this.owner.positionConsole(position);
-  },
-
-  /**
    * Position the console in a different location.
    *
    * Note: you do not usually call this method. This is called by the WebConsole
    * instance that owns this iframe. You need to call this if you write
    * a different owner or you manually reposition the iframe.
    *
-   * @param string aPosition
-   *        The new Web Console iframe location: "above" (the page), "below" or
-   *        "window".
    * @param object aNewWindow
    *        Repositioning causes the iframe to reload - bug 254144. You need to
    *        provide the new window object so we can reinitialize the UI as
    *        needed.
    */
-  positionConsole: function WCF_positionConsole(aPosition, aNewWindow)
+  positionConsole: function WCF_positionConsole(aNewWindow)
   {
     this.window = aNewWindow;
     this.document = this.window.document;
@@ -526,11 +481,11 @@ WebConsoleFrame.prototype = {
 
     // this.closeButton.hidden = aPosition == "window";
 
-    this.positionMenuitems[aPosition].setAttribute("checked", true);
-    if (this.positionMenuitems.last) {
-      this.positionMenuitems.last.setAttribute("checked", false);
-    }
-    this.positionMenuitems.last = this.positionMenuitems[aPosition];
+    // this.positionMenuitems[aPosition].setAttribute("checked", true);
+    // if (this.positionMenuitems.last) {
+    //   this.positionMenuitems.last.setAttribute("checked", false);
+    // }
+    // this.positionMenuitems.last = this.positionMenuitems[aPosition];
 
     if (oldOutputNode && oldOutputNode.childNodes.length) {
       let parentNode = this.outputNode.parentNode;

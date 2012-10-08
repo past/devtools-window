@@ -140,7 +140,7 @@ HUD_SERVICE.prototype =
     let hud = new WebConsole(aTab, aIframe);
     this.hudReferences[hudId] = hud;
 
-    if (!aAnimated || hud.consolePanel) {
+    if (!aAnimated) {
       this.disableAnimation(hudId);
     }
 
@@ -437,14 +437,6 @@ HUD_SERVICE.prototype =
     let HUD = this.hudReferences[aHUDId];
     let innerHeight = HUD.tab.linkedBrowser.clientHeight;
     let chromeWindow = HUD.chromeWindow;
-    if (!HUD.consolePanel) {
-      let splitterStyle = chromeWindow.getComputedStyle(HUD.splitter, null);
-      innerHeight += parseInt(splitterStyle.height) +
-                     parseInt(splitterStyle.borderTopWidth) +
-                     parseInt(splitterStyle.borderBottomWidth) +
-                     parseInt(splitterStyle.marginTop) +
-                     parseInt(splitterStyle.marginBottom);
-    }
 
     let boxStyle = chromeWindow.getComputedStyle(HUD.iframe, null);
     innerHeight += parseInt(boxStyle.height) +
@@ -549,12 +541,6 @@ WebConsole.prototype = {
     "JSTerm:NonNativeConsoleAPI"],
 
   /**
-   * The xul:panel that holds the Web Console when it is positioned as a window.
-   * @type nsIDOMElement
-   */
-  consolePanel: null,
-
-  /**
    * The current tab location.
    * @type string
    */
@@ -602,24 +588,12 @@ WebConsole.prototype = {
    */
   _initUI: function WC__initUI()
   {
-    //this.splitter = this.chromeDocument.createElement("splitter");
-    //this.splitter.className = "devtools-horizontal-splitter";
-
-    /*
-    if (this.iframe == null) {
-      this.iframe = this.chromeDocument.createElement("iframe");
-      this.iframe.setAttribute("animated", "true");
-      this.iframe.setAttribute("src", UI_IFRAME_URL);
-      this.iframe.setAttribute("id", this.hudId);
-    }
-    */
     this.iframe.className = "web-console-frame";
     this.iframe.setAttribute("tooltip", "aHTMLTooltip");
     this.iframe.style.height = 0;
     this.iframe.addEventListener("load", this._onIframeLoad, true);
 
-    let position = Services.prefs.getCharPref("devtools.webconsole.position");
-    this.positionConsole(position);
+    this.positionConsole();
   },
 
   /**
@@ -630,145 +604,9 @@ WebConsole.prototype = {
   {
     this.iframe.removeEventListener("load", this._onIframeLoad, true);
 
-    let position = Services.prefs.getCharPref("devtools.webconsole.position");
-
     this.iframeWindow = this.iframe.contentWindow.wrappedJSObject;
-    this.ui = new this.iframeWindow.WebConsoleFrame(this, position);
+    this.ui = new this.iframeWindow.WebConsoleFrame(this);
     this._setupMessageManager();
-  },
-
-  /**
-   * Create a panel to open the web console if it should float above
-   * the content in its own window.
-   * @private
-   */
-  _createOwnWindowPanel: function WC__createOwnWindowPanel()
-  {
-    if (this.consolePanel) {
-      return;
-    }
-
-    let width = 0;
-    try {
-      width = Services.prefs.getIntPref("devtools.webconsole.width");
-    }
-    catch (ex) {}
-
-    if (width < 1) {
-      width = this.iframe.clientWidth || this.chromeWindow.innerWidth;
-    }
-
-    let height = this.iframe.clientHeight;
-
-    let top = 0;
-    try {
-      top = Services.prefs.getIntPref("devtools.webconsole.top");
-    }
-    catch (ex) {}
-
-    let left = 0;
-    try {
-      left = Services.prefs.getIntPref("devtools.webconsole.left");
-    }
-    catch (ex) {}
-
-    let panel = this.chromeDocument.createElementNS(XUL_NS, "panel");
-
-    let config = { id: "console_window_" + this.hudId,
-                   label: this.getPanelTitle(),
-                   titlebar: "normal",
-                   noautohide: "true",
-                   norestorefocus: "true",
-                   close: "true",
-                   flex: "1",
-                   hudId: this.hudId,
-                   width: width,
-                   position: "overlap",
-                   top: top,
-                   left: left,
-                 };
-
-    for (let attr in config) {
-      panel.setAttribute(attr, config[attr]);
-    }
-
-    panel.classList.add("web-console-panel");
-
-    let onPopupShown = (function HUD_onPopupShown() {
-      panel.removeEventListener("popupshown", onPopupShown, false);
-
-      // Make sure that the HUDBox size updates when the panel is resized.
-
-      let height = panel.clientHeight;
-
-      this.iframe.style.height = "auto";
-      this.iframe.flex = 1;
-
-      panel.setAttribute("height", height);
-    }).bind(this);
-
-    panel.addEventListener("popupshown", onPopupShown,false);
-
-    let onPopupHidden = (function HUD_onPopupHidden(aEvent) {
-      if (aEvent.target != panel) {
-        return;
-      }
-
-      panel.removeEventListener("popuphidden", onPopupHidden, false);
-
-      let width = 0;
-      try {
-        width = Services.prefs.getIntPref("devtools.webconsole.width");
-      }
-      catch (ex) { }
-
-      if (width > 0) {
-        Services.prefs.setIntPref("devtools.webconsole.width", panel.clientWidth);
-      }
-
-      // Are we destroying the HUD or repositioning it?
-      if (this.consoleWindowUnregisterOnHide) {
-        HUDService.deactivateHUDForContext(this.tab, false);
-      }
-    }).bind(this);
-
-    panel.addEventListener("popuphidden", onPopupHidden, false);
-
-    let lastIndex = -1;
-
-    if (this.outputNode && this.outputNode.getIndexOfFirstVisibleRow) {
-      lastIndex = this.outputNode.getIndexOfFirstVisibleRow() +
-                  this.outputNode.getNumberOfVisibleRows() - 1;
-    }
-
-    if (this.splitter && this.splitter.parentNode) {
-      this.splitter.parentNode.removeChild(this.splitter);
-    }
-
-    this._beforePositionConsole("window", lastIndex);
-
-    panel.appendChild(this.iframe);
-
-    let space = this.chromeDocument.createElement("spacer");
-    space.flex = 1;
-
-    let bottomBox = this.chromeDocument.createElement("hbox");
-
-    let resizer = this.chromeDocument.createElement("resizer");
-    resizer.setAttribute("dir", "bottomend");
-    resizer.setAttribute("element", config.id);
-
-    bottomBox.appendChild(space);
-    bottomBox.appendChild(resizer);
-
-    panel.appendChild(bottomBox);
-
-    this.mainPopupSet.appendChild(panel);
-
-    panel.openPopup(null, "overlay", left, top, false, false);
-
-    this.consolePanel = panel;
-    this.consoleWindowUnregisterOnHide = true;
   },
 
   /**
@@ -797,18 +635,8 @@ WebConsole.prototype = {
    * @param string aPosition
    *        The desired Web Console UI location: above, below or window.
    */
-  positionConsole: function WC_positionConsole(aPosition)
+  positionConsole: function WC_positionConsole()
   {
-    if (!(aPosition in this.positions)) {
-      throw new Error("Incorrect argument: " + aPosition +
-        ". Cannot position Web Console");
-    }
-
-    if (aPosition == "window") {
-      this._createOwnWindowPanel();
-      return;
-    }
-
     let height = this.iframe.clientHeight;
 
     // get the node position index
@@ -828,47 +656,18 @@ WebConsole.prototype = {
                   this.outputNode.getNumberOfVisibleRows() - 1;
     }
 
-    // remove the console and splitter and reposition
-    if (this.splitter && this.splitter.parentNode) {
-      this.splitter.parentNode.removeChild(this.splitter);
-    }
-
-    this._beforePositionConsole(aPosition, lastIndex);
-
-    if (this.splitter) {
-      if (aPosition == "below") {
-        //nBox.appendChild(this.splitter);
-        nBox.appendChild(this.iframe);
-      }
-      else {
-        nBox.insertBefore(this.splitter, node);
-        nBox.insertBefore(this.iframe, this.splitter);
-      }
-    }
-
-    if (this.consolePanel) {
-      // must destroy the consolePanel
-      this.consoleWindowUnregisterOnHide = false;
-      this.consolePanel.hidePopup();
-      this.consolePanel.parentNode.removeChild(this.consolePanel);
-      this.consolePanel = null;   // remove this as we're not in panel anymore
-      this.iframe.removeAttribute("flex");
-      this.iframe.removeAttribute("height");
-      this.iframe.style.height = height + "px";
-    }
+    this._beforePositionConsole(lastIndex);
   },
 
   /**
    * Common code that needs to execute before the Web Console is repositioned.
    * @private
-   * @param string aPosition
-   *        The new position: "above", "below" or "window".
    * @param number aLastIndex
    *        The last visible message in the console output before repositioning
    *        occurred.
    */
   _beforePositionConsole:
-  function WC__beforePositionConsole(aPosition, aLastIndex)
+  function WC__beforePositionConsole(aLastIndex)
   {
     if (!this.ui) {
       return;
@@ -877,14 +676,11 @@ WebConsole.prototype = {
     let onLoad = function() {
       this.iframe.removeEventListener("load", onLoad, true);
       this.iframeWindow = this.iframe.contentWindow.wrappedJSObject;
-      this.ui.positionConsole(aPosition, this.iframeWindow);
+      this.ui.positionConsole(this.iframeWindow);
 
       if (aLastIndex > -1 && aLastIndex < this.outputNode.getRowCount()) {
         this.outputNode.ensureIndexIsVisible(aLastIndex);
       }
-
-      this._currentUIPosition = aPosition;
-      Services.prefs.setCharPref("devtools.webconsole.position", aPosition);
     }.bind(this);
 
     this.iframe.addEventListener("load", onLoad, true);
@@ -1022,9 +818,6 @@ WebConsole.prototype = {
   onLocationChange: function WC_onLocationChange(aMessage)
   {
     this.contentLocation = aMessage.location;
-    if (this.consolePanel) {
-      this.consolePanel.label = this.getPanelTitle();
-    }
   },
 
   /**
@@ -1066,29 +859,15 @@ WebConsole.prototype = {
     let popupset = this.mainPopupSet;
     let panels = popupset.querySelectorAll("panel[hudId=" + this.hudId + "]");
     for (let panel of panels) {
-      if (panel != this.consolePanel) {
-        panel.hidePopup();
-      }
+      panel.hidePopup();
     }
 
     if (this.ui) {
       this.ui.destroy();
     }
 
-    // Remove the iframe and the consolePanel if the Web Console is inside a
-    // floating panel.
-    if (this.consolePanel && this.consolePanel.parentNode) {
-      this.consolePanel.hidePopup();
-      this.consolePanel.parentNode.removeChild(this.consolePanel);
-      this.consolePanel = null;
-    }
-
     if (this.iframe.parentNode) {
       this.iframe.parentNode.removeChild(this.iframe);
-    }
-
-    if (this.splitter && this.splitter.parentNode) {
-      this.splitter.parentNode.removeChild(this.splitter);
     }
   },
 };
@@ -1123,22 +902,17 @@ var HeadsUpDisplayUICommands = {
     var hudRef = HUDService.hudReferences[hudId];
 
     if (hudRef && hud) {
-      if (hudRef.consolePanel) {
-        hudRef.consolePanel.hidePopup();
-      }
-      else {
-        HUDService.storeHeight(hudId);
+      HUDService.storeHeight(hudId);
 
-        HUDService.animate(hudId, ANIMATE_OUT, function() {
-          // If the user closes the console while the console is animating away,
-          // then these callbacks will queue up, but all the callbacks after the
-          // first will have no console to operate on. This test handles this
-          // case gracefully.
-          if (ownerDocument.getElementById(hudId)) {
-            HUDService.deactivateHUDForContext(gBrowser.selectedTab, true);
-          }
-        });
-      }
+      HUDService.animate(hudId, ANIMATE_OUT, function() {
+        // If the user closes the console while the console is animating away,
+        // then these callbacks will queue up, but all the callbacks after the
+        // first will have no console to operate on. This test handles this
+        // case gracefully.
+        if (ownerDocument.getElementById(hudId)) {
+          HUDService.deactivateHUDForContext(gBrowser.selectedTab, true);
+        }
+      });
     }
     else {
       HUDService.activateHUDForContext(gBrowser.selectedTab, true);
