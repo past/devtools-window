@@ -901,16 +901,6 @@ WebConsole.prototype = {
   },
 
   /**
-   * The close button handler.
-   */
-  onCloseButton: function WC_onCloseButton()
-  {
-    HUDService.animate(this.hudId, ANIMATE_OUT, function() {
-      HUDService.deactivateHUDForContext(this.tab, true);
-    }.bind(this));
-  },
-
-  /**
    * The clear output button handler.
    */
   onClearButton: function WC_onClearButton()

@@ -369,10 +369,6 @@ WebConsoleFrame.prototype = {
                                        !this.getFilterState("network");
     }.bind(this));
 
-    this.closeButton = doc.getElementById("webconsole-close-button");
-    this.closeButton.addEventListener("command",
-                                      this.owner.onCloseButton.bind(this.owner));
-
     let clearButton = doc.getElementsByClassName("webconsole-clear-console-button")[0];
     clearButton.addEventListener("command",
                                  this.owner.onClearButton.bind(this.owner));
@@ -528,7 +524,7 @@ WebConsoleFrame.prototype = {
     this._initUI();
     this.jsterm && this.jsterm._initUI();
 
-    this.closeButton.hidden = aPosition == "window";
+    // this.closeButton.hidden = aPosition == "window";
 
     this.positionMenuitems[aPosition].setAttribute("checked", true);
     if (this.positionMenuitems.last) {

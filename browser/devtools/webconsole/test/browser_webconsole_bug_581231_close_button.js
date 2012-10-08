@@ -13,11 +13,15 @@
 const TEST_URI = "http://example.com/browser/browser/devtools/webconsole/test/test-console.html";
 
 function test() {
+  // FIXME: Since the purpose of this test is "Tests that the Web Console close button functions"
+  // We should probably delete the whole test with the devtools window
+  /*
   addTab(TEST_URI);
   browser.addEventListener("load", function onLoad() {
     browser.removeEventListener("load", onLoad, true);
     openConsole(null, testCloseButton);
   }, true);
+  */
 }
 
 function testCloseButton(hud) {

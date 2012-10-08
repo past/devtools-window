@@ -13,12 +13,16 @@ const HEIGHT_PREF = "devtools.hud.height";
 let hudRef, boxHeight, panelWidth;
 
 function test() {
+  // FIXME: It looks like this test is all about console position.
+  // Which means we should probably remove the whole test
+  /*
   addTab(TEST_URI);
   browser.addEventListener("load", function onLoad() {
     browser.removeEventListener("load", onLoad, true);
     openConsole(null, consoleOpened);
   }, true);
   registerCleanupFunction(testEnd);
+  */
 }
 
 function testEnd() {
