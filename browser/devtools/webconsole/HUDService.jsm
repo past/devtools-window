@@ -518,35 +518,6 @@ WebConsole.prototype = {
   get lastFinishedRequestCallback() HUDService.lastFinishedRequestCallback,
 
   /**
-   * Track callback functions registered for specific async requests sent to
-   * the content process.
-   *
-   * @private
-   * @type object
-   */
-  _asyncRequests: null,
-
-  /**
-   * Message names that the HUD listens for. These messages come from the remote
-   * Web Console content script.
-   *
-   * @private
-   * @type array
-   */
-  _messageListeners: ["JSTerm:EvalObject", "WebConsole:ConsoleAPI",
-    "WebConsole:CachedMessages", "WebConsole:PageError", "JSTerm:EvalResult",
-    "JSTerm:AutocompleteProperties", "JSTerm:ClearOutput",
-    "JSTerm:InspectObject", "WebConsole:NetworkActivity",
-    "WebConsole:FileActivity", "WebConsole:LocationChange",
-    "JSTerm:NonNativeConsoleAPI"],
-
-  /**
-   * The current tab location.
-   * @type string
-   */
-  contentLocation: "",
-
-  /**
    * Getter for the xul:popupset that holds any popups we open.
    * @type nsIDOMElement
    */
