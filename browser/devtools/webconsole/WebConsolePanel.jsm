@@ -20,9 +20,8 @@ let console = (function() {
   return tempScope.console;
 })();
 
-XPCOMUtils.defineLazyGetter(this, "l10n", function() {
-  return WebConsoleUtils.l10n;
-});
+const STRINGS_URI = "chrome://browser/locale/devtools/webconsole.properties";
+let l10n = new WebConsoleUtils.l10n(STRINGS_URI);
 
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
