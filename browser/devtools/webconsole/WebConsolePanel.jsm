@@ -11,11 +11,14 @@ const Cu = Components.utils;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "WebConsoleUtils",
-                                  "resource:///modules/WebConsoleUtils.jsm");
+                                  "resource://gre/modules/devtools/WebConsoleUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "HUDService",
                                   "resource:///modules/HUDService.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "DevTools",
                                   "resource:///modules/devtools/gDevTools.jsm");
+
+const STRINGS_URI = "chrome://browser/locale/devtools/webconsole.properties";
+let l10n = new WebConsoleUtils.l10n(STRINGS_URI);
 
 /**
  * The external API allowing us to be registered with DevTools.jsm
@@ -24,7 +27,7 @@ const WebConsoleDefinition = {
   id: "webconsole",
   icon: "chrome://browser/skin/devtools/webconsole-tool-icon.png",
   url: "chrome://browser/content/devtools/webconsole.xul",
-  label: WebConsoleUtils.l10n.getStr("ToolboxWebconosle.label"),
+  label: l10n.getStr("ToolboxWebconosle.label"),
   build: function(iframeWindow, target) {
     return new WebConsolePanel(iframeWindow, target);
   }
