@@ -13,11 +13,9 @@ include $(DEPTH)/config/autoconf.mk
 EXTRA_JS_MODULES = \
 		HUDService.jsm \
 		PropertyPanel.jsm \
-		NetworkHelper.jsm \
 		NetworkPanel.jsm \
 		AutocompletePopup.jsm \
 		WebConsolePanel.jsm \
-		WebConsoleUtils.jsm \
 		$(NULL)
 
 TEST_DIRS = test
