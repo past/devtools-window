@@ -14,6 +14,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "WebConsoleUtils",
                                   "resource:///modules/WebConsoleUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "HUDService",
                                   "resource:///modules/HUDService.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "DevTools",
+                                  "resource:///modules/devtools/gDevTools.jsm");
 
 /**
  * The external API allowing us to be registered with DevTools.jsm
@@ -35,7 +37,7 @@ function WebConsolePanel(iframeWindow, target) {
   this._frameWindow = iframeWindow;
   this._target = target;
 
-  if (this._target.type !== "tab") {
+  if (this._target.type !== DevTools.TargetType.TAB) {
     throw new Error("Unsupported tab type: " + this._target.type);
   }
 
