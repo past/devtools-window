@@ -14,44 +14,38 @@ XPCOMUtils.defineLazyModuleGetter(this, "WebConsoleUtils",
                                   "resource://gre/modules/devtools/WebConsoleUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "HUDService",
                                   "resource:///modules/HUDService.jsm");
-let console = (function() {
-  let tempScope = {};
-  Components.utils.import("resource://gre/modules/devtools/Console.jsm", tempScope);
-  return tempScope.console;
-})();
+XPCOMUtils.defineLazyModuleGetter(this, "DevTools",
+                                  "resource:///modules/devtools/gDevTools.jsm");
 
 const STRINGS_URI = "chrome://browser/locale/devtools/webconsole.properties";
 let l10n = new WebConsoleUtils.l10n(STRINGS_URI);
-
-Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
 /**
  * The external API allowing us to be registered with DevTools.jsm
  */
 const WebConsoleDefinition = {
   id: "webconsole",
-  killswitch: "devtools.webconsole.enabled", // doesn't currently exist
   icon: "chrome://browser/skin/devtools/webconsole-tool-icon.png",
   url: "chrome://browser/content/devtools/webconsole.xul",
   label: l10n.getStr("ToolboxWebconosle.label"),
-  build: function(aIFrameWindow, aTarget) {
-    return new WebConsolePanel(aIFrameWindow, aTarget);
+  build: function(iframeWindow, target) {
+    return new WebConsolePanel(iframeWindow, target);
   }
 };
 
 /**
  * A DevToolPanel that controls the Web Console.
  */
-function WebConsolePanel(aIFrameWindow, aTarget) {
-  this._frameWindow = aIFrameWindow;
-  this._target = aTarget;
+function WebConsolePanel(iframeWindow, target) {
+  this._frameWindow = iframeWindow;
+  this._target = target;
 
-  if (this._target.type !== "tab") {
+  if (this._target.type !== DevTools.TargetType.TAB) {
     throw new Error("Unsupported tab type: " + this._target.type);
   }
 
   let tab = this._target.value;
-  let parentDoc = aIFrameWindow.document.defaultView.parent.document;
+  let parentDoc = iframeWindow.document.defaultView.parent.document;
   let iframe = parentDoc.querySelector('#toolbox-panel-iframe-webconsole');
   this.hud = HUDService.activateHUDForContext(tab, false, iframe);
 }
