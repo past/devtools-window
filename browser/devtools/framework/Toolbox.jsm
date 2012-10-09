@@ -167,6 +167,13 @@ Toolbox.prototype = {
   },
 
   /**
+   * Get the iframe containing the toolbox UI
+   */
+  get frame() {
+    return this._host.frame;
+  },
+
+  /**
    * Open the toolbox
    */
   open: function TBOX_open() {
@@ -202,6 +209,8 @@ Toolbox.prototype = {
     this._buildButtons(frame);
 
     this.selectTool(this._defaultToolId);
+
+    this.emit("load");
   },
 
   /**
