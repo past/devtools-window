@@ -1461,7 +1461,18 @@ Breakpoints.prototype = {
 
     let line = aBreakpoint.line + 1;
 
-    this.addBreakpoint({ url: url, line: line }, null, true);
+    this.addBreakpoint({ url: url, line: line }, function (aBp) {
+      if (aBp.requestedLocation) {
+        this.editor.removeBreakpoint(aBp.requestedLocation.line - 1);
+
+        let breakpoints = this.getBreakpoints(url, aBp.location.line);
+        if (breakpoints.length > 1) {
+          this.removeBreakpoint(breakpoints[0], null, true, true);
+        } else {
+          this.updateEditorBreakpoints();
+        }
+      }
+    }.bind(this), true);
   },
 
   /**
@@ -1553,6 +1564,18 @@ Breakpoints.prototype = {
     }
 
     this.activeThread.setBreakpoint(aLocation, function(aResponse, aBpClient) {
+      let loc = aResponse.actualLocation;
+
+      if (loc) {
+        aBpClient.requestedLocation = {
+          line: aBpClient.location.line,
+          url: aBpClient.location.url
+        };
+
+        aBpClient.location.line = loc.line;
+        aBpClient.location.url = loc.url;
+      }
+
       this.store[aBpClient.actor] = aBpClient;
       this.displayBreakpoint(aBpClient, aNoEditorUpdate, aNoPaneUpdate);
       aCallback && aCallback(aBpClient, aResponse.error);
@@ -1653,6 +1676,18 @@ Breakpoints.prototype = {
       }
     }
     return null;
+  },
+
+  getBreakpoints: function BP_getBreakpoints(aUrl, aLine) {
+    let breakpoints = [];
+
+    for each (let breakpoint in this.store) {
+      if (breakpoint.location.url == aUrl && breakpoint.location.line == aLine) {
+        breakpoints.push(breakpoint);
+      }
+    }
+
+    return breakpoints;
   }
 };
 
@@ -1696,6 +1731,7 @@ const REMOTE_HOST = "devtools.debugger.remote-host";
 const REMOTE_PORT = "devtools.debugger.remote-port";
 const REMOTE_CONNECTION_RETRIES = "devtools.debugger.remote-connection-retries";
 const REMOTE_TIMEOUT = "devtools.debugger.remote-timeout";
+const NON_ENUM_VISIBLE = "devtools.debugger.ui.non-enum-visible";
 
 /**
  * Shortcuts for accessing various debugger preferences.
@@ -1783,7 +1819,7 @@ let Prefs = {
   },
 
   /**
-   * Gets a flag specifying if the the debugger should automatically connect to
+   * Gets a flag specifying if the debugger should automatically connect to
    * the default host and port number.
    * @return boolean
    */
@@ -1795,13 +1831,35 @@ let Prefs = {
   },
 
   /**
-   * Sets a flag specifying if the the debugger should automatically connect to
+   * Sets a flag specifying if the debugger should automatically connect to
    * the default host and port number.
    * @param boolean value
    */
   set remoteAutoConnect(value) {
     Services.prefs.setBoolPref(REMOTE_AUTO_CONNECT, value);
     this._autoConnect = value;
+  },
+
+  /**
+   * Gets a flag specifying if the debugger should show non-enumerable
+   * properties and variables in the scope view.
+   * @return boolean
+   */
+  get nonEnumVisible() {
+    if (this._nonEnumVisible === undefined) {
+      this._nonEnumVisible = Services.prefs.getBoolPref(NON_ENUM_VISIBLE);
+    }
+    return this._nonEnumVisible;
+  },
+
+  /**
+   * Sets a flag specifying if the debugger should show non-enumerable
+   * properties and variables in the scope view.
+   * @param boolean value
+   */
+  set nonEnumVisible(value) {
+    Services.prefs.setBoolPref(NON_ENUM_VISIBLE, value);
+    this._nonEnumVisible = value;
   }
 };
 
