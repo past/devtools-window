@@ -84,7 +84,7 @@ Toolbox.prototype = {
       case "tool-unregistered":
         toolId = args[0];
 
-        let doc = this._frame.contentWindow.document;
+        let doc = this._host.frame.contentWindow.document;
         let radio = doc.getElementById("toolbox-tab-" + toolId);
         let panel = doc.getElementById("toolbox-panel-" + toolId);
 
