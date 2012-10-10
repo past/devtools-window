@@ -308,7 +308,7 @@ Toolbox.prototype = {
 
       let boundLoad = function() {
         iframe.removeEventListener("DOMContentLoaded", boundLoad, true);
-        let instance = definition.build(iframe.contentWindow, this.target);
+        let instance = definition.build(iframe.contentWindow, this);
         this._toolPanels.set(id, instance);
       }.bind(this);
 
