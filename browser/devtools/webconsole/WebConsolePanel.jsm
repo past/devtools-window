@@ -46,16 +46,16 @@ function WebConsolePanel(iframeWindow, target) {
 
   let tab = this._target.value;
   let parentDoc = iframeWindow.document.defaultView.parent.document;
-  let iframe = parentDoc.querySelector('#toolbox-panel-iframe-webconsole');
-  this.hud = HUDService.activateHUDForContext(tab, false, iframe);
+  let iframe = parentDoc.querySelector("#toolbox-panel-iframe-webconsole");
+  this.hud = HUDService.activateHUDForContext(tab, iframe);
 }
 
 WebConsolePanel.prototype = {
   get target() this._target,
 
-  destroy: function WCTI_destroy()
+  destroy: function WCP_destroy()
   {
     let tab = this._target.value;
-    HUDService.deactivateHUDForContext(tab, false);
+    HUDService.deactivateHUDForContext(tab);
   },
 };

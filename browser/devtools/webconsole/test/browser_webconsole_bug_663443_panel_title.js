@@ -8,12 +8,13 @@ function consoleOpened() {
   document.removeEventListener("popupshown", consoleOpened, false);
 
   let HUD = HUDService.getHudByWindow(content);
-  ok(HUD.consolePanel, "Web Console opened in a panel");
+  is(HUD.ui.contentLocation, "FIXME", "Web Console opened in a panel");
 
   let waitForTitleChange = {
     name: "panel title change",
     validatorFn: function() {
-      return HUD.consolePanel.label.indexOf("test2") > -1;
+      dump("waitForTitleChange HUD.ui.contentLocation=" + HUD.ui.contentLocation + "\n");
+      return HUD.ui.contentLocation == "FIXME";
     },
     successFn: testEnd,
     failureFn: testEnd,
@@ -22,7 +23,8 @@ function consoleOpened() {
   waitForSuccess({
     name: "initial panel title",
     validatorFn: function() {
-      return HUD.consolePanel.label.indexOf("test1") > -1;
+      dump("initial panel title HUD.ui.contentLocation=" + HUD.ui.contentLocation + "\n");
+      return HUD.ui.contentLocation == "FIXME";
     },
     successFn: function() {
       content.location = "data:text/html;charset=utf-8,<p>test2 for bug 663443";
@@ -37,23 +39,12 @@ function testEnd() {
 }
 
 function test() {
-  // FIXME: This looks like a specific test against a bug that isn't
-  // relevant any more. Consider removing this test
-  /*
   addTab(TEST_URI);
   browser.addEventListener("load", function onLoad() {
     browser.removeEventListener("load", onLoad, true);
-
-    // FIXME: Fixing position no longer supported this way
-    Services.prefs.setCharPref("devtools.webconsole.position", "window");
-
-    registerCleanupFunction(function() {
-      Services.prefs.clearUserPref("devtools.webconsole.position");
-    });
 
     document.addEventListener("popupshown", consoleOpened, false);
 
     openConsole();
   }, true);
-  */
 }

@@ -184,7 +184,6 @@ function WebConsoleFrame(aWebConsoleOwner)
   this._networkRequests = {};
 
   this._toggleFilter = this._toggleFilter.bind(this);
-  this._onPositionConsoleCommand = this._onPositionConsoleCommand.bind(this);
   this._flushMessageQueue = this._flushMessageQueue.bind(this);
 
   this._outputTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
@@ -527,17 +526,6 @@ WebConsoleFrame.prototype = {
   },
 
   /**
-   * Handle the "command" event for the buttons that allow the user to
-   * reposition the Web Console UI.
-   *
-   * @private
-   * @param nsIDOMEvent aEvent
-   */
-  _onPositionConsoleCommand: function WCF__onPositionConsoleCommand(aEvent)
-  {
-  },
-
-  /**
    * Position the console in a different location.
    *
    * Note: you do not usually call this method. This is called by the WebConsole
@@ -562,14 +550,6 @@ WebConsoleFrame.prototype = {
 
     this._initUI();
     this.jsterm && this.jsterm._initUI();
-
-    // this.closeButton.hidden = aPosition == "window";
-
-    // this.positionMenuitems[aPosition].setAttribute("checked", true);
-    // if (this.positionMenuitems.last) {
-    //   this.positionMenuitems.last.setAttribute("checked", false);
-    // }
-    // this.positionMenuitems.last = this.positionMenuitems[aPosition];
 
     if (oldOutputNode && oldOutputNode.childNodes.length) {
       let parentNode = this.outputNode.parentNode;
@@ -1670,7 +1650,9 @@ WebConsoleFrame.prototype = {
   onLocationChange: function WCF_onLocationChange(aURI, aTitle)
   {
     this.contentLocation = aURI;
-    this.owner.onLocationChange(aURI, aTitle);
+    if (this.owner.onLocationChange) {
+      this.owner.onLocationChange(aURI, aTitle);
+    }
   },
 
   /**

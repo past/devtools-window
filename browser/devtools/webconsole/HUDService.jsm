@@ -42,24 +42,6 @@ const HTML_NS = "http://www.w3.org/1999/xhtml";
 // The XUL namespace.
 const XUL_NS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
 
-
-// Possible directions that can be passed to HUDService.animate().
-const ANIMATE_OUT = 0;
-const ANIMATE_IN = 1;
-
-// Minimum console height, in pixels.
-const MINIMUM_CONSOLE_HEIGHT = 150;
-
-// Minimum page height, in pixels. This prevents the Web Console from
-// remembering a height that covers the whole page.
-const MINIMUM_PAGE_HEIGHT = 50;
-
-// The default console height, as a ratio from the content window inner height.
-const DEFAULT_CONSOLE_HEIGHT = 0.33;
-
-// points to the file to load in the Web Console iframe.
-const UI_IFRAME_URL = "chrome://browser/content/devtools/webconsole.xul";
-
 ///////////////////////////////////////////////////////////////////////////
 //// The HUD service
 
@@ -70,9 +52,6 @@ function HUD_SERVICE()
   this.onTabClose = this.onTabClose.bind(this);
   this.onTabSelect = this.onTabSelect.bind(this);
   this.onWindowUnload = this.onWindowUnload.bind(this);
-
-  // Remembers the last console height, in pixels.
-  this.lastConsoleHeight = Services.prefs.getIntPref("devtools.hud.height");
 
   /**
    * Keeps a reference for each HeadsUpDisplay that is created
@@ -111,12 +90,12 @@ HUD_SERVICE.prototype =
    *
    * @param nsIDOMElement aTab
    *        The xul:tab element.
-   * @param boolean aAnimated
-   *        True if you want to animate the opening of the Web console.
+   * @param nsIDOMElement aIframe
+   *        The iframe element into which to place the web console.
    * @return object
    *         The new HeadsUpDisplay instance.
    */
-  activateHUDForContext: function HS_activateHUDForContext(aTab, aAnimated, aIframe)
+  activateHUDForContext: function HS_activateHUDForContext(aTab, aIframe)
   {
     let hudId = "hud_" + aTab.linkedPanel;
     if (hudId in this.hudReferences) {
@@ -135,10 +114,6 @@ HUD_SERVICE.prototype =
     let hud = new WebConsole(aTab, aIframe);
     this.hudReferences[hudId] = hud;
 
-    if (!aAnimated) {
-      this.disableAnimation(hudId);
-    }
-
     HeadsUpDisplayUICommands.refreshCommand();
 
     return hud;
@@ -149,19 +124,13 @@ HUD_SERVICE.prototype =
    *
    * @param nsIDOMElement aTab
    *        The xul:tab element you want to enable the Web Console for.
-   * @param boolean aAnimated
-   *        True if you want to animate the closing of the Web console.
    * @return void
    */
-  deactivateHUDForContext: function HS_deactivateHUDForContext(aTab, aAnimated)
+  deactivateHUDForContext: function HS_deactivateHUDForContext(aTab)
   {
     let hudId = "hud_" + aTab.linkedPanel;
     if (!(hudId in this.hudReferences)) {
       return;
-    }
-
-    if (!aAnimated) {
-      this.storeHeight(hudId);
     }
 
     let hud = this.getHudReferenceById(hudId);
@@ -248,7 +217,7 @@ HUD_SERVICE.prototype =
   shutdown: function HS_shutdown()
   {
     for (let hud of this.hudReferences) {
-      this.deactivateHUDForContext(hud.tab, false);
+      this.deactivateHUDForContext(hud.tab);
     }
   },
 
@@ -324,17 +293,6 @@ HUD_SERVICE.prototype =
   },
 
   /**
-   * onTabClose event handler function
-   *
-   * @param aEvent
-   * @returns void
-   */
-  onTabClose: function HS_onTabClose(aEvent)
-  {
-    this.deactivateHUDForContext(aEvent.target, false);
-  },
-
-  /**
    * onTabSelect event handler function
    *
    * @param aEvent
@@ -367,110 +325,8 @@ HUD_SERVICE.prototype =
 
     let tab = tabContainer.firstChild;
     while (tab != null) {
-      this.deactivateHUDForContext(tab, false);
+      this.deactivateHUDForContext(tab);
       tab = tab.nextSibling;
-    }
-  },
-
-  /**
-   * Animates the Console appropriately.
-   *
-   * @param string aHUDId The ID of the console.
-   * @param string aDirection Whether to animate the console appearing
-   *        (ANIMATE_IN) or disappearing (ANIMATE_OUT).
-   * @param function aCallback An optional callback, which will be called with
-   *        the "transitionend" event passed as a parameter once the animation
-   *        finishes.
-   */
-  animate: function HS_animate(aHUDId, aDirection, aCallback)
-  {
-    let hudBox = this.getHudReferenceById(aHUDId).iframe;
-    if (!hudBox.hasAttribute("animated")) {
-      if (aCallback) {
-        aCallback();
-      }
-      return;
-    }
-
-    switch (aDirection) {
-      case ANIMATE_OUT:
-        hudBox.style.height = 0;
-        break;
-      case ANIMATE_IN:
-        this.resetHeight(aHUDId);
-        break;
-    }
-
-    if (aCallback) {
-      hudBox.addEventListener("transitionend", aCallback, false);
-    }
-  },
-
-  /**
-   * Disables all animation for a console, for unit testing. After this call,
-   * the console will instantly take on a reasonable height, and the close
-   * animation will not occur.
-   *
-   * @param string aHUDId The ID of the console.
-   */
-  disableAnimation: function HS_disableAnimation(aHUDId)
-  {
-    let hudBox = HUDService.hudReferences[aHUDId].iframe;
-    if (hudBox.hasAttribute("animated")) {
-      hudBox.removeAttribute("animated");
-      this.resetHeight(aHUDId);
-    }
-  },
-
-  /**
-   * Reset the height of the Web Console.
-   *
-   * @param string aHUDId The ID of the Web Console.
-   */
-  resetHeight: function HS_resetHeight(aHUDId)
-  {
-    let HUD = this.hudReferences[aHUDId];
-    let innerHeight = HUD.tab.linkedBrowser.clientHeight;
-    let chromeWindow = HUD.chromeWindow;
-
-    let boxStyle = chromeWindow.getComputedStyle(HUD.iframe, null);
-    innerHeight += parseInt(boxStyle.height) +
-                   parseInt(boxStyle.borderTopWidth) +
-                   parseInt(boxStyle.borderBottomWidth);
-
-    let height = this.lastConsoleHeight > 0 ? this.lastConsoleHeight :
-      Math.ceil(innerHeight * DEFAULT_CONSOLE_HEIGHT);
-
-    if ((innerHeight - height) < MINIMUM_PAGE_HEIGHT) {
-      height = innerHeight - MINIMUM_PAGE_HEIGHT;
-    }
-
-    if (isNaN(height) || height < MINIMUM_CONSOLE_HEIGHT) {
-      height = MINIMUM_CONSOLE_HEIGHT;
-    }
-
-    HUD.iframe.style.height = height + "px";
-  },
-
-  /**
-   * Remember the height of the given Web Console, such that it can later be
-   * reused when other Web Consoles are open.
-   *
-   * @param string aHUDId The ID of the Web Console.
-   */
-  storeHeight: function HS_storeHeight(aHUDId)
-  {
-    let hudBox = this.hudReferences[aHUDId].iframe;
-    let window = hudBox.ownerDocument.defaultView;
-    let style = window.getComputedStyle(hudBox, null);
-    let height = parseInt(style.height);
-    height += parseInt(style.borderTopWidth);
-    height += parseInt(style.borderBottomWidth);
-    this.lastConsoleHeight = height;
-
-    let pref = Services.prefs.getIntPref("devtools.hud.height");
-    if (pref > -1) {
-      Services.prefs.setIntPref("devtools.hud.height", height);
     }
   },
 };
@@ -486,7 +342,7 @@ HUD_SERVICE.prototype =
  * @param nsIDOMElement aTab
  *        The xul:tab for which you want the WebConsole object.
  * @param nsIDOMElement aIframe
- *        Optional iframe into which we should create the WebConsole UI.
+ *        iframe into which we should create the WebConsole UI.
  */
 function WebConsole(aTab, aIframe)
 {
@@ -496,7 +352,11 @@ function WebConsole(aTab, aIframe)
   this.chromeWindow = this.chromeDocument.defaultView;
   this.hudId = "hud_" + this.tab.linkedPanel;
   this._onIframeLoad = this._onIframeLoad.bind(this);
-  this._initUI();
+
+  this.iframe.className = "web-console-frame";
+  this.iframe.addEventListener("load", this._onIframeLoad, true);
+
+  this.positionConsole();
 }
 
 WebConsole.prototype = {
@@ -538,20 +398,6 @@ WebConsole.prototype = {
   get gViewSourceUtils() this.chromeWindow.gViewSourceUtils,
 
   /**
-   * Initialize the Web Console UI. This method sets up the iframe.
-   * @private
-   */
-  _initUI: function WC__initUI()
-  {
-    this.iframe.className = "web-console-frame";
-    this.iframe.setAttribute("tooltip", "aHTMLTooltip");
-    this.iframe.style.height = 0;
-    this.iframe.addEventListener("load", this._onIframeLoad, true);
-
-    this.positionConsole();
-  },
-
-  /**
    * The "load" event handler for the Web Console iframe.
    * @private
    */
@@ -585,14 +431,9 @@ WebConsole.prototype = {
 
   /**
    * Position the Web Console UI.
-   *
-   * @param string aPosition
-   *        The desired Web Console UI location: above, below or window.
    */
   positionConsole: function WC_positionConsole()
   {
-    let height = this.iframe.clientHeight;
-
     // get the node position index
     let nodeIdx = this.positions[aPosition];
     let nBox = this.chromeDocument.getElementById(this.tab.linkedPanel);
@@ -657,19 +498,6 @@ WebConsole.prototype = {
   _onClearButton: function WC__onClearButton()
   {
     this.chromeWindow.DeveloperToolbar.resetErrorsCount(this.tab);
-  },
-
-  /**
-   * Handler for page location changes. If the Web Console is
-   * opened in a panel the panel title is updated.
-   *
-   * @param string aURI
-   *        New page location.
-   * @param string aTitle
-   *        New page title.
-   */
-  onLocationChange: function WC_onLocationChange(aURI, aTitle)
-  {
   },
 
   /**
@@ -767,21 +595,10 @@ var HeadsUpDisplayUICommands = {
     var hudRef = HUDService.hudReferences[hudId];
 
     if (hudRef && hud) {
-      HUDService.storeHeight(hudId);
-
-      HUDService.animate(hudId, ANIMATE_OUT, function() {
-        // If the user closes the console while the console is animating away,
-        // then these callbacks will queue up, but all the callbacks after the
-        // first will have no console to operate on. This test handles this
-        // case gracefully.
-        if (ownerDocument.getElementById(hudId)) {
-          HUDService.deactivateHUDForContext(gBrowser.selectedTab, true);
-        }
-      });
+      HUDService.deactivateHUDForContext(gBrowser.selectedTab);
     }
     else {
-      HUDService.activateHUDForContext(gBrowser.selectedTab, true);
-      HUDService.animate(hudId, ANIMATE_IN);
+      HUDService.activateHUDForContext(gBrowser.selectedTab);
     }
   },
 
