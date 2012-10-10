@@ -395,6 +395,16 @@ Toolbox.prototype = {
   },
 
   /**
+   * Get the toolbox's notification box
+   *
+   * @return The notification box element.
+   */
+  getNotificationBox: function TBOX_getNotificationBox() {
+    let doc = this._host.frame.contentDocument;
+    return doc.getElementById("toolbox-notificationbox");
+  },
+
+  /**
    * Remove all UI elements, detach from target and clear up
    */
   destroy: function TBOX_destroy() {
