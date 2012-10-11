@@ -13,7 +13,7 @@ const EXPORTED_SYMBOLS = [ "Hosts" ];
 
 let Hosts = {
   "bottom": BottomHost,
-  "right": RightHost,
+  "side": SidebarHost,
   "window": WindowHost
 }
 
@@ -47,6 +47,7 @@ BottomHost.prototype = {
     this._splitter.setAttribute("class", "devtools-horizontal-splitter");
 
     this.frame = ownerDocument.createElement("iframe");
+    this.frame.id = "devtools-toolbox-bottom-iframe";
     this.frame.height = Services.prefs.getIntPref(this.heightPref);
 
     this._nbox = gBrowser.getNotificationBox(this.hostTab.linkedBrowser);
@@ -71,21 +72,21 @@ BottomHost.prototype = {
 
 
 /**
- * Host object for the sidebar on the right of the browser
+ * Host object for the in-browser sidebar
  */
-function RightHost(hostTab) {
+function SidebarHost(hostTab) {
   this.hostTab = hostTab;
 
   new EventEmitter(this);
 }
 
-RightHost.prototype = {
-  type: "right",
+SidebarHost.prototype = {
+  type: "side",
 
   widthPref: "devtools.toolbox.sidebar.width",
 
   /**
-   * Create a box at the right side of the host tab and call a callback with
+   * Create a box in the sidebar of the host tab and call a callback with
    * The iframe to populate the toolbox in.
    *
    * @param {function} callback
@@ -100,6 +101,7 @@ RightHost.prototype = {
     this._splitter.setAttribute("class", "devtools-side-splitter");
 
     this.frame = ownerDocument.createElement("iframe");
+    this.frame.id = "devtools-toolbox-side-iframe";
     this.frame.width = Services.prefs.getIntPref(this.widthPref);
 
     this._sidebar = gBrowser.getSidebarContainer(this.hostTab.linkedBrowser);

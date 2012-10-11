@@ -84,7 +84,7 @@ Toolbox.prototype = {
       case "tool-unregistered":
         toolId = args[0];
 
-        let doc = this._frame.contentWindow.document;
+        let doc = this._host.frame.contentWindow.document;
         let radio = doc.getElementById("toolbox-tab-" + toolId);
         let panel = doc.getElementById("toolbox-panel-" + toolId);
 
@@ -167,6 +167,13 @@ Toolbox.prototype = {
   },
 
   /**
+   * Get the iframe containing the toolbox UI
+   */
+  get frame() {
+    return this._host.frame;
+  },
+
+  /**
    * Open the toolbox
    */
   open: function TBOX_open() {
@@ -202,6 +209,8 @@ Toolbox.prototype = {
     this._buildButtons(frame);
 
     this.selectTool(this._defaultToolId);
+
+    this.emit("load");
   },
 
   /**
@@ -308,7 +317,7 @@ Toolbox.prototype = {
 
       let boundLoad = function() {
         iframe.removeEventListener("DOMContentLoaded", boundLoad, true);
-        let instance = definition.build(iframe.contentWindow, this.target);
+        let instance = definition.build(iframe.contentWindow, this);
         this._toolPanels.set(id, instance);
       }.bind(this);
 
@@ -362,6 +371,8 @@ Toolbox.prototype = {
       Services.prefs.setCharPref(this._prefs.LAST_HOST, this._host.type);
 
       this._setDockButtons();
+
+      this.emit("host-changed");
     }.bind(this));
   },
 
@@ -395,9 +406,23 @@ Toolbox.prototype = {
   },
 
   /**
+   * Get the toolbox's notification box
+   *
+   * @return The notification box element.
+   */
+  getNotificationBox: function TBOX_getNotificationBox() {
+    let doc = this._host.frame.contentDocument;
+    return doc.getElementById("toolbox-notificationbox");
+  },
+
+  /**
    * Remove all UI elements, detach from target and clear up
    */
   destroy: function TBOX_destroy() {
+    for (let [id, panel] of this._toolPanels) {
+      panel.destroy();
+    }
+
     this._host.destroyUI();
 
     gDevTools.off("tool-registered", this._handleEvent);

@@ -1341,8 +1341,7 @@ WebConsoleFrame.prototype = {
                                             urlNode, null, null, aFileURI);
 
     this.makeOutputMessageLink(outputNode, function WCF__onFileClick() {
-      let viewSourceUtils = this.owner.gViewSourceUtils;
-      viewSourceUtils.viewSource(aFileURI, null, this.document);
+      this.owner.viewSource(aFileURI);
     }.bind(this));
 
     return outputNode;
@@ -2334,10 +2333,13 @@ WebConsoleFrame.prototype = {
         if (win) {
           win.focus();
         }
-        return;
       }
-      let viewSourceUtils = this.owner.gViewSourceUtils;
-      viewSourceUtils.viewSource(aSourceURL, null, this.document, aSourceLine);
+      else if (locationNode.parentNode.category == CATEGORY_CSS) {
+        this.owner.viewSourceInStyleEditor(aSourceURL, aSourceLine);
+      }
+      else {
+        this.owner.viewSource(aSourceURL, aSourceLine);
+      }
     }.bind(this), true);
 
     return locationNode;

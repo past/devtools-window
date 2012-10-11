@@ -85,6 +85,10 @@
                 type="checkbox"
                 tabindex="0"
                 label="&debuggerUI.pauseExceptions;"/>
+      <checkbox id="show-nonenum"
+                type="checkbox"
+                tabindex="0"
+                label="&debuggerUI.showNonEnums;"/>
       <spacer flex="1"/>
     </toolbar>
     <panel id="scripts-search-panel"

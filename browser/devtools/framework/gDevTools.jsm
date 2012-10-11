@@ -67,7 +67,7 @@ DevTools.TargetType = {
  */
 DevTools.HostType = {
   BOTTOM: "bottom",
-  RIGHT: "right",
+  SIDE: "side",
   WINDOW: "window",
   TAB: "tab"
 };
