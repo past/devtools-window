@@ -683,8 +683,5 @@ var WebConsoleObserver = {
   },
 };
 
-
-XPCOMUtils.defineLazyGetter(this, "HUDService", function () {
-  return new HUD_SERVICE();
-});
+const HUDService = new HUD_SERVICE();
 
