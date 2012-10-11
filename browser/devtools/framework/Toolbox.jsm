@@ -371,6 +371,8 @@ Toolbox.prototype = {
       Services.prefs.setCharPref(this._prefs.LAST_HOST, this._host.type);
 
       this._setDockButtons();
+
+      this.emit("host-changed");
     }.bind(this));
   },
 
