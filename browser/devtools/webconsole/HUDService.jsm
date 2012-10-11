@@ -49,7 +49,6 @@ function HUD_SERVICE()
 {
   // These methods access the "this" object, but they're registered as
   // event listeners. So we hammer in the "this" binding.
-  this.onTabClose = this.onTabClose.bind(this);
   this.onTabSelect = this.onTabSelect.bind(this);
   this.onWindowUnload = this.onWindowUnload.bind(this);
 
@@ -107,7 +106,6 @@ HUD_SERVICE.prototype =
     let window = aTab.ownerDocument.defaultView;
     let gBrowser = window.gBrowser;
 
-    gBrowser.tabContainer.addEventListener("TabClose", this.onTabClose, false);
     gBrowser.tabContainer.addEventListener("TabSelect", this.onTabSelect, false);
     window.addEventListener("unload", this.onWindowUnload, false);
 
@@ -156,7 +154,6 @@ HUD_SERVICE.prototype =
 
       let gBrowser = window.gBrowser;
       let tabContainer = gBrowser.tabContainer;
-      tabContainer.removeEventListener("TabClose", this.onTabClose, false);
       tabContainer.removeEventListener("TabSelect", this.onTabSelect, false);
 
       this.suspend();
@@ -320,7 +317,6 @@ HUD_SERVICE.prototype =
     let gBrowser = window.gBrowser;
     let tabContainer = gBrowser.tabContainer;
 
-    tabContainer.removeEventListener("TabClose", this.onTabClose, false);
     tabContainer.removeEventListener("TabSelect", this.onTabSelect, false);
 
     let tab = tabContainer.firstChild;
