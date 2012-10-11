@@ -419,6 +419,10 @@ Toolbox.prototype = {
    * Remove all UI elements, detach from target and clear up
    */
   destroy: function TBOX_destroy() {
+    for (let [id, panel] of this._toolPanels) {
+      panel.destroy();
+    }
+
     this._host.destroyUI();
 
     gDevTools.off("tool-registered", this._handleEvent);
