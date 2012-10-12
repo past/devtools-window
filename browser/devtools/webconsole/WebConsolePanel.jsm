@@ -27,7 +27,7 @@ const WebConsoleDefinition = {
   id: "webconsole",
   icon: "chrome://browser/skin/devtools/webconsole-tool-icon.png",
   url: "chrome://browser/content/devtools/webconsole.xul",
-  label: l10n.getStr("ToolboxWebconosle.label"),
+  label: l10n.getStr("ToolboxWebconsole.label"),
   isTargetSupported: function(target) {
     return target.type == DevTools.TargetType.TAB;
   },
