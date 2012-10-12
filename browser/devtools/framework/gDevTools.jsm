@@ -35,7 +35,7 @@ function DevTools() {
  * Each toolbox has a |target| that indicates what is being debugged/inspected.
  * A target is an object with this shape:
  * {
- *   type: TargetType.[TAB|REMOTE|CHROME],
+ *   type: DevTools.TargetType.[TAB|REMOTE|CHROME],
  *   value: ...
  * }
  *
@@ -58,7 +58,7 @@ DevTools.TargetType = {
  *
  * A Toolbox host is an object with this shape:
  * {
- *   type: HostType.[BOTTOM|TAB],
+ *   type: DevTools.HostType.[BOTTOM|TAB],
  *   element: ...
  * }
  *
