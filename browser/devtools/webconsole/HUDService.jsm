@@ -629,20 +629,8 @@ var HeadsUpDisplayUICommands = {
 
   toggleHUD: function UIC_toggleHUD() {
     var window = HUDService.currentContext();
-    var gBrowser = window.gBrowser;
-    var linkedBrowser = gBrowser.selectedTab.linkedBrowser;
-    var tabId = gBrowser.getNotificationBox(linkedBrowser).getAttribute("id");
-    var hudId = "hud_" + tabId;
-    var ownerDocument = gBrowser.selectedTab.ownerDocument;
-    var hud = ownerDocument.getElementById(hudId);
-    var hudRef = HUDService.hudReferences[hudId];
-
-    if (hudRef && hud) {
-      HUDService.deactivateHUDForContext(gBrowser.selectedTab);
-    }
-    else {
-      HUDService.activateHUDForContext(gBrowser.selectedTab);
-    }
+    var tab = window.gBrowser.selectedTab;
+    gDevTools.toggleToolboxForTab(tab, "webconsole");
   },
 
   /**
