@@ -343,7 +343,16 @@ HUD_SERVICE.prototype =
 function WebConsole(aTab, aIframe)
 {
   this.tab = aTab;
+  if (this.tab == null) {
+    throw new Error('Missing tab');
+  }
+
   this.iframe = aIframe;
+  if (this.iframe == null) {
+    console.trace();
+    throw new Error('Missing iframe');
+  }
+
   this.chromeDocument = this.tab.ownerDocument;
   this.chromeWindow = this.chromeDocument.defaultView;
   this.hudId = "hud_" + this.tab.linkedPanel;
