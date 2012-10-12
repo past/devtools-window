@@ -426,12 +426,6 @@ WebConsole.prototype = {
     return l10n.getFormatStr("webConsoleWindowTitleAndURL", [url]);
   },
 
-  positions: {
-    above: 0, // the childNode index
-    below: 2,
-    window: null
-  },
-
   consoleWindowUnregisterOnHide: true,
 
   /**
@@ -439,16 +433,6 @@ WebConsole.prototype = {
    */
   positionConsole: function WC_positionConsole()
   {
-    // get the node position index
-    let nodeIdx = this.positions[aPosition];
-    let nBox = this.chromeDocument.getElementById(this.tab.linkedPanel);
-    let node = nBox.childNodes[nodeIdx];
-
-    // check to see if console is already positioned in aPosition
-    if (node == this.iframe) {
-      return;
-    }
-
     let lastIndex = -1;
 
     if (this.outputNode && this.outputNode.getIndexOfFirstVisibleRow) {
