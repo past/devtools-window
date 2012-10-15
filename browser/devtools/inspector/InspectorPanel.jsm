@@ -47,29 +47,33 @@ function InspectorPanel(iframeWindow, toolbox, node) {
   this.panelWin = iframeWindow;
   this.panelWin.inspector = this;
 
-  if (node) {
-    this._selection = new Selection(node);
-  } else if (this.browser.contentDocument.documentElement) { // Can this be false?
-    let root = this.browser.contentDocument.documentElement;
-    this._selection = new Selection(root);
-  } else {
-    this._selection = new Selection();
-  }
-
-  this.browser.addEventListener("resize", this, true);
-
-  this._markupButton = this.panelDoc.getElementById("inspector-treepanel-toolbutton");
-
+  // Create an empty selection
+  this._selection = new Selection();
   this.onNewSelection = this.onNewSelection.bind(this);
   this.selection.on("new-node", this.onNewSelection);
 
-  this.breadcrumbs = new HTMLBreadcrumbs(this.selection, this.panelWin, this.panelDoc);
+  this.browser.addEventListener("resize", this, true);
 
+
+  this.breadcrumbs = new HTMLBreadcrumbs(this.selection, this.panelWin, this.panelDoc);
   if (toolbox.target.type == DevTools.TargetType.TAB) {
     this.highlighter = new Highlighter(this.selection, this.target.value);
   }
 
+  this._markupButton = this.panelDoc.getElementById("inspector-treepanel-toolbutton");
   this.openMarkup();
+  // All the components are initialized. Let's select a node.
+  if (node) {
+    this._selection.setNode(node);
+  } else if (this.browser.contentDocument.documentElement) { // Can this be false?
+    let root = this.browser.contentDocument.documentElement;
+    this._selection.setNode(root);
+  }
+
+  if (this.highlighter) {
+    this.highlighter.unlock();
+  }
+
   /* FIXME:
   if (Services.prefs.getBoolPref("devtools.inspector.htmlPanelOpen")) {
     this.openMarkup();
