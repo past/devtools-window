@@ -126,7 +126,7 @@ InspectorPanel.prototype = {
     this.selection.off("new-node", this.onNewSelection);
     this._cancelLayoutChange();
     this._destroyMarkup();
-    this._browser.removeEventListener("resize", this, true);
+    this.browser.removeEventListener("resize", this, true);
     this.selection.destroy();
   },
 
@@ -254,7 +254,7 @@ InspectorPanel.prototype = {
    */
   _freeze: function InspectorPanel__freeze() {
     this._cancelLayoutChange();
-    this._browser.removeEventListener("resize", this, true);
+    this.browser.removeEventListener("resize", this, true);
     this._frozen = true;
     this.emit("frozen");
   },
@@ -268,7 +268,7 @@ InspectorPanel.prototype = {
       return;
     }
 
-    this._browser.addEventListener("resize", this, true);
+    this.browser.addEventListener("resize", this, true);
     delete this._frozen;
     this.emit("thaw");
   },
