@@ -45,6 +45,7 @@ function InspectorPanel(iframeWindow, toolbox, node) {
   this.browser = this.target.value.linkedBrowser;
   this.panelDoc = iframeWindow.document;
   this.panelWin = iframeWindow;
+  this.panelWin.inspector = this;
 
   if (node) {
     this._selection = new Selection(node);
@@ -65,7 +66,7 @@ function InspectorPanel(iframeWindow, toolbox, node) {
   this.breadcrumbs = new HTMLBreadcrumbs(this.selection, this.panelWin, this.panelDoc);
 
   if (toolbox.target.type == DevTools.TargetType.TAB) {
-    //this.highlighter = new Highlighter(this.selection, this.target.value);
+    this.highlighter = new Highlighter(this.selection, this.target.value);
   }
 
   this.openMarkup();
@@ -123,11 +124,24 @@ InspectorPanel.prototype = {
    * Called by the InspectorUI when the inspector is being destroyed.
    */
   destroy: function InspectorPanel__destroy() {
+    if (this.highlighter) {
+      this.highlighter.destroy();
+    }
+    this.breadcrumbs.destroy();
     this.selection.off("new-node", this.onNewSelection);
     this._cancelLayoutChange();
     this._destroyMarkup();
     this.browser.removeEventListener("resize", this, true);
-    this.selection.destroy();
+    this._selection.destroy();
+    this._selection = null;
+    this.panelWin.inspector = null;
+    this.target = null;
+    this.browser = null;
+    this.panelDoc = null;
+    this.panelWin = null;
+    this._markupButton = null;
+    this.breadcrumbs = null;
+    this.highlighter = null;
   },
 
   /**
