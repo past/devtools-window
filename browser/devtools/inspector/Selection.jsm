@@ -61,7 +61,7 @@ function Selection(node=null, track={attributes:true,detached:true}) {
   new EventEmitter(this);
   this._onMutations = this._onMutations.bind(this);
   this.track = track;
-  this.node = node;
+  this.setNode(node);
 }
 
 Selection.prototype = {
@@ -112,7 +112,7 @@ Selection.prototype = {
 
   destroy: function SN_destroy() {
     this._detachEvents();
-    this.node = null;
+    this.setNode(null);
   },
 
   setNode: function SN_setNode(value, reason="unknown") {
