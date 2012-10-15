@@ -18,6 +18,18 @@ let EXPORTED_SYMBOLS = ["HTMLBreadcrumbs"];
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource:///modules/devtools/DOMHelpers.jsm");
 
+const LOW_PRIORITY_ELEMENTS = {
+  "HEAD": true,
+  "BASE": true,
+  "BASEFONT": true,
+  "ISINDEX": true,
+  "LINK": true,
+  "META": true,
+  "SCRIPT": true,
+  "STYLE": true,
+  "TITLE": true,
+};
+
 ///////////////////////////////////////////////////////////////////////////
 //// HTML Breadcrumbs
 
@@ -405,22 +417,31 @@ HTMLBreadcrumbs.prototype = {
   },
 
   /**
-   * Get a child of a node that can be displayed in the breadcrumbs.
+   * Get a child of a node that can be displayed in the breadcrumbs
+   * and that is probably visible. See LOW_PRIORITY_ELEMENTS.
    *
    * @param aNode The parent node.
    * @returns nsIDOMNode|null
    */
-  getFirstElement: function BC_getFirstElement(aNode)
+  getInterestingFirstNode: function BC_getInterestingFirstNode(aNode)
   {
     let nextChild = this.DOMHelpers.getChildObject(aNode, 0);
+    let fallback = null;
+
     while (nextChild) {
       if (nextChild.nodeType == aNode.ELEMENT_NODE) {
-        return nextChild;
+        if (!(nextChild.tagName in LOW_PRIORITY_ELEMENTS)) {
+          return nextChild;
+        }
+        if (!fallback) {
+          fallback = nextChild;
+        }
       }
       nextChild = this.DOMHelpers.getNextSibling(nextChild);
     }
-    return null;
+    return fallback;
   },
+
 
   /**
    * Find the "youngest" ancestor of a node which is already in the breadcrumbs.
@@ -451,7 +472,7 @@ HTMLBreadcrumbs.prototype = {
     // If the last displayed node is the selected node
     if (this.currentIndex == this.nodeHierarchy.length - 1) {
       let node = this.nodeHierarchy[this.currentIndex].node;
-      let child = this.getFirstElement(node);
+      let child = this.getInterestingFirstNode(node);
       // If the node has a child
       if (child) {
         // Show this child
