@@ -65,7 +65,7 @@ function InspectorPanel(iframeWindow, toolbox, node) {
   this.breadcrumbs = new HTMLBreadcrumbs(this.selection, this.panelWin, this.panelDoc);
 
   if (toolbox.target.type == DevTools.TargetType.TAB) {
-    this.highlighter = new Highlighter(this.selection, this.target.value);
+    //this.highlighter = new Highlighter(this.selection, this.target.value);
   }
 
   this.openMarkup();
