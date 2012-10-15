@@ -12,7 +12,7 @@ XPCOMUtils.defineLazyModuleGetter(this, "InspectorPanel", "resource:///modules/d
 const InspectorDefinition = {
   id: "inspector",
   icon: "chrome://browser/skin/devtools/tools-icons-small.png",
-  url: "chrome://browser/content/devtools/inspector/inspector-panel.xul",
+  url: "chrome://browser/content/devtools/inspector/inspector.xul",
   label: "Inspector", // FIXME: l10n 
 
   isTargetSupported: function(target) {

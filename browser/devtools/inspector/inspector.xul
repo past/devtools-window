@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This Source Code Form is subject to the terms of the Mozilla Public
+   - License, v. 2.0. If a copy of the MPL was not distributed with this
+   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+<?xml-stylesheet href="chrome://browser/content/devtools/inspector/inspector.css" type="text/css"?>
+<?xml-stylesheet href="chrome://browser/skin/" type="text/css"?>
+<?xml-stylesheet href="chrome://browser/skin/devtools/common.css" type="text/css"?>
+<?xml-stylesheet href="chrome://browser/skin/devtools/inspector.css" type="text/css"?>
+<!DOCTYPE window [
+<!ENTITY % inspectorDTD SYSTEM "chrome://browser/locale/devtools/inspector.dtd" >
+ %inspectorDTD;
+]>
+
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+  <popupset id="mainPopupSet"></popupset>
+  <toolbar id="inspector-toolbar"
+           class="devtools-toolbar"
+           nowindowdrag="true">
+    <toolbarbutton id="inspector-inspect-toolbutton"
+                   class="devtools-toolbarbutton"
+                   command="Inspector:Inspect"/>
+    <toolbarbutton id="inspector-treepanel-toolbutton"
+                   class="devtools-toolbarbutton"
+                   tabindex="0"
+                   aria-label="&markupButton.arialabel;"
+                   accesskey="&markupButton.accesskey;"
+                   command="Inspector:HTMLPanel"/>
+    <arrowscrollbox id="inspector-breadcrumbs"
+                    flex="1" orient="horizontal"
+                    clicktoscroll="true"/>
+    <hbox id="inspector-tools">
+      <toolbarbutton id="inspector-3D-button"
+                     class="devtools-toolbarbutton"
+                     hidden="true"
+                     label="&inspect3DViewButton.label;"
+                     accesskey="&inspect3DViewButton.accesskey;"
+                     tabindex="0"
+                     command="Inspector:Tilt"/>
+      <toolbarbutton id="inspector-style-button"
+                     class="devtools-toolbarbutton"
+                     label="&inspectStyleButton.label;"
+                     accesskey="&inspectStyleButton.accesskey;"
+                     tabindex="0"
+                     command="Inspector:Sidebar"/>
+    </hbox>
+  </toolbar>
+  <vbox flex="1" id="markup-box">
+  </vbox>
+</window>
