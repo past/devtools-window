@@ -1,3 +1,6 @@
+%include ../shared.inc
+%filter substitution
+
 #inspector-inspect-toolbutton {
   list-style-image: url("chrome://browser/skin/devtools/inspect-button.png");
   -moz-image-region: rect(0px 16px 16px 0px);
