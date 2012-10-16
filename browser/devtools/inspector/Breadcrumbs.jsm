@@ -4,8 +4,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// FIXME: if highlight notice "new-node" not from itself, lock!
-
 const Cc = Components.classes;
 const Cu = Components.utils;
 const Ci = Components.interfaces;
@@ -57,6 +55,7 @@ HTMLBreadcrumbs.prototype = {
   {
     this.container = this.chromeDoc.getElementById("inspector-breadcrumbs");
     this.container.addEventListener("mousedown", this, true);
+    this.container.addEventListener("keypress", this, true);
 
     // We will save a list of already displayed nodes in this array.
     this.nodeHierarchy = [];
@@ -225,35 +224,35 @@ HTMLBreadcrumbs.prototype = {
   /**
    * Generic event handler.
    *
-   * @param nsIDOMEvent aEvent
+   * @param nsIDOMEvent event
    *        The DOM event object.
    */
-  handleEvent: function BC_handleEvent(aEvent)
+  handleEvent: function BC_handleEvent(event)
   {
-    if (aEvent.type == "mousedown" && aEvent.button == 0) {
+    if (event.type == "mousedown" && event.button == 0) {
       // on Click and Hold, open the Siblings menu
 
       let timer;
       let container = this.container;
-      let window = this.chromeWin;
 
-      function openMenu(aEvent) {
+      function openMenu(event) {
         cancelHold();
-        let target = aEvent.originalTarget;
+        let target = event.originalTarget;
         if (target.tagName == "button") {
           target.onBreadcrumbsHold();
         }
       }
 
-      function handleClick(aEvent) {
+      function handleClick(event) {
         cancelHold();
-        let target = aEvent.originalTarget;
+        let target = event.originalTarget;
         if (target.tagName == "button") {
           target.onBreadcrumbsClick();
         }
       }
 
-      function cancelHold(aEvent) {
+      let window = this.chromeWin;
+      function cancelHold(event) {
         window.clearTimeout(timer);
         container.removeEventListener("mouseout", cancelHold, false);
         container.removeEventListener("mouseup", handleClick, false);
@@ -261,7 +260,40 @@ HTMLBreadcrumbs.prototype = {
 
       container.addEventListener("mouseout", cancelHold, false);
       container.addEventListener("mouseup", handleClick, false);
-      timer = window.setTimeout(openMenu, 500, aEvent);
+      timer = window.setTimeout(openMenu, 500, event);
+    }
+
+    if (event.type == "keypress" && this.selection.isElementNode()) {
+      let node = null;
+      switch (event.keyCode) {
+        case this.chromeWin.KeyEvent.DOM_VK_LEFT:
+          if (this.currentIndex != 0) {
+            node = this.nodeHierarchy[this.currentIndex - 1].node;
+          }
+          break;
+        case this.chromeWin.KeyEvent.DOM_VK_RIGHT:
+          if (this.currentIndex < this.nodeHierarchy.length - 1) {
+            node = this.nodeHierarchy[this.currentIndex + 1].node;
+          }
+          break;
+        case this.chromeWin.KeyEvent.DOM_VK_UP:
+          node = this.selection.node.previousSibling;
+          while (node && (node.nodeType != node.ELEMENT_NODE)) {
+            node = node.previousSibling;
+          }
+          break;
+        case this.chromeWin.KeyEvent.DOM_VK_DOWN:
+          node = this.selection.node.nextSibling;
+          while (node && (node.nodeType != node.ELEMENT_NODE)) {
+            node = node.nextSibling;
+          }
+          break;
+      }
+      if (node) {
+        this.selection.setNode(node, "breadcrumbs");
+      }
+      event.preventDefault();
+      event.stopPropagation();
     }
   },
 
@@ -279,6 +311,7 @@ HTMLBreadcrumbs.prototype = {
 
     this.empty();
     this.container.removeEventListener("mousedown", this, true);
+    this.container.removeEventListener("keypress", this, true);
     this.menu.parentNode.removeChild(this.menu);
     this.container = null;
     this.nodeHierarchy = null;
@@ -378,9 +411,9 @@ HTMLBreadcrumbs.prototype = {
       this.selection.setNode(aNode, "breadcrumbs");
     }.bind(this);
 
-    button.onclick = (function _onBreadcrumbsRightClick(aEvent) {
+    button.onclick = (function _onBreadcrumbsRightClick(event) {
       button.focus();
-      if (aEvent.button == 2) {
+      if (event.button == 2) {
         this.openSiblingMenu(button, aNode);
       }
     }).bind(this);
@@ -564,59 +597,3 @@ HTMLBreadcrumbs.prototype = {
 XPCOMUtils.defineLazyGetter(this, "DOMUtils", function () {
   return Cc["@mozilla.org/inspector/dom-utils;1"].getService(Ci.inIDOMUtils);
 });
-
- /**
-  * FIXME: Got to Breadcrumbs code
-  onKeypress: function IUI_onKeypress(event)
-  {
-    let node = null;
-    let bc = this.breadcrumbs;
-    switch (event.keyCode) {
-      case this.chromeWin.KeyEvent.DOM_VK_LEFT:
-        if (bc.currentIndex != 0)
-          node = bc.nodeHierarchy[bc.currentIndex - 1].node;
-        if (node && this.highlighter.isNodeHighlightable(node))
-          this.highlighter.highlight(node);
-        event.preventDefault();
-        event.stopPropagation();
-        break;
-      case this.chromeWin.KeyEvent.DOM_VK_RIGHT:
-        if (bc.currentIndex < bc.nodeHierarchy.length - 1)
-          node = bc.nodeHierarchy[bc.currentIndex + 1].node;
-        if (node && this.highlighter.isNodeHighlightable(node)) {
-          this.highlighter.highlight(node);
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        break;
-      case this.chromeWin.KeyEvent.DOM_VK_UP:
-        if (this.selection) {
-          // Find a previous sibling that is highlightable.
-          node = this.selection.previousSibling;
-          while (node && !this.highlighter.isNodeHighlightable(node)) {
-            node = node.previousSibling;
-          }
-        }
-        if (node && this.highlighter.isNodeHighlightable(node)) {
-          this.highlighter.highlight(node, true);
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        break;
-      case this.chromeWin.KeyEvent.DOM_VK_DOWN:
-        if (this.selection) {
-          // Find a next sibling that is highlightable.
-          node = this.selection.nextSibling;
-          while (node && !this.highlighter.isNodeHighlightable(node)) {
-            node = node.nextSibling;
-          }
-        }
-        if (node && this.highlighter.isNodeHighlightable(node)) {
-          this.highlighter.highlight(node, true);
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        break;
-    }
-  },
-*/
