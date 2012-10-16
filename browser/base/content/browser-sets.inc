@@ -194,7 +194,8 @@
     <broadcaster id="devtoolsMenuBroadcaster_DevToolbox"
                  label="&devToolbarToolsButton.label;"
                  type="checkbox" autocheck="false"
-                 command="Tools:DevToolbox"/>
+                 command="Tools:DevToolbox"
+                 key="key_devToolbox"/>
     <broadcaster id="devtoolsMenuBroadcaster_DevToolbar"
                  label="&devToolbarMenu.label;"
                  type="checkbox" autocheck="false"
@@ -284,6 +285,7 @@
     <key id="key_devToolbar" keycode="&devToolbar.keycode;" modifiers="shift"
          keytext="&devToolbar.keytext;" command="Tools:DevToolbarFocus"/>
     <key id="key_webConsole" key="&webConsoleCmd.commandkey;" oncommand="HUDConsoleUI.toggleHUD();"
+    <key id="key_devToolbox" key="&devToolbox.key;" command="Tools:DevToolbox"
 #ifdef XP_MACOSX
         modifiers="accel,alt"
 #else

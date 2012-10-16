@@ -9,6 +9,9 @@ const EXPORTED_SYMBOLS = [ "gDevTools", "DevTools" ];
 const Cu = Components.utils;
 const Ci = Components.interfaces;
 
+const PREF_LAST_HOST = "devtools.toolbox.host";
+const PREF_LAST_TOOL = "devtools.toolbox.selectedTool";
+
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 Cu.import("resource:///modules/devtools/ToolDefinitions.jsm");
@@ -24,6 +27,14 @@ Cu.import("resource:///modules/devtools/Toolbox.jsm");
 function DevTools() {
   this._tools = new Map();
   this._toolboxes = new Map();
+
+  // We need access to the browser window in order to add menu items. Because
+  // this object is instantiated inside this jsm we need to use
+  // getMostRecentWindow in order to do so.
+  this._win = Services.wm.getMostRecentWindow("navigator:browser");
+
+  Services.obs.addObserver(this._newWindowObserver,
+    "xul-window-registered", false);
 
   new EventEmitter(this);
 }
@@ -117,6 +128,8 @@ DevTools.prototype = {
       "devtools." + toolId + ".enabled";
     this._tools.set(toolId, toolDefinition);
 
+    this._addToolToMenu(toolDefinition);
+
     this.emit("tool-registered", toolId);
   },
 
@@ -200,10 +213,15 @@ DevTools.prototype = {
   /**
    * Toggle a toolbox for the given browser tab
    */
-  toggleToolboxForTab: function DT_openForTab(tab, tool) {
-    if (this._toolboxes.has(tab) /* FIXME: && tool is showing */ ) {
+  toggleToolboxForTab: function toggleToolboxForTab(tab, tool) {
+    if (this.getToolboxForTarget(tab) /* FIXME: && tool is showing */ ) {
       this._toolboxes.get(tab).destroy();
     } else {
+      let target = {
+        type: gDevTools.TargetType.TAB,
+        value: tab
+      }
+    if (this.getToolboxForTab(tab) /* FIXME: && tool is showing */ ) {
       this.openDefaultToolbox(tab, tool);
     }
   },
@@ -239,9 +257,115 @@ DevTools.prototype = {
     return toolbox.getToolPanels().get(toolName);
   },
 
+  /**
+   * Add all tools to developer tools menu. Used when a new Firefox window is
+   * opened.
+   */
+  addAllToolsToMenu: function GDT_addAllToolsToMenu(aChromeDoc) {
+    for (let [key, toolDefinition] of gDevTools._tools) {
+      gDevTools._addToolToMenu(toolDefinition, aChromeDoc);
+    }
+  },
+
+  /**
+   * Add a menu entry for a tool definition
+   *
+   * @param {string} aToolDefinition
+   *        Tool definition of the tool to add a menu entry.
+   */
+  _addToolToMenu: function GDT_addToolToMenu(aToolDefinition, aChromeDoc) {
+    let doc = aChromeDoc || this._win.document;
+    let id = aToolDefinition.id;
+
+    // Prevent multiple entries for the same tool.
+    if (doc.querySelector("#Tools\\:" + id)) {
+      return;
+    }
+
+    let cmd = doc.createElement("command");
+    cmd.setAttribute("id", "Tools:" + id);
+    cmd.setAttribute("oncommand",
+      'gDevTools.openToolFromMenu("' + id + '", gBrowser.selectedTab);');
+
+    let mcs = doc.querySelector("#mainCommandSet");
+    mcs.appendChild(cmd);
+
+    let key = doc.createElement("key");
+    key.setAttribute("id", "key_" + id);
+
+    if (aToolDefinition.key.startsWith("VK_")) {
+      key.setAttribute("keycode", aToolDefinition.key);
+    } else {
+      key.setAttribute("key", aToolDefinition.key);
+    }
+
+    key.setAttribute("oncommand",
+      'gDevTools.openToolFromMenu("' + id + '", gBrowser.selectedTab);');
+    key.setAttribute("modifiers", aToolDefinition.modifiers);
+
+    let mks = doc.querySelector("#mainKeyset");
+    mks.appendChild(key);
+
+    let bc = doc.createElement("broadcaster");
+    bc.id = "devtoolsMenuBroadcaster_" + id;
+    bc.setAttribute("label", aToolDefinition.label);
+    bc.setAttribute("type", "checkbox");
+    bc.setAttribute("autocheck", "false");
+    bc.setAttribute("command", "Tools:" + id);
+    bc.setAttribute("key", "key_" + id);
+
+    let mbs = doc.querySelector("#mainBroadcasterSet");
+    mbs.appendChild(bc);
+
+    let item = doc.createElement("menuitem");
+    item.id = "appmenu_devToolbar" + id;
+    item.setAttribute("observes", "devtoolsMenuBroadcaster_" + id);
+
+    let amp = doc.querySelector("#appmenu_webDeveloper_popup");
+    let separator = doc.querySelector("#appmenu_devtools_separator");
+    amp.insertBefore(item, separator);
+  },
+
+  /**
+   * Opens the toolbox from the developer tools menu. Ideally this would be in
+   * Toolbox but at this point it may not be instantiated.
+   *
+   * @param  {String} aId
+   *         The id of the tool to open.
+   * @param  {XULTab} aTab
+   *         The tab that the toolbox should be pointing at.
+   */
+  openToolFromMenu: function DT_openToolFromMenu(aId, aTab) {
+    let tb = gDevTools.getToolboxForTab(aTab);
+
+    if (tb) {
+      tb.selectTool(aId);
+    } else {
+      let target = {
+        type: gDevTools.TargetType.TAB,
+        value: aTab
+      }
+      gDevTools.openToolbox(target, null, aId);
+    }
+  },
+
+  _newWindowObserver: function GDT_newWindowObserver(aSubject, aTopic, aData) {
+    let win = aSubject.QueryInterface(Ci.nsIInterfaceRequestor)
+                      .getInterface(Ci.nsIDOMWindow);
+    win.addEventListener("load", function GDT_winLoad() {
+      win.removeEventListener("load", GDT_winLoad, false);
+      dump("\n\nYAY!\n\n");
+      gDevTools.addAllToolsToMenu(win.document);
+    }, false);
+  },
+
   destroy: function DT_destroy() {
+    Services.obs.removeObserver(this._newWindowObserver,
+      "xul-window-registered", false);
+
     delete this._tools;
     delete this._toolboxes;
+    delete this._win;
   }
 };
 
