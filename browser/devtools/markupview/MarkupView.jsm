@@ -418,8 +418,6 @@ MarkupView.prototype = {
       this._selectedContainer.selected = true;
     }
 
-    this._selectedContainer.focus();
-
     return true;
   },
 
