@@ -183,9 +183,8 @@ Highlighter.prototype = {
       this.updateInfobar();
       this.invalidateSize();
       if (!this._highlighting &&
-          this.selection.reason != "highlighter" &&
-          this.selection.node.scrollIntoView) { // XUL elements don't have such method
-        this.selection.node.scrollIntoView();
+          this.selection.reason != "highlighter") {
+        LayoutHelpers.scrollIntoViewIfNeeded(this.selection.node);
       }
     } else {
       this.hide();
@@ -353,9 +352,8 @@ Highlighter.prototype = {
 
     nodeInfobar.addEventListener("mousedown", function(aEvent) {
       // On click, show the node:
-      if (this.selection.isElementNode() &&
-          this.selection.node.scrollIntoView) {
-        this.selection.node.scrollIntoView();
+      if (this.selection.isElementNode()) {
+        LayoutHelpers.scrollIntoViewIfNeeded(this.selection.node);
       }
     }.bind(this), true);
 
