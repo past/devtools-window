@@ -38,6 +38,7 @@ XPCOMUtils.defineLazyGetter(this, "osString", function() {
 const WebConsoleDefinition = {
   id: "webconsole",
   key: l10n("cmd.commandkey"),
+  accesskey: l10n("webConsoleCmd.accesskey"),
   modifiers: osString == "Darwin" ? "accel,alt" : "accel,shift",
   icon: "chrome://browser/skin/devtools/webconsole-tool-icon.png",
   url: "chrome://browser/content/devtools/webconsole.xul",

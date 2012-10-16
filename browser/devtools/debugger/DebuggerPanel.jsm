@@ -27,6 +27,7 @@ XPCOMUtils.defineLazyGetter(this, "osString", function() {
 const DebuggerDefinition = {
   id: "jsdebugger",
   key: l10n("open.commandkey"),
+  accesskey: l10n("debuggerMenu.accesskey"),
   modifiers: osString == "Darwin" ? "accel,alt" : "accel,shift",
   killswitch: "devtools.debugger.enabled",
   icon: "chrome://browser/skin/devtools/tools-icons-small.png",
