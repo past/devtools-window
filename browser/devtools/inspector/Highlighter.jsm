@@ -347,13 +347,6 @@ Highlighter.prototype = {
     let nodeInfobar = this.chromeDoc.createElement("hbox");
     nodeInfobar.className = "highlighter-nodeinfobar";
 
-    nodeInfobar.addEventListener("mousedown", function(aEvent) {
-      // On click, show the node:
-      if (this.selection.isElementNode()) {
-        LayoutHelpers.scrollIntoViewIfNeeded(this.selection.node);
-      }
-    }.bind(this), true);
-
     let arrowBoxTop = this.chromeDoc.createElement("box");
     arrowBoxTop.className = "highlighter-nodeinfobar-arrow highlighter-nodeinfobar-arrow-top";
 
@@ -416,6 +409,13 @@ Highlighter.prototype = {
     texthbox.className = "highlighter-nodeinfobar-text";
     texthbox.setAttribute("align", "center");
     texthbox.setAttribute("flex", "1");
+
+    texthbox.addEventListener("mousedown", function(aEvent) {
+      // On click, show the node:
+      if (this.selection.isElementNode()) {
+        LayoutHelpers.scrollIntoViewIfNeeded(this.selection.node);
+      }
+    }.bind(this), true);
 
     texthbox.appendChild(tagNameLabel);
     texthbox.appendChild(idLabel);
