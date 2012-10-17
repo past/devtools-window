@@ -181,6 +181,8 @@ Toolbox.prototype = {
     this._host.createUI(function (iframe) {
       iframe.addEventListener("DOMContentLoaded", this._onLoad, true);
       iframe.setAttribute("src", this._URL);
+      this.isReady = true;
+      this.emit("toolbox-ready");
     }.bind(this));
   },
 
@@ -321,6 +323,9 @@ Toolbox.prototype = {
       let boundLoad = function() {
         iframe.removeEventListener("DOMContentLoaded", boundLoad, true);
         let instance = definition.build(iframe.contentWindow, this);
+        instance.once("ready", function(event) {
+          this.emit(id + "-ready", instance);
+        }.bind(this));
         this._toolPanels.set(id, instance);
       }.bind(this);
 
