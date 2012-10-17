@@ -139,6 +139,8 @@ Toolbox.prototype = {
     this._host.once("ready", function(event, iframe) {
       iframe.addEventListener("DOMContentLoaded", this._onLoad, true);
       iframe.setAttribute("src", this._URL);
+      this.isReady = true;
+      this.emit("toolbox-ready");
     }.bind(this));
 
     this._host.open();
