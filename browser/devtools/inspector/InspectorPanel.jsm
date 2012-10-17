@@ -19,23 +19,22 @@ Cu.import("resource:///modules/devtools/Selection.jsm");
 Cu.import("resource:///modules/devtools/Breadcrumbs.jsm");
 Cu.import("resource:///modules/devtools/Highlighter.jsm");
 
-// Timer, in milliseconds, between change events fired by
-// things like resize events.
-const LAYOUT_CHANGE_TIMER = 250;
-
 /**
  * Represents an open instance of the Inspector for a tab.
  * This is the object handed out to sidebars and other API consumers.
  */
 function InspectorPanel(iframeWindow, toolbox, node) {
-  if (toolbox.target.type != DevTools.TargetType.TAB) {
+  this.target = toolbox.target;
+
+  if (this.target.type == DevTools.TargetType.REMOTE) {
     throw "Unsupported target";
   }
 
+  this.tabTarget = (this.target.type == DevTools.TargetType.TAB);
+  this.chromeTarget = (this.target.type == DevTools.TargetType.CHROME);
+
   new EventEmitter(this);
 
-  this.target = toolbox.target;
-  this.browser = this.target.value.linkedBrowser;
   this.panelDoc = iframeWindow.document;
   this.panelWin = iframeWindow;
   this.panelWin.inspector = this;
@@ -45,12 +44,12 @@ function InspectorPanel(iframeWindow, toolbox, node) {
   this.onNewSelection = this.onNewSelection.bind(this);
   this.selection.on("new-node", this.onNewSelection);
 
-  this.browser.addEventListener("resize", this, true);
-
-
   this.breadcrumbs = new HTMLBreadcrumbs(this.selection, this.panelWin, this.panelDoc);
-  if (toolbox.target.type == DevTools.TargetType.TAB) {
+
+  if (this.tabTarget) {
     this.highlighter = new Highlighter(this.selection, this.target.value);
+    let button = this.panelDoc.getElementById("inspector-inspect-toolbutton");
+    button.hidden = false;
   }
 
   this._initMarkup();
@@ -58,9 +57,16 @@ function InspectorPanel(iframeWindow, toolbox, node) {
   // All the components are initialized. Let's select a node.
   if (node) {
     this._selection.setNode(node);
-  } else if (this.browser.contentDocument.documentElement) { // Can this be false?
-    let root = this.browser.contentDocument.documentElement;
-    this._selection.setNode(root);
+  } else {
+    if (this.tabTarget) {
+      let browser = this.target.value.linkedBrowser;
+      let root = browser.contentDocument.documentElement;
+      this._selection.setNode(root);
+    }
+    if (this.chromeTarget) {
+      let root = this.target.value.document.documentElement;
+      this._selection.setNode(root);
+    }
   }
 
   if (this.highlighter) {
@@ -69,13 +75,6 @@ function InspectorPanel(iframeWindow, toolbox, node) {
 }
 
 InspectorPanel.prototype = {
-  /**
-   * True if the highlighter is locked on a node.
-   */
-  get locked() {
-    return this.highlighter.locked;
-  },
-
   /**
    * Selected (super)node (read only)
    */
@@ -96,7 +95,7 @@ InspectorPanel.prototype = {
    * When a new node is selected.
    */
   onNewSelection: function InspectorPanel_onNewSelection() {
-    this._cancelLayoutChange();
+    // Nothing yet.
   },
 
   /**
@@ -118,55 +117,15 @@ InspectorPanel.prototype = {
     }
     this.breadcrumbs.destroy();
     this.selection.off("new-node", this.onNewSelection);
-    this._cancelLayoutChange();
     this._destroyMarkup();
-    this.browser.removeEventListener("resize", this, true);
     this._selection.destroy();
     this._selection = null;
     this.panelWin.inspector = null;
     this.target = null;
-    this.browser = null;
     this.panelDoc = null;
     this.panelWin = null;
     this.breadcrumbs = null;
     this.highlighter = null;
-  },
-
-  /**
-   * Event handler for DOM events.
-   *
-   * @param DOMEvent aEvent
-   */
-  handleEvent: function InspectorPanel_handleEvent(aEvent) {
-    switch(aEvent.type) {
-      case "resize":
-        this._scheduleLayoutChange();
-    }
-  },
-
-  /**
-   * Schedule a low-priority change event for things like paint
-   * and resize.
-   */
-  _scheduleLayoutChange: function InspectorPanel_scheduleLayoutChange() { // FIXME: is this useful?
-    if (this._timer) {
-      return null;
-    }
-    this._timer = this.panelWin.setTimeout(function() {
-      this.emit("layout-changed");
-    }.bind(this), LAYOUT_CHANGE_TIMER);
-  },
-
-  /**
-   * Cancel a pending low-priority change event if any is
-   * scheduled.
-   * FIXME: call when a new node is selected
-   */
-  _cancelLayoutChange: function InspectorPanel_cancelLayoutChange() {
-    if (this._timer) {
-      this.panelWin.clearTimeout(this._timer);
-      delete this._timer;
-    }
   },
 
   _initMarkup: function InspectorPanel_initMarkupPane() {
@@ -198,7 +157,14 @@ InspectorPanel.prototype = {
 
     this._markupBox.removeAttribute("hidden");
 
-    this.markup = new MarkupView(this, this._markupFrame, /*FIXME*/ this.target.value.ownerDocument.defaultView);
+    let controllerWindow; // FIXME: that probably doesn't work
+    if (this.tabTarget) {
+      controllerWindow = this.target.value.ownerDocument.defaultView;
+    } else if (this.chromeTarget) {
+      controllerWindow = this.target.value;
+    }
+    this.markup = new MarkupView(this, this._markupFrame, controllerWindow);
+
     this.emit("markuploaded");
   },
 
@@ -223,8 +189,6 @@ InspectorPanel.prototype = {
    * inspector is no longer the active tab.
    */
   _freeze: function InspectorPanel__freeze() {
-    this._cancelLayoutChange();
-    this.browser.removeEventListener("resize", this, true);
     this._frozen = true;
     this.emit("frozen");
   },
@@ -237,8 +201,6 @@ InspectorPanel.prototype = {
     if (!this._frozen) {
       return;
     }
-
-    this.browser.addEventListener("resize", this, true);
     delete this._frozen;
     this.emit("thaw");
   },
