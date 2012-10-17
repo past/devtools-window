@@ -252,6 +252,9 @@ MarkupView.prototype = {
     this.showNode(node, false);
 
     this._inspector.selection.setNode(node, "treepanel");
+    // This event won't be fired if the node is the same. But the highlighter
+    // need to lock the node if it wasn't.
+    this._inspector.selection.emit("new-node");
 
     if (!aIgnoreFocus) {
       aContainer.focus();

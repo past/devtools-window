@@ -38,7 +38,7 @@
     <toolbarbutton id="inspector-inspect-toolbutton"
                    class="devtools-toolbarbutton"
                    hidden="true"
-                   oncommand="inspector.highlighter.toggleLock()"/>
+                   oncommand="inspector.highlighter.unlock()"/>
     <arrowscrollbox id="inspector-breadcrumbs"
                     flex="1" orient="horizontal"
                     clicktoscroll="true"/>

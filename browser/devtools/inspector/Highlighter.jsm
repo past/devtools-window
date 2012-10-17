@@ -76,13 +76,14 @@ const PSEUDO_CLASSES = [":hover", ":active", ":focus"];
  * @param object aWindow
  * @param SuperNode aSuperNode
  */
-function Highlighter(aSelection, aTab)
+function Highlighter(aSelection, aTab, aPanelDoc)
 {
   this.selection = aSelection;
   this.tab = aTab;
   this.browser = aTab.linkedBrowser;
   this.chromeDoc = aTab.ownerDocument;
   this.chromeWin = this.chromeDoc.defaultView;
+  this.panelDoc = aPanelDoc;
 
   new EventEmitter(this);
 
@@ -92,6 +93,10 @@ function Highlighter(aSelection, aTab)
 Highlighter.prototype = {
   _init: function Highlighter__init()
   {
+    this.unlock = this.unlock.bind(this);
+    this.updateInfobar = this.updateInfobar.bind(this);
+    this.highlight = this.highlight.bind(this);
+
     let stack = this.browser.parentNode;
     this.win = this.browser.contentWindow;
     this._highlighting = false;
@@ -123,8 +128,6 @@ Highlighter.prototype = {
 
     this.unlock();
 
-    this.updateInfobar = this.updateInfobar.bind(this);
-    this.highlight = this.highlight.bind(this);
     this.selection.on("new-node", this.highlight);
     this.selection.on("new-node", this.updateInfobar);
     this.selection.on("attribute-changed", this.updateInfobar);
@@ -138,9 +141,12 @@ Highlighter.prototype = {
    */
   destroy: function Highlighter_destroy()
   {
+    this.inspectButton.removeEventListener("command", this.unlock);
+    this.inspectButton = null;
+
     this.selection.off("new-node", this.highlight);
     this.selection.off("new-node", this.updateInfobar);
-    this.selection.off("attributes-changed", this.updateInfobar);
+    this.selection.off("attribute-changed", this.updateInfobar);
 
     this.detachMouseListeners();
     this.detachPageListeners();
@@ -251,14 +257,6 @@ Highlighter.prototype = {
    */
   isHidden: function() {
     return this.hidden;
-  },
-
-  toggleLock: function() {
-    if (this.locked) {
-      this.unlock();
-    } else {
-      this.lock();
-    }
   },
 
   /**
@@ -380,17 +378,11 @@ Highlighter.prototype = {
 
     // Create buttons
 
-    let inspect = this.chromeDoc.createElement("toolbarbutton");
-    inspect.className = "highlighter-nodeinfobar-button highlighter-nodeinfobar-inspectbutton"
-    /* FIXME:
-    let toolbarInspectButton =
-      this.chromeDoc.getElementById("inspector-inspect-toolbutton");
-    inspect.setAttribute("tooltiptext",
-                         toolbarInspectButton.getAttribute("tooltiptext"));
-    */
-    /* FIXME:
-    inspect.setAttribute("command", "Inspector:Inspect");
-    */
+    this.inspectButton = this.chromeDoc.createElement("toolbarbutton");
+    this.inspectButton.className = "highlighter-nodeinfobar-button highlighter-nodeinfobar-inspectbutton"
+    let toolbarInspectButton = this.panelDoc.getElementById("inspector-inspect-toolbutton");
+    this.inspectButton.setAttribute("tooltiptext", toolbarInspectButton.getAttribute("tooltiptext"));
+    this.inspectButton.addEventListener("command", this.unlock);
 
     let nodemenu = this.chromeDoc.createElement("toolbarbutton");
     nodemenu.setAttribute("type", "menu");
@@ -431,7 +423,7 @@ Highlighter.prototype = {
     texthbox.appendChild(classesBox);
     texthbox.appendChild(pseudoClassesBox);
 
-    nodeInfobar.appendChild(inspect);
+    nodeInfobar.appendChild(this.inspectButton);
     nodeInfobar.appendChild(texthbox);
     nodeInfobar.appendChild(nodemenu);
 

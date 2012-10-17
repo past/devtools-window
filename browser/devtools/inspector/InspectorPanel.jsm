@@ -11,6 +11,7 @@ const Cr = Components.results;
 
 var EXPORTED_SYMBOLS = ["InspectorPanel"];
 
+Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/MarkupView.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
@@ -47,9 +48,19 @@ function InspectorPanel(iframeWindow, toolbox, node) {
   this.breadcrumbs = new HTMLBreadcrumbs(this.selection, this.panelWin, this.panelDoc);
 
   if (this.tabTarget) {
-    this.highlighter = new Highlighter(this.selection, this.target.value);
+    this.buildButtonsTooltip();
+    this.highlighter = new Highlighter(this.selection, this.target.value, this.panelDoc);
     let button = this.panelDoc.getElementById("inspector-inspect-toolbutton");
     button.hidden = false;
+    this.updateInspectorButton = function() {
+      if (this.highlighter.locked) {
+        button.removeAttribute("checked");
+      } else {
+        button.setAttribute("checked", "true");
+      }
+    }.bind(this);
+    this.highlighter.on("locked", this.updateInspectorButton);
+    this.highlighter.on("unlocked", this.updateInspectorButton);
   }
 
   this._initMarkup();
@@ -113,6 +124,8 @@ InspectorPanel.prototype = {
    */
   destroy: function InspectorPanel__destroy() {
     if (this.highlighter) {
+      this.highlighter.off("locked", this.updateInspectorButton);
+      this.highlighter.off("unlocked", this.updateInspectorButton);
       this.highlighter.destroy();
     }
     this.breadcrumbs.destroy();
@@ -217,7 +230,7 @@ InspectorPanel.prototype = {
 
     // Inspect Button - the shortcut string is built from the <key> element
 
-    let key = this.chromeDoc.getElementById("key_inspect");
+    let key = null;// FIXME: this.chromeDoc.getElementById("key_inspect");
 
     if (key) {
       let modifiersAttr = key.getAttribute("modifiers");
