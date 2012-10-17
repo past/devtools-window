@@ -12,6 +12,25 @@
 ]>
 
 <window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+  <commandset id="inspectorCommands">
+    <command id="Inspector:Inspect"
+             oncommand="InspectorUI.toggleInspection();"/>
+    <command id="Inspector:Sidebar"
+             oncommand="InspectorUI.toggleSidebar();"/>
+    <command id="Inspector:Tilt"
+             oncommand="Tilt.initialize();"/>
+    <command id="Inspector:CopyInner"
+             oncommand="InspectorUI.copyInnerHTML();"/>
+    <command id="Inspector:CopyOuter"
+             oncommand="InspectorUI.copyOuterHTML();"/>
+    <command id="Inspector:DeleteNode"
+             oncommand="InspectorUI.deleteNode();"/>
+    <command id="Inspector:ToggleVeil"
+             oncommand="InspectorUI.toggleVeil();"/>
+    <command id="Inspector:ToggleInfobar"
+             oncommand="InspectorUI.toggleInfobar();"/>
+  </commandset>
+
   <popupset id="mainPopupSet"></popupset>
   <toolbar id="inspector-toolbar"
            class="devtools-toolbar"

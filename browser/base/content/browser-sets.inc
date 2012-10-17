@@ -122,27 +122,6 @@
              oncommand="PlacesCommandHook.showPlacesOrganizer('History');"/>
   </commandset>
 
-  <commandset id="inspectorCommands">
-    <command id="Inspector:Inspect"
-             oncommand="InspectorUI.toggleInspection();"/>
-    <command id="Inspector:Sidebar"
-             oncommand="InspectorUI.toggleSidebar();"/>
-    <command id="Inspector:Tilt"
-             oncommand="Tilt.initialize();"/>
-    <command id="Inspector:HTMLPanel"
-             oncommand="InspectorUI.toggleHTMLPanel();"/>
-    <command id="Inspector:CopyInner"
-             oncommand="InspectorUI.copyInnerHTML();"/>
-    <command id="Inspector:CopyOuter"
-             oncommand="InspectorUI.copyOuterHTML();"/>
-    <command id="Inspector:DeleteNode"
-             oncommand="InspectorUI.deleteNode();"/>
-    <command id="Inspector:ToggleVeil"
-             oncommand="InspectorUI.toggleVeil();"/>
-    <command id="Inspector:ToggleInfobar"
-             oncommand="InspectorUI.toggleInfobar();"/>
-  </commandset>
-
   <broadcasterset id="mainBroadcasterSet">
     <broadcaster id="viewBookmarksSidebar" autoCheck="false" label="&bookmarksButton.label;"
                  type="checkbox" group="sidebar" sidebarurl="chrome://browser/content/bookmarks/bookmarksPanel.xul"
