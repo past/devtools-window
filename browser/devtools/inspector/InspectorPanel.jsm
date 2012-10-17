@@ -24,7 +24,7 @@ Cu.import("resource:///modules/devtools/Highlighter.jsm");
  * Represents an open instance of the Inspector for a tab.
  * This is the object handed out to sidebars and other API consumers.
  */
-function InspectorPanel(iframeWindow, toolbox, node) {
+function InspectorPanel(iframeWindow, toolbox) {
   this.target = toolbox.target;
 
   if (this.target.type == DevTools.TargetType.REMOTE) {
@@ -64,11 +64,12 @@ function InspectorPanel(iframeWindow, toolbox, node) {
   }
 
   this._initMarkup();
+  this.isReady = false;
 
-  // All the components are initialized. Let's select a node.
-  if (node) {
-    this._selection.setNode(node);
-  } else {
+  this.once("markuploaded", function() {
+    this.isReady = true;
+
+    // All the components are initialized. Let's select a node.
     if (this.tabTarget) {
       let browser = this.target.value.linkedBrowser;
       let root = browser.contentDocument.documentElement;
@@ -78,11 +79,13 @@ function InspectorPanel(iframeWindow, toolbox, node) {
       let root = this.target.value.document.documentElement;
       this._selection.setNode(root);
     }
-  }
 
-  if (this.highlighter) {
-    this.highlighter.unlock();
-  }
+    if (this.highlighter) {
+      this.highlighter.unlock();
+    }
+
+    this.emit("ready");
+  }.bind(this));
 }
 
 InspectorPanel.prototype = {

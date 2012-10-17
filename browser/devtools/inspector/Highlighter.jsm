@@ -168,7 +168,6 @@ Highlighter.prototype = {
     this.tabbrowser = null;
 
     this.emit("closed");
-    this.removeAllListeners();
   },
 
   /**
