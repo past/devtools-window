@@ -225,7 +225,7 @@ var Scratchpad = {
         this._previousLocation != this.gBrowser.contentWindow.location.href) {
       let contentWindow = this.gBrowser.selectedBrowser.contentWindow;
       this._contentSandbox = new Cu.Sandbox(contentWindow,
-        { sandboxPrototype: contentWindow, wantXrays: false, 
+        { sandboxPrototype: contentWindow, wantXrays: false,
           sandboxName: 'scratchpad-content'});
       this._contentSandbox.__SCRATCHPAD__ = this;
 
@@ -260,7 +260,7 @@ var Scratchpad = {
     if (!this._chromeSandbox ||
         this.browserWindow != this._previousBrowserWindow) {
       this._chromeSandbox = new Cu.Sandbox(this.browserWindow,
-        { sandboxPrototype: this.browserWindow, wantXrays: false, 
+        { sandboxPrototype: this.browserWindow, wantXrays: false,
           sandboxName: 'scratchpad-chrome'});
       this._chromeSandbox.__SCRATCHPAD__ = this;
       addDebuggerToGlobal(this._chromeSandbox);
@@ -676,8 +676,6 @@ var Scratchpad = {
         }
 
         if (shouldOpen) {
-          this._skipClosePrompt = true;
-
           let file;
           if (aFile) {
             file = aFile;
@@ -1217,8 +1215,13 @@ var Scratchpad = {
     }
 
     this.resetContext();
-    this.gBrowser.selectedBrowser.removeEventListener("load",
-        this._reloadAndRunEvent, true);
+
+    // This event is created only after user uses 'reload and run' feature.
+    if (this._reloadAndRunEvent) {
+      this.gBrowser.selectedBrowser.removeEventListener("load",
+          this._reloadAndRunEvent, true);
+    }
+
     this.editor.removeEventListener(SourceEditor.EVENTS.DIRTY_CHANGED,
                                     this._onDirtyChanged);
     PreferenceObserver.uninit();
@@ -1285,10 +1288,6 @@ var Scratchpad = {
    */
   onClose: function SP_onClose(aEvent)
   {
-    if (this._skipClosePrompt) {
-      return;
-    }
-
     this.promptSave(function(aShouldClose, aSaved, aStatus) {
       let shouldClose = aShouldClose;
       if (aSaved && !Components.isSuccessCode(aStatus)) {
@@ -1296,7 +1295,6 @@ var Scratchpad = {
       }
 
       if (shouldClose) {
-        this._skipClosePrompt = true;
         window.close();
       }
     }.bind(this));
@@ -1319,7 +1317,6 @@ var Scratchpad = {
       }
 
       if (shouldClose) {
-        this._skipClosePrompt = true;
         window.close();
       }
       if (aCallback) {
