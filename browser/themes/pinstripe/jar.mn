@@ -222,7 +222,6 @@ browser.jar:
   skin/classic/browser/devtools/background-noise-toolbar.png (devtools/background-noise-toolbar.png)
   skin/classic/browser/devtools/inspect-button.png          (devtools/inspect-button.png)
   skin/classic/browser/devtools/dropmarker.png              (devtools/dropmarker.png)
-  skin/classic/browser/devtools/treepanel-button.png        (devtools/treepanel-button.png)
   skin/classic/browser/devtools/layout-background.png       (devtools/layout-background.png)
   skin/classic/browser/devtools/layout-background-grid.png  (devtools/layout-background-grid.png)
   skin/classic/browser/devtools/layoutview.css              (devtools/layoutview.css)

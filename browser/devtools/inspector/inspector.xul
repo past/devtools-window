@@ -38,12 +38,6 @@
     <toolbarbutton id="inspector-inspect-toolbutton"
                    class="devtools-toolbarbutton"
                    oncommand="inspector.highlighter.toggleLock()"/>
-    <toolbarbutton id="inspector-treepanel-toolbutton"
-                   class="devtools-toolbarbutton"
-                   tabindex="0"
-                   aria-label="&markupButton.arialabel;"
-                   accesskey="&markupButton.accesskey;"
-                   command="Inspector:HTMLPanel"/>
     <arrowscrollbox id="inspector-breadcrumbs"
                     flex="1" orient="horizontal"
                     clicktoscroll="true"/>

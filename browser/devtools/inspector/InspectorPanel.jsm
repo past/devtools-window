@@ -19,13 +19,6 @@ Cu.import("resource:///modules/devtools/Selection.jsm");
 Cu.import("resource:///modules/devtools/Breadcrumbs.jsm");
 Cu.import("resource:///modules/devtools/Highlighter.jsm");
 
-/* FIXME: needed?
-Cu.import("resource://gre/modules/Services.jsm");
-Cu.import("resource:///modules/highlighter.jsm");
-Cu.import("resource:///modules/devtools/LayoutView.jsm");
-Cu.import("resource:///modules/devtools/LayoutHelpers.jsm");
-*/
-
 // Timer, in milliseconds, between change events fired by
 // things like resize events.
 const LAYOUT_CHANGE_TIMER = 250;
@@ -60,8 +53,8 @@ function InspectorPanel(iframeWindow, toolbox, node) {
     this.highlighter = new Highlighter(this.selection, this.target.value);
   }
 
-  this._markupButton = this.panelDoc.getElementById("inspector-treepanel-toolbutton");
-  this.openMarkup();
+  this._initMarkup();
+
   // All the components are initialized. Let's select a node.
   if (node) {
     this._selection.setNode(node);
@@ -73,14 +66,6 @@ function InspectorPanel(iframeWindow, toolbox, node) {
   if (this.highlighter) {
     this.highlighter.unlock();
   }
-
-  /* FIXME:
-  if (Services.prefs.getBoolPref("devtools.inspector.htmlPanelOpen")) {
-    this.openMarkup();
-  } else {
-    this.closeMarkup();
-  }
-  */
 }
 
 InspectorPanel.prototype = {
@@ -143,7 +128,6 @@ InspectorPanel.prototype = {
     this.browser = null;
     this.panelDoc = null;
     this.panelWin = null;
-    this._markupButton = null;
     this.breadcrumbs = null;
     this.highlighter = null;
   },
@@ -185,52 +169,20 @@ InspectorPanel.prototype = {
     }
   },
 
-  toggleMarkup: function InspectorPanel_toggleMarkup() {
-    if (this._markupFrame) {
-      this.closeMarkup();
-      Services.prefs.setBoolPref("devtools.inspector.htmlPanelOpen", false);
-    } else {
-      this.openMarkup(true);
-      Services.prefs.setBoolPref("devtools.inspector.htmlPanelOpen", true);
-    }
-  },
-
-  get markupOpen() {
-    return this._markupOpen;
-  },
-
-  openMarkup: function InspectorPanel_openMarkup(aFocus) {
-    this._markupButton.setAttribute("checked", "true");
-    this._markupOpen = true;
-    if (!this._markupFrame) {
-      this._initMarkup(aFocus);
-    }
-  },
-
-  closeMarkup: function InspectorPanel_closeMarkup() {
-    this._markupButton.removeAttribute("checked");
-    this._markupOpen = false;
-    this._destroyMarkup();
-  },
-
-  _initMarkup: function InspectorPanel_initMarkupPane(aFocus) {
+  _initMarkup: function InspectorPanel_initMarkupPane() {
     let doc = this.panelDoc;
 
     this._markupBox = doc.getElementById("markup-box");
-
-    // FIXME: remove "markup height" pref
 
     // create tool iframe
     this._markupFrame = doc.createElement("iframe");
     this._markupFrame.setAttribute("flex", "1");
     this._markupFrame.setAttribute("tooltip", "aHTMLTooltip");
-    this._markupFrame.setAttribute("context", "inspector-node-popup"); // FIXME: this won't wort
+    this._markupFrame.setAttribute("context", "inspector-node-popup"); // FIXME: this won't work
 
     // This is needed to enable tooltips inside the iframe document.
     this._boundMarkupFrameLoad = function InspectorPanel_initMarkupPanel_onload() {
-      if (aFocus) {
-        this._markupFrame.contentWindow.focus();
-      }
+      this._markupFrame.contentWindow.focus();
       this._onMarkupFrameLoad();
     }.bind(this);
     this._markupFrame.addEventListener("load", this._boundMarkupFrameLoad, true);
@@ -292,7 +244,7 @@ InspectorPanel.prototype = {
   },
 
   /**
-   * Add a tooltip to the Inspect and Markup buttons.
+   * Add a tooltip to the Inspect button.
    * The tooltips include the related keyboard shortcut.
    */
   buildButtonsTooltip: function InspectorPanel_buildButtonsTooltip() {
@@ -337,24 +289,6 @@ InspectorPanel.prototype = {
 
     button = this.panelDoc.getElementById("inspector-inspect-toolbutton");
     button.setAttribute("tooltiptext", tooltip);
-
-    // Markup Button - the shortcut string is built from the accesskey attribute
-
-    button = this.panelDoc.getElementById("inspector-treepanel-toolbutton");
-/* FIXME:
-#ifdef XP_MACOSX
-    // On Mac, no accesskey
-    tooltip = this.strings.GetStringFromName("markupButton.tooltip");
-#else
-    let altString = keysbundle.GetStringFromName("VK_ALT");
-    let accesskey = button.getAttribute("accesskey");
-    let shortcut = altString + separator + accesskey;
-    tooltip = this.strings.formatStringFromName("markupButton.tooltipWithAccesskey",
-      [shortcut], 1);
-#endif
-*/
-    button.setAttribute("tooltiptext", tooltip);
-
   },
 
   todo: function() {
@@ -415,9 +349,6 @@ InspectorPanel.prototype = {
    */
   ____nodeChanged: function IUI_nodeChanged(aUpdater)
   {
-    this.highlighter.updateInfobar();
-    this.highlighter.invalidateSize();
-    this.breadcrumbs.updateSelectors();
     this._currentInspector.emit("change", aUpdater);
   },
 
