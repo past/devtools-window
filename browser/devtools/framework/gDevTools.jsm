@@ -329,8 +329,6 @@ DevTools.prototype = {
     let bc = doc.createElement("broadcaster");
     bc.id = "devtoolsMenuBroadcaster_" + id;
     bc.setAttribute("label", toolDefinition.label);
-    bc.setAttribute("type", "checkbox");
-    bc.setAttribute("autocheck", "false");
     bc.setAttribute("command", "Tools:" + id);
     bc.setAttribute("key", "key_" + id);
 
