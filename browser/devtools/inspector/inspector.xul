@@ -37,6 +37,7 @@
            nowindowdrag="true">
     <toolbarbutton id="inspector-inspect-toolbutton"
                    class="devtools-toolbarbutton"
+                   hidden="true"
                    oncommand="inspector.highlighter.toggleLock()"/>
     <arrowscrollbox id="inspector-breadcrumbs"
                     flex="1" orient="horizontal"
