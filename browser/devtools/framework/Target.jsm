@@ -47,16 +47,18 @@ function Target() {
  */
 Target.newFromTab = function(tab) {
   let target = Object.create(Target.prototype);
-  new EventEmitter(this);
+  new EventEmitter(target);
 
-  this._tab = tab;
+  target.tab = tab;
 
-  this.isRemote = false;
-  this.isChrome = false;
+  target.isRemote = false;
+  target.isChrome = false;
 
   // FIXME: implement
-  this.name = '...';
-  this.url = '...';
+  target.name = '...';
+  target.url = '...';
+
+  return target;
 };
 
 /**
@@ -75,16 +77,18 @@ Target.getLocalWebPages = function() {
  */
 Target.newFromChromeWindow = function(chromeWindow) {
   let target = Object.create(Target.prototype);
-  new EventEmitter(this);
+  new EventEmitter(target);
 
-  this._chromeWindow = chromeWindow;
+  target.chromeWindow = chromeWindow;
 
-  this.isRemote = false;
-  this.isChrome = true;
+  target.isRemote = false;
+  target.isChrome = true;
 
   // FIXME: implement
-  this.name = '...';
-  this.url = '...';
+  target.name = '...';
+  target.url = '...';
+
+  return target;
 };
 
 /**
@@ -103,17 +107,19 @@ Target.getLocalChromeWindows = function() {
  */
 Target.newFromRemoteWebPage = function(connection, webPageName) {
   let target = Object.create(Target.prototype);
-  new EventEmitter(this);
+  new EventEmitter(target);
 
-  this._connection = connection;
-  this._webPageName = webPageName;
+  target.connection = connection;
+  target.webPageName = webPageName;
 
-  this.isRemote = true;
-  this.isChrome = false;
+  target.isRemote = true;
+  target.isChrome = false;
 
   // FIXME: implement
-  this.name = '...';
-  this.url = '...';
+  target.name = '...';
+  target.url = '...';
+
+  return target;
 };
 
 /**
@@ -140,17 +146,19 @@ Target.getRemoteWebPages = function(connectionOrHost, port) {
  */
 Target.newFromRemoteChromeWindow = function(connection, windowName) {
   let target = Object.create(Target.prototype);
-  new EventEmitter(this);
+  new EventEmitter(target);
 
-  this._connection = connection;
-  this._windowName = windowName;
+  target.connection = connection;
+  target.windowName = windowName;
 
-  this.isRemote = true;
-  this.isChrome = true;
+  target.isRemote = true;
+  target.isChrome = true;
 
   // FIXME: implement
-  this.name = '...';
-  this.url = '...';
+  target.name = '...';
+  target.url = '...';
+
+  return target;
 };
 
 /**
