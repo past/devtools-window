@@ -19,6 +19,7 @@ Cu.import("resource:///modules/devtools/gDevTools.jsm");
 Cu.import("resource:///modules/devtools/Selection.jsm");
 Cu.import("resource:///modules/devtools/Breadcrumbs.jsm");
 Cu.import("resource:///modules/devtools/Highlighter.jsm");
+Cu.import("resource:///modules/devtools/Highlighter.jsm");
 
 /**
  * Represents an open instance of the Inspector for a tab.
@@ -40,16 +41,23 @@ function InspectorPanel(iframeWindow, toolbox) {
   this.panelWin = iframeWindow;
   this.panelWin.inspector = this;
 
+  this.nodemenu = this.panelDoc.getElementById("inspector-node-popup");
+  this.lastNodemenuItem = this.nodemenu.lastChild;
+  this._setupNodeMenu = this._setupNodeMenu.bind(this);
+  this._resetNodeMenu = this._resetNodeMenu.bind(this);
+  this.nodemenu.addEventListener("popupshowing", this._setupNodeMenu, true);
+  this.nodemenu.addEventListener("popuphiding", this._resetNodeMenu, true);
+
   // Create an empty selection
   this._selection = new Selection();
   this.onNewSelection = this.onNewSelection.bind(this);
   this.selection.on("new-node", this.onNewSelection);
 
-  this.breadcrumbs = new HTMLBreadcrumbs(this.selection, this.panelWin, this.panelDoc);
+  this.breadcrumbs = new HTMLBreadcrumbs(this);
 
   if (this.tabTarget) {
     this.buildButtonsTooltip();
-    this.highlighter = new Highlighter(this.selection, this.target.value, this.panelDoc);
+    this.highlighter = new Highlighter(this.selection, this.target.value, this);
     let button = this.panelDoc.getElementById("inspector-inspect-toolbutton");
     button.hidden = false;
     this.updateInspectorButton = function() {
@@ -131,6 +139,9 @@ InspectorPanel.prototype = {
       this.highlighter.off("unlocked", this.updateInspectorButton);
       this.highlighter.destroy();
     }
+
+    this.nodemenu.removeEventListener("popupshowing", this._setupNodeMenu, true);
+    this.nodemenu.remvoeEventListener("popuphiding", this._resetNodeMenu, true);
     this.breadcrumbs.destroy();
     this.selection.off("new-node", this.onNewSelection);
     this._destroyMarkup();
@@ -141,7 +152,60 @@ InspectorPanel.prototype = {
     this.panelDoc = null;
     this.panelWin = null;
     this.breadcrumbs = null;
+    this.lastNodemenuItem = null;
+    this.nodemenu = null;
     this.highlighter = null;
+  },
+
+  /**
+   * Show the node menu.
+   */
+  showNodeMenu: function InspectorPanel_showNodeMenu(aButton, aPosition, aExtraItems) {
+    if (aExtraItems) {
+      for (let item of aExtraItems) {
+        this.nodemenu.appendChild(item);
+      }
+    }
+    this.nodemenu.openPopup(aButton, aPosition, 0, 0, true, false);
+  },
+
+  hideNodeMenu: function InspectorPanel_hideNodeMenu() {
+    this.nodemenu.hidePopup();
+  },
+
+  /**
+   * Disable the delete item if needed. Update the pseudo classes.
+   */
+  _setupNodeMenu: function InspectorPanel_setupNodeMenu() {
+    // Set the pseudo classes
+    let hover = this.panelDoc.getElementById("node-menu-pseudo-hover");
+    let focus = this.panelDoc.getElementById("node-menu-pseudo-focus");
+    let active = this.panelDoc.getElementById("node-menu-pseudo-active");
+
+    let isHover = DOMUtils.hasPseudoClassLock(this.selection.node, ":hover");
+    let isFocus = DOMUtils.hasPseudoClassLock(this.selection.node, ":focus");
+    let isActive = DOMUtils.hasPseudoClassLock(this.selection.node, ":active");
+
+    hover.setAttribute("checked", isHover);
+    focus.setAttribute("checked", isFocus);
+    active.setAttribute("checked", isActive);
+
+    // Disable delete item if needed
+    let deleteNode = this.panelDoc.getElementById("node-menu-delete");
+    if (this.selection.isRoot()) {
+      deleteNode.setAttribute("disabled", "true");
+    } else {
+      deleteNode.removeAttribute("disabled");
+    }
+
+  },
+
+  _resetNodeMenu: function InspectorPanel_resetNodeMenu() {
+    // Remove any extra items
+    while (this.lastNodemenuItem.nextSibling) {
+      let toDelete = this.lastNodemenuItem.nextSibling;
+      toDelete.parentNode.removeChild(toDelete);
+    }
   },
 
   _initMarkup: function InspectorPanel_initMarkupPane() {
@@ -153,7 +217,7 @@ InspectorPanel.prototype = {
     this._markupFrame = doc.createElement("iframe");
     this._markupFrame.setAttribute("flex", "1");
     this._markupFrame.setAttribute("tooltip", "aHTMLTooltip");
-    this._markupFrame.setAttribute("context", "inspector-node-popup"); // FIXME: this won't work
+    this._markupFrame.setAttribute("context", "inspector-node-popup");
 
     // This is needed to enable tooltips inside the iframe document.
     this._boundMarkupFrameLoad = function InspectorPanel_initMarkupPanel_onload() {
@@ -322,71 +386,79 @@ InspectorPanel.prototype = {
   },
   */
 
-  /**
-   * FIXME: ensure this will happen
-   */
-  ____nodeChanged: function IUI_nodeChanged(aUpdater)
-  {
-    this._currentInspector.emit("change", aUpdater);
-  },
-
-  ____highlighterReady: function IUI_highlighterReady()
-  {
-    this.highlighter.addListener("locked", function() {
-      self.stopInspecting();
-    });
-    this.highlighter.addListener("unlocked", function() {
-      self.startInspecting();
-    });
-    this.highlighter.addListener("pseudoclasstoggled", function(aPseudo) {
-      self.togglePseudoClassLock(aPseudo);
-    });
-  },
-
   // FIXME: mouseleave/enter to hide/show highlighter
 
   /**
-   * FIXME: go to super node?
-   * Inspector:CopyInner command.
+   * Toggle a pseudo class.
    */
-  ____copyInnerHTML: function IUI_copyInnerHTML()
-  {
-    let selection = this._contextSelection();
-    clipboardHelper.copyString(selection.innerHTML, selection.ownerDocument);
+  togglePseudoClass: function togglePseudoClass(aPseudo) {
+    if (this.selection.isElementNode()) {
+      if (DOMUtils.hasPseudoClassLock(this.selection.node, aPseudo)) {
+        this.breadcrumbs.nodeHierarchy.forEach(function(crumb) {
+          DOMUtils.removePseudoClassLock(crumb.node, aPseudo);
+        });
+      } else {
+        let hierarchical = aPseudo == ":hover" || aPseudo == ":active";
+        let node = this.selection.node;
+        do {
+          DOMUtils.addPseudoClassLock(node, aPseudo);
+          node = node.parentNode;
+        } while (hierarchical && node.parentNode)
+      }
+    }
+    this.selection.emit("pseudoclass");
   },
 
   /**
-   * Copy the outerHTML of the selected Node to the clipboard. Called via the
-   * Inspector:CopyOuter command.
+   * Copy the innerHTML of the selected Node to the clipboard.
    */
-  ____copyOuterHTML: function IUI_copyOuterHTML()
+  copyInnerHTML: function InspectorPanel_copyInnerHTML()
   {
-    let selection = this._contextSelection();
-    clipboardHelper.copyString(selection.outerHTML, selection.ownerDocument);
+    if (!this.selection.isNode()) {
+      return;
+    }
+    let toCopy = this.selection.node.innerHTML;
+    if (toCopy) {
+      clipboardHelper.copyString(toCopy);
+    }
   },
 
   /**
-   * Delete the selected node. Called via the Inspector:DeleteNode command.
+   * Copy the outerHTML of the selected Node to the clipboard.
    */
-  ____deleteNode: function IUI_deleteNode() {
+  copyOuterHTML: function InspectorPanel_copyOuterHTML()
+  {
+    if (!this.selection.isNode()) {
+      return;
+    }
+    let toCopy = this.selection.node.outerHTML;
+    if (toCopy) {
+      clipboardHelper.copyString(toCopy);
+    }
+  },
+
+  /**
+   * Delete the selected node.
+   */
+  deleteNode: function IUI_deleteNode() {
     if (!this.selection.isNode() ||
-        this.selection.isRoot()) {
+         this.selection.isRoot()) {
       return;
     }
 
-    let parent = selection.node.parentNode;
+    let toDelete = this.selection.node;
+
+    let parent = this.selection.node.parentNode;
+    //this.selection.setNode(parent, "inspector")
 
     // If the markup panel is active, use the markup panel to delete
     // the node, making this an undoable action.
-    let markup = this.currentInspector.markup;
-    if (markup) {
-      markup.deleteNode(selection.node);
+    if (this.markup) {
+      this.markup.deleteNode(toDelete);
     } else {
       // remove the node from content
-      parent.removeChild(selection.node);
+      parent.removeChild(toDelete);
     }
-
-    this.selection.setNode(parent, "inspector")
   },
 }
 
@@ -402,4 +474,9 @@ XPCOMUtils.defineLazyGetter(InspectorPanel.prototype, "strings",
 XPCOMUtils.defineLazyGetter(this, "clipboardHelper", function() {
   return Cc["@mozilla.org/widget/clipboardhelper;1"].
     getService(Ci.nsIClipboardHelper);
+});
+
+
+XPCOMUtils.defineLazyGetter(this, "DOMUtils", function () {
+  return Cc["@mozilla.org/inspector/dom-utils;1"].getService(Ci.inIDOMUtils);
 });

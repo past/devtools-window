@@ -41,11 +41,12 @@ const LOW_PRIORITY_ELEMENTS = {
  *   else select the node;
  * . If the selected node is the last node displayed, append its first (if any).
  */
-function HTMLBreadcrumbs(aSelection, aChromeWindow, aChromeDocument)
+function HTMLBreadcrumbs(aInspector)
 {
-  this.selection = aSelection;
-  this.chromeWin = aChromeWindow;
-  this.chromeDoc = aChromeDocument;
+  this.inspector = aInspector;
+  this.selection = this.inspector.selection;
+  this.chromeWin = this.inspector.panelWin;
+  this.chromeDoc = this.inspector.panelDoc;
   this.DOMHelpers = new DOMHelpers(this.chromeWin);
   this._init();
 }
@@ -63,13 +64,6 @@ HTMLBreadcrumbs.prototype = {
     // Last selected node in nodeHierarchy.
     this.currentIndex = -1;
 
-    // Siblings menu
-    this.menu = this.chromeDoc.createElement("menupopup");
-    this.menu.id = "inspector-breadcrumbs-menu";
-
-    let popupSet = this.chromeDoc.getElementById("mainPopupSet");
-    popupSet.appendChild(this.menu);
-
     // By default, hide the arrows. We let the <scrollbox> show them
     // in case of overflow.
     this.container.removeAttribute("overflows");
@@ -86,17 +80,11 @@ HTMLBreadcrumbs.prototype = {
     this.container.addEventListener("underflow", this.onscrollboxreflow, false);
     this.container.addEventListener("overflow", this.onscrollboxreflow, false);
 
-    this.menu.addEventListener("popuphiding", (function() {
-      while (this.menu.hasChildNodes()) {
-        this.menu.removeChild(this.menu.firstChild);
-      }
-      let button = this.container.querySelector("button[siblings-menu-open]");
-      button.removeAttribute("siblings-menu-open");
-    }).bind(this), false);
-
     this.update = this.update.bind(this);
     this.updateSelectors = this.updateSelectors.bind(this);
     this.selection.on("new-node", this.update);
+    this.selection.on("detached", this.update);
+    this.selection.on("pseudoclass", this.updateSelectors);
     this.selection.on("attribute-changed", this.updateSelectors);
     this.update();
   },
@@ -182,17 +170,18 @@ HTMLBreadcrumbs.prototype = {
    */
   openSiblingMenu: function BC_openSiblingMenu(aButton, aNode)
   {
+    // We make sure that the targeted node is selected
+    // because we want to use the nodemenu that only works
+    // for inspector.selection
+    this.selection.setNode(aNode, "breadcrumbs");
+
     let title = this.chromeDoc.createElement("menuitem");
-    title.setAttribute("label",
-      this.inspector.strings.GetStringFromName("breadcrumbs.siblings"));
+    title.setAttribute("label", this.inspector.strings.GetStringFromName("breadcrumbs.siblings"));
     title.setAttribute("disabled", "true");
 
     let separator = this.chromeDoc.createElement("menuseparator");
 
-    this.menu.appendChild(title);
-    this.menu.appendChild(separator);
-
-    let fragment = this.chromeDoc.createDocumentFragment();
+    let items = [title, separator];
 
     let nodes = aNode.parentNode.childNodes;
     for (let i = 0; i < nodes.length; i++) {
@@ -213,12 +202,10 @@ HTMLBreadcrumbs.prototype = {
           }
         })(nodes[i]);
 
-        fragment.appendChild(item);
+        items.push(item);
       }
     }
-    this.menu.appendChild(fragment);
-    this.menu.openPopup(aButton, "before_start", 0, 0, true, false);
-    aButton.setAttribute("siblings-menu-open", "true");
+    this.inspector.showNodeMenu(aButton, "before_start", items);
   },
 
   /**
@@ -303,6 +290,8 @@ HTMLBreadcrumbs.prototype = {
   destroy: function BC_destroy()
   {
     this.selection.off("new-node", this.update);
+    this.selection.off("detached", this.update);
+    this.selection.off("pseudoclass", this.updateSelectors);
     this.selection.off("attribute-changed", this.updateSelectors);
 
     this.container.removeEventListener("underflow", this.onscrollboxreflow, false);
@@ -312,7 +301,6 @@ HTMLBreadcrumbs.prototype = {
     this.empty();
     this.container.removeEventListener("mousedown", this, true);
     this.container.removeEventListener("keypress", this, true);
-    this.menu.parentNode.removeChild(this.menu);
     this.container = null;
     this.nodeHierarchy = null;
   },
@@ -332,7 +320,7 @@ HTMLBreadcrumbs.prototype = {
    */
   invalidateHierarchy: function BC_invalidateHierarchy()
   {
-    this.menu.hidePopup();
+    this.inspector.hideNodeMenu();
     this.nodeHierarchy = [];
     this.empty();
   },
@@ -545,7 +533,7 @@ HTMLBreadcrumbs.prototype = {
    */
   update: function BC_update()
   {
-    this.menu.hidePopup();
+    this.inspector.hideNodeMenu();
 
     let cmdDispatcher = this.chromeDoc.commandDispatcher;
     this.hadFocus = (cmdDispatcher.focusedElement &&

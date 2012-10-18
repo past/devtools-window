@@ -76,14 +76,14 @@ const PSEUDO_CLASSES = [":hover", ":active", ":focus"];
  * @param object aWindow
  * @param SuperNode aSuperNode
  */
-function Highlighter(aSelection, aTab, aPanelDoc)
+function Highlighter(aSelection, aTab, aInspector)
 {
   this.selection = aSelection;
   this.tab = aTab;
   this.browser = aTab.linkedBrowser;
   this.chromeDoc = aTab.ownerDocument;
   this.chromeWin = this.chromeDoc.defaultView;
-  this.panelDoc = aPanelDoc;
+  this.inspector = aInspector
 
   new EventEmitter(this);
 
@@ -130,6 +130,8 @@ Highlighter.prototype = {
 
     this.selection.on("new-node", this.highlight);
     this.selection.on("new-node", this.updateInfobar);
+    this.selection.on("detached", this.highlight);
+    this.selection.on("pseudoclass", this.updateInfobar);
     this.selection.on("attribute-changed", this.updateInfobar);
 
     this.hidden = true;
@@ -146,6 +148,8 @@ Highlighter.prototype = {
 
     this.selection.off("new-node", this.highlight);
     this.selection.off("new-node", this.updateInfobar);
+    this.selection.off("detached", this.highlight);
+    this.selection.off("pseudoclass", this.updateInfobar);
     this.selection.off("attribute-changed", this.updateInfobar);
 
     this.detachMouseListeners();
@@ -194,18 +198,6 @@ Highlighter.prototype = {
     } else {
       this.hide();
     }
-  },
-
-  /**
-   * Notify that a pseudo-class lock was toggled on the highlighted element
-   *
-   * @param aPseudo - The pseudo-class to toggle, e.g. ":hover".
-   */
-  pseudoClassLockToggled: function Highlighter_pseudoClassLockToggled(aPseudo)
-  {
-    this.emit("pseudoclasstoggled", [aPseudo]);
-    this.updateInfobar();
-    this.moveInfobar();
   },
 
   /**
@@ -280,7 +272,10 @@ Highlighter.prototype = {
     this.nodeInfo.container.removeAttribute("locked");
     this.attachMouseListeners();
     this.locked = false;
-    this.showOutline();
+    if (this.selection.isElementNode() &&
+        this.selection.isConnected()) {
+      this.showOutline();
+    }
     this.emit("unlocked");
   },
 
@@ -372,7 +367,7 @@ Highlighter.prototype = {
 
     this.inspectButton = this.chromeDoc.createElement("toolbarbutton");
     this.inspectButton.className = "highlighter-nodeinfobar-button highlighter-nodeinfobar-inspectbutton"
-    let toolbarInspectButton = this.panelDoc.getElementById("inspector-inspect-toolbutton");
+    let toolbarInspectButton = this.inspector.panelDoc.getElementById("inspector-inspect-toolbutton");
     this.inspectButton.setAttribute("tooltiptext", toolbarInspectButton.getAttribute("tooltiptext"));
     this.inspectButton.addEventListener("command", this.unlock);
 
@@ -382,27 +377,9 @@ Highlighter.prototype = {
     nodemenu.setAttribute("tooltiptext",
                           this.strings.GetStringFromName("nodeMenu.tooltiptext"));
 
-    /* FIXME:
-    let menu = this.chromeDoc.getElementById("inspector-node-popup");
-    menu = menu.cloneNode(true);
-    menu.id = "highlighter-node-menu";
-
-    let separator = this.chromeDoc.createElement("menuseparator");
-    menu.appendChild(separator);
-
-    menu.addEventListener("popupshowing", function() {
-      let items = menu.getElementsByClassName("highlighter-pseudo-class-menuitem");
-      let i = items.length;
-      while (i--) {
-        menu.removeChild(items[i]);
-      }
-
-      let fragment = this.buildPseudoClassMenu();
-      menu.appendChild(fragment);
-    }.bind(this), true);
-
-    nodemenu.appendChild(menu);
-    */
+    nodemenu.onclick = function() {
+      this.inspector.showNodeMenu(nodemenu, "after_start");
+    }.bind(this);
 
     // <hbox class="highlighter-nodeinfobar-text"/>
     let texthbox = this.chromeDoc.createElement("hbox");
@@ -442,29 +419,6 @@ Highlighter.prototype = {
       container: container,
       barHeight: barHeight,
     };
-  },
-
-  /**
-   * Create the menuitems for toggling the selection's pseudo-class state
-   *
-   * @returns DocumentFragment. The menuitems for toggling pseudo-classes.
-   */
-  buildPseudoClassMenu: function Highlighter_buildPseudoClassesMenu()
-  {
-    let fragment = this.chromeDoc.createDocumentFragment();
-    for (let i = 0; i < PSEUDO_CLASSES.length; i++) {
-      let pseudo = PSEUDO_CLASSES[i];
-      let item = this.chromeDoc.createElement("menuitem");
-      item.className = "highlighter-pseudo-class-menuitem highlighter-pseudo-class-menuitem-" + pseudo;
-      item.setAttribute("type", "checkbox");
-      item.setAttribute("label", pseudo);
-      item.setAttribute("checked", DOMUtils.hasPseudoClassLock(this.selection.node,
-                        pseudo));
-      item.addEventListener("command",
-                            this.pseudoClassLockToggled.bind(this, pseudo), false);
-      fragment.appendChild(item);
-    }
-    return fragment;
   },
 
   /**

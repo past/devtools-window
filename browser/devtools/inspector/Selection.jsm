@@ -147,7 +147,7 @@ Selection.prototype = {
   isRoot: function SN_isRootNode() {
     return this.isNode() &&
            this.isConnected() &&
-           this.node.ownerDocument.documentElement && this.node;
+           this.node.ownerDocument.documentElement === this.node;
   },
 
   isNode: function SN_isNode() {
