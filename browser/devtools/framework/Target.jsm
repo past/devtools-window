@@ -6,6 +6,8 @@
 
 const EXPORTED_SYMBOLS = [ "Target" ];
 
+Components.utils.import("resource:///modules/devtools/EventEmitter.jsm");
+
 /**
  * A Target represents something that we can debug. Targets are generally
  * read-only. Any changes that you wish to make to a target should be done via
@@ -54,9 +56,9 @@ Target.newFromTab = function(tab) {
   target.isRemote = false;
   target.isChrome = false;
 
-  // FIXME: implement
-  target.name = '...';
-  target.url = '...';
+  let document = target.tab.linkedBrowser.contentWindow.document;
+  target.name = document.title;
+  target.url = document.location.href;
 
   return target;
 };
@@ -84,9 +86,9 @@ Target.newFromChromeWindow = function(chromeWindow) {
   target.isRemote = false;
   target.isChrome = true;
 
-  // FIXME: implement
-  target.name = '...';
-  target.url = '...';
+  let document = chromeWindow.content.ownerDocument;
+  target.name = document.title;
+  target.url = document.location.href;
 
   return target;
 };
@@ -96,7 +98,14 @@ Target.newFromChromeWindow = function(chromeWindow) {
  * Targets for all available local chrome windows.
  */
 Target.getLocalChromeWindows = function() {
-  let chromeWindows = FixmeLocalThing.getChromeWindows();
+  let chromeWindows = [];
+  let wm = Components.classes["@mozilla.org/appshell/window-mediator;1"]
+                     .getService(Components.interfaces.nsIWindowMediator);
+  let en = wm.getXULWindowEnumerator(null);
+  while (en.hasMoreElements()) {
+    chromeWindows.push(en.getNext());
+  }
+
   return chromeWindows.map(function(chromeWindow) {
     return Target.newFromChromeWindow(chromeWindow);
   });
