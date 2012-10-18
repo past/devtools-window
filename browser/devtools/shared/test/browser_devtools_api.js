@@ -47,7 +47,7 @@ function runTests(aTab) {
   is(toolInstances.has(toolId), true, "The tool is in the toolbox");
 
   let toolInstance = toolInstances.get(toolId);
-  is(toolInstance.target.value, gBrowser.selectedTab,
+  is(toolInstance.target.tab, gBrowser.selectedTab,
     "toolInstance target is correct");
   is(toolInstance.id, toolId, "toolInstance id is correct");
 

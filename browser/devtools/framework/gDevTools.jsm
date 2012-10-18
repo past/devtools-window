@@ -162,16 +162,16 @@ DevTools.prototype = {
    * (optionally with |defaultToolId| opened)
    */
   openToolbox: function DT_openToolbox(target, hostType, defaultToolId) {
-    if (this._toolboxes.has(target.value)) {
+    if (this._toolboxes.has(target.tab)) {
       // only allow one toolbox per target
       return null;
     }
 
     let tb = new Toolbox(target, hostType, defaultToolId);
 
-    this._toolboxes.set(target.value, tb);
+    this._toolboxes.set(target.tab, tb);
     tb.once("destroyed", function() {
-      this._toolboxes.delete(target.value);
+      this._toolboxes.delete(target.tab);
     }.bind(this));
 
     tb.open();
