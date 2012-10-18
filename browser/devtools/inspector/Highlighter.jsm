@@ -50,19 +50,19 @@ const PSEUDO_CLASSES = [":hover", ":active", ":focus"];
  *   "pseudoclasstoggled" - A pseudo-class lock has changed on the selected node
  *
  * Structure:
- *  <stack id="highlighter-container">
- *    <box id="highlighter-outline-container">
- *      <box id="highlighter-outline" locked="true/false"/>
+ *  <stack class="highlighter-container">
+ *    <box class="highlighter-outline-container">
+ *      <box class="highlighter-outline" locked="true/false"/>
  *    </box>
- *    <box id="highlighter-controls">
- *      <box id="highlighter-nodeinfobar-container" position="top/bottom" locked="true/false">
- *        <box class="highlighter-nodeinfobar-arrow" id="highlighter-nodeinfobar-arrow-top"/>
- *        <hbox id="highlighter-nodeinfobar">
- *          <toolbarbutton id="highlighter-nodeinfobar-inspectbutton" class="highlighter-nodeinfobar-button"/>
- *          <hbox id="highlighter-nodeinfobar-text">tagname#id.class1.class2</hbox>
- *          <toolbarbutton id="highlighter-nodeinfobar-menu" class="highlighter-nodeinfobar-button">…</toolbarbutton>
+ *    <box class="highlighter-controls">
+ *      <box class="highlighter-nodeinfobar-container" position="top/bottom" locked="true/false">
+ *        <box class="highlighter-nodeinfobar-arrow highlighter-nodeinfobar-arrow-top"/>
+ *        <hbox class="highlighter-nodeinfobar">
+ *          <toolbarbutton class="highlighter-nodeinfobar-inspectbutton highlighter-nodeinfobar-button"/>
+ *          <hbox class="highlighter-nodeinfobar-text">tagname#id.class1.class2</hbox>
+ *          <toolbarbutton class="highlighter-nodeinfobar-menu highlighter-nodeinfobar-button">…</toolbarbutton>
  *        </hbox>
- *        <box class="highlighter-nodeinfobar-arrow" id="highlighter-nodeinfobar-arrow-bottom"/>
+ *        <box class="highlighter-nodeinfobar-arrow highlighter-nodeinfobar-arrow-bottom"/>
  *      </box>
  *    </box>
  *  </stack>
@@ -319,19 +319,19 @@ Highlighter.prototype = {
   /**
    * Build the node Infobar.
    *
-   * <box id="highlighter-nodeinfobar-container">
-   *   <box id="Highlighter-nodeinfobar-arrow-top"/>
-   *   <hbox id="highlighter-nodeinfobar">
-   *     <toolbarbutton class="highlighter-nodeinfobar-button" id="highlighter-nodeinfobar-inspectbutton"/>
-   *     <hbox id="highlighter-nodeinfobar-text">
-   *       <xhtml:span id="highlighter-nodeinfobar-tagname"/>
-   *       <xhtml:span id="highlighter-nodeinfobar-id"/>
-   *       <xhtml:span id="highlighter-nodeinfobar-classes"/>
-   *       <xhtml:span id="highlighter-nodeinfobar-pseudo-classes"/>
+   * <box class="highlighter-nodeinfobar-container">
+   *   <box class="Highlighter-nodeinfobar-arrow-top"/>
+   *   <hbox class="highlighter-nodeinfobar">
+   *     <toolbarbutton class="highlighter-nodeinfobar-button highlighter-nodeinfobar-inspectbutton"/>
+   *     <hbox class="highlighter-nodeinfobar-text">
+   *       <xhtml:span class="highlighter-nodeinfobar-tagname"/>
+   *       <xhtml:span class="highlighter-nodeinfobar-id"/>
+   *       <xhtml:span class="highlighter-nodeinfobar-classes"/>
+   *       <xhtml:span class="highlighter-nodeinfobar-pseudo-classes"/>
    *     </hbox>
-   *     <toolbarbutton class="highlighter-nodeinfobar-button" id="highlighter-nodeinfobar-menu"/>
+   *     <toolbarbutton class="highlighter-nodeinfobar-button highlighter-nodeinfobar-menu"/>
    *   </hbox>
-   *   <box id="Highlighter-nodeinfobar-arrow-bottom"/>
+   *   <box class="Highlighter-nodeinfobar-arrow-bottom"/>
    * </box>
    *
    * @param nsIDOMElement aParent
@@ -404,7 +404,7 @@ Highlighter.prototype = {
     nodemenu.appendChild(menu);
     */
 
-    // <hbox id="highlighter-nodeinfobar-text"/>
+    // <hbox class="highlighter-nodeinfobar-text"/>
     let texthbox = this.chromeDoc.createElement("hbox");
     texthbox.className = "highlighter-nodeinfobar-text";
     texthbox.setAttribute("align", "center");
