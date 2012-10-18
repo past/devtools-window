@@ -946,9 +946,9 @@ ElementEditor.prototype = {
         start: function EE_editAttribute_start(aEditor, aEvent) {
           // If the editing was started inside the name or value areas,
           // select accordingly.
-          if (aEvent.target === name) {
+          if (aEvent && aEvent.target === name) {
             aEditor.input.setSelectionRange(0, name.textContent.length);
-          } else if (aEvent.target === val) {
+          } else if (aEvent && aEvent.target === val) {
             let length = val.textContent.length;
             let editorLength = aEditor.input.value.length;
             let start = editorLength - (length + 1);
