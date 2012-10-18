@@ -12,26 +12,36 @@
 ]>
 
 <window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
-  <commandset id="inspectorCommands">
-    <command id="Inspector:Inspect"
-             oncommand="InspectorUI.toggleInspection();"/>
-    <command id="Inspector:Sidebar"
-             oncommand="InspectorUI.toggleSidebar();"/>
-    <command id="Inspector:Tilt"
-             oncommand="Tilt.initialize();"/>
-    <command id="Inspector:CopyInner"
-             oncommand="InspectorUI.copyInnerHTML();"/>
-    <command id="Inspector:CopyOuter"
-             oncommand="InspectorUI.copyOuterHTML();"/>
-    <command id="Inspector:DeleteNode"
-             oncommand="InspectorUI.deleteNode();"/>
-    <command id="Inspector:ToggleVeil"
-             oncommand="InspectorUI.toggleVeil();"/>
-    <command id="Inspector:ToggleInfobar"
-             oncommand="InspectorUI.toggleInfobar();"/>
-  </commandset>
 
-  <popupset id="mainPopupSet"></popupset>
+  <popupset>
+    <!-- Used by the Markup Panel, the Highlighter and the Breadcrumbs -->
+    <menupopup id="inspector-node-popup">
+      <menuitem id="node-menu-copyinner"
+        label="&inspectorHTMLCopyInner.label;"
+        accesskey="&inspectorHTMLCopyInner.accesskey;"
+        oncommand="inspector.copyInnerHTML()"/>
+      <menuitem id="node-menu-copyouter"
+        label="&inspectorHTMLCopyOuter.label;"
+        accesskey="&inspectorHTMLCopyOuter.accesskey;"
+        oncommand="inspector.copyOuterHTML()"/>
+      <menuseparator/>
+      <menuitem id="node-menu-delete"
+        label="&inspectorHTMLDelete.label;"
+        accesskey="&inspectorHTMLDelete.accesskey;"
+        oncommand="inspector.deleteNode()"/>
+      <menuseparator/>
+      <menuitem id="node-menu-pseudo-hover"
+        label=":hover" type="checkbox"
+        oncommand="inspector.togglePseudoClass(':hover')"/>
+      <menuitem id="node-menu-pseudo-active"
+        label=":active" type="checkbox"
+        oncommand="inspector.togglePseudoClass(':active')"/>
+      <menuitem id="node-menu-pseudo-focus"
+        label=":focus" type="checkbox"
+        oncommand="inspector.togglePseudoClass(':focus')"/>
+    </menupopup>
+  </popupset>
+
   <toolbar id="inspector-toolbar"
            class="devtools-toolbar"
            nowindowdrag="true">
