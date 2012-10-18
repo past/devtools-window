@@ -237,7 +237,7 @@ InspectorPanel.prototype = {
 
     this._markupBox.removeAttribute("hidden");
 
-    let controllerWindow; // FIXME: that probably doesn't work
+    let controllerWindow; // FIXME: that probably doesn't work when undocked
     if (this.tabTarget) {
       controllerWindow = this.target.value.ownerDocument.defaultView;
     } else if (this.chromeTarget) {
