@@ -16,6 +16,7 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 Cu.import("resource:///modules/devtools/ToolDefinitions.jsm");
 Cu.import("resource:///modules/devtools/Toolbox.jsm");
+Cu.import("resource:///modules/devtools/Target.jsm");
 
 /**
  * gDevTools is a singleton that controls Firefox Developer Tools.
@@ -185,10 +186,7 @@ DevTools.prototype = {
     if (this._toolboxes.has(tab)) {
       this._toolboxes.get(tab).destroy();
     } else {
-      let target = {
-        type: gDevTools.TargetType.TAB,
-        value: tab
-      }
+      let target = Target.newFromTab(tab);
       this.openToolbox(target);
     }
   },

@@ -3,6 +3,8 @@
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
 let temp = {}
+Cu.import("resource:///modules/devtools/Target.jsm", temp);
+let Target = temp.Target;
 Cu.import("resource:///modules/devtools/gDevTools.jsm", temp);
 let DevTools = temp.DevTools;
 
@@ -23,10 +25,7 @@ function test()
 
 function openToolbox()
 {
-  let target = {
-    type: gDevTools.TargetType.TAB,
-    value: gBrowser.selectedTab
-  }
+  let target = Target.newFromTab(gBrowser.selectedTab);
   toolbox = gDevTools.openToolbox(target);
 
   toolbox.once("load", testBottomHost);
@@ -83,10 +82,7 @@ function testWindowHost()
 
 function toolboxDestroyed()
 {
-  let target = {
-    type: gDevTools.TargetType.TAB,
-    value: gBrowser.selectedTab
-  }
+  let target = Target.newFromTab(gBrowser.selectedTab);
   toolbox = gDevTools.openToolbox(target);
 
   toolbox.once("load", testRememberHost);

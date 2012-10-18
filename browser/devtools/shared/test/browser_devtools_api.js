@@ -21,10 +21,8 @@ function runTests(aTab) {
     url: "chrome://browser/content/devtools/csshtmltree.xul",
     label: "someLabel",
     build: function(aFrame) {
-      return new DevToolInstance({
-        type: gDevTools.TargetType.TAB,
-        value: aTab
-      }, this.id);
+      let target = Target.newFromTab(aTab);
+      return new DevToolInstance(target, this.id);
     },
   };
 
