@@ -33,26 +33,6 @@ function DevTools() {
 }
 
 /**
- * Each toolbox has a |target| that indicates what is being debugged/inspected.
- * A target is an object with this shape:
- * {
- *   type: TargetType.[TAB|REMOTE|CHROME],
- *   value: ...
- * }
- *
- * When type = TAB, then 'value' contains a XUL Tab
- * When type = REMOTE, then 'value' contains an object with host and port
- *   properties, for example:
- *   { type: TargetType.TAB, value: { host: 'localhost', port: 4325 } }
- * When type = CHROME, then 'value' contains a XUL window
- */
-DevTools.TargetType = {
-  TAB: "tab",
-  REMOTE: "remote",
-  CHROME: "chrome"
-};
-
-/**
  * The developer tools can be 'hosted' either embedded in a browser window, or
  * in a separate tab. Other hosts may be possible here, like a separate XUL
  * window.
@@ -87,7 +67,6 @@ DevTools.ToolEvent = {
 };
 
 DevTools.prototype = {
-  TargetType: DevTools.TargetType,
   HostType: DevTools.HostType,
   ToolEvent: DevTools.ToolEvent,
 
