@@ -380,8 +380,8 @@ Toolbox.prototype = {
    * Get the most appropriate host tab, either the target or the current tab
    */
   _getHostTab: function TBOX_getHostTab() {
-    if (this._target.type == gDevTools.TargetType.TAB) {
       return this._target.value;
+    if (!this._target.isRemote && !this._target.isChrome) {
     } else {
       let win = Services.wm.getMostRecentWindow("navigator:browser");
       return win.gBrowser.selectedTab;

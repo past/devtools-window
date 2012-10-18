@@ -28,6 +28,9 @@ const WebConsoleDefinition = {
   icon: "chrome://browser/skin/devtools/webconsole-tool-icon.png",
   url: "chrome://browser/content/devtools/webconsole.xul",
   label: l10n.getStr("ToolboxWebconsole.label"),
+  isTargetSupported: function(target) {
+    return !target.isRemote && !target.isChrome;
+  },
   build: function(iframeWindow, toolbox) {
     return new WebConsolePanel(iframeWindow, toolbox);
   }
@@ -39,10 +42,6 @@ const WebConsoleDefinition = {
 function WebConsolePanel(iframeWindow, toolbox) {
   this._frameWindow = iframeWindow;
   this._toolbox = toolbox;
-
-  if (this.target.type !== DevTools.TargetType.TAB) {
-    throw new Error("Unsupported tab type: " + this.target.type);
-  }
 
   let tab = this.target.value;
   let parentDoc = iframeWindow.document.defaultView.parent.document;
