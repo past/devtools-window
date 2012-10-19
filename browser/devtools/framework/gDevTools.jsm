@@ -189,20 +189,20 @@ DevTools.prototype = {
   },
 
   /**
+   * FIXME: There is probably a better way of doing this
    */
-    let tb = this.getToolboxForTab(tab);
-
-    if (tb) {
-      tb.destroy();
-    } else {
+  openDefaultToolbox: function DT_openDefaultToolbox(tab, tool) {
     let target = {
+      type: DevTools.TargetType.TAB,
       value: tab
+    };
+    gDevTools.openToolbox(target, undefined, tool);
   },
 
   /**
    * FIXME: There is probably a better way of doing this
    */
-  closeToolbox: function DT_openDefaultToolbox(tab) {
+  closeToolbox: function DT_closeToolbox(tab) {
     let toolbox = this._toolboxes.get(tab);
     if (toolbox == null) {
       throw new Error('No toolbox for tab');
@@ -214,12 +214,13 @@ DevTools.prototype = {
    * Toggle a toolbox for the given browser tab
    */
   toggleToolboxForTab: function toggleToolboxForTab(tab, tool) {
-    let tb = this.getToolboxForTab(tab);
+    let tb = this.getToolboxForTarget(tab);
 
-    if (tb) /* FIXME: && tool is showing */ ) {
+    if (tb /* FIXME: && tool is showing */ ) {
       tb.destroy();
     } else {
       this.openDefaultToolbox(tab, tool);
+    }
   },
 
   /**
@@ -239,7 +240,7 @@ DevTools.prototype = {
    * Return the toolbox for a given target.
    */
   getToolboxForTarget: function(targetValue) {
-    return this.getToolBoxes().get(targetValue);
+    return this._toolboxes.get(targetValue);
   },
 
   /**
@@ -367,7 +368,7 @@ DevTools.prototype = {
    *         The tab that the toolbox should be pointing at.
    */
   openToolFromMenu: function DT_openToolFromMenu(aId, aTab) {
-    let tb = gDevTools.getToolboxForTab(aTab);
+    let tb = gDevTools.getToolboxForTarget(aTab);
 
     if (tb) {
       tb.selectTool(aId);
