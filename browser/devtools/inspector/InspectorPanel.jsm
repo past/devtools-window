@@ -236,7 +236,7 @@ InspectorPanel.prototype = {
 
     this._markupBox.removeAttribute("hidden");
 
-    let controllerWindow; // FIXME: that probably doesn't work when undocked
+    let controllerWindow;
     if (this.tabTarget) {
       controllerWindow = this.target.value.ownerDocument.defaultView;
     } else if (this.chromeTarget) {
@@ -283,61 +283,6 @@ InspectorPanel.prototype = {
     delete this._frozen;
     this.emit("thaw");
   },
-
-  todo: function() {
-    this.breadcrumbs = new HTMLBreadcrumbs(this);
-    this.chromeWin.addEventListener("keypress", this, false);
-    this.highlighter = new Highlighter(this.chromeWin);
-
-    // Fade out the highlighter when needed
-    let deck = this.chromeDoc.getElementById("devtools-sidebar-deck");
-    deck.addEventListener("mouseenter", this, true); // FIXME: removeEventListener
-    deck.addEventListener("mouseleave", this, true);
-
-    // Create UI for any sidebars registered with
-    // InspectorUI.registerSidebar()
-    for each (let tool in InspectorUI._registeredSidebars) {
-      this._sidebar.addTool(tool);
-    }
-
-    this.setupNavigationKeys();
-
-    // Focus the first focusable element in the toolbar
-    this.chromeDoc.commandDispatcher.advanceFocusIntoSubtree(this.toolbar);
-
-    // If nothing is focused in the toolbar, it means that the focus manager
-    // is limited to some specific elements and has moved the focus somewhere else.
-    // So in this case, we want to focus the content window.
-    // See: https://developer.mozilla.org/en/XUL_Tutorial/Focus_and_Selection#Platform_Specific_Behaviors
-    if (!this.toolbar.querySelector(":-moz-focusring")) {
-      this.win.focus();
-    }
-
-
-      inspector._htmlPanelOpen =
-        Services.prefs.getBoolPref("devtools.inspector.htmlPanelOpen");
-
-      inspector._sidebarOpen =
-        Services.prefs.getBoolPref("devtools.inspector.sidebarOpen");
-
-      inspector._activeSidebar =
-        Services.prefs.getCharPref("devtools.inspector.activeSidebar");
-  },
-
-  /* FIXME:
-  select: function IUI_select(aNode, forceUpdate, aScroll, aFrom)
-  {
-    [...]
-
-    if (forceUpdate || aNode != this.selection) {
-      if (aFrom != "breadcrumbs") {
-        this.clearPseudoClassLocks();
-      }
-    }
-  },
-  */
-
-  // FIXME: mouseleave/enter to hide/show highlighter
 
   /**
    * Toggle a pseudo class.
