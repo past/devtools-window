@@ -56,7 +56,6 @@ function InspectorPanel(iframeWindow, toolbox) {
   this.breadcrumbs = new HTMLBreadcrumbs(this);
 
   if (this.tabTarget) {
-    this.buildButtonsTooltip();
     this.highlighter = new Highlighter(this.selection, this.target.value, this);
     let button = this.panelDoc.getElementById("inspector-inspect-toolbutton");
     button.hidden = false;
@@ -283,54 +282,6 @@ InspectorPanel.prototype = {
     }
     delete this._frozen;
     this.emit("thaw");
-  },
-
-  /**
-   * Add a tooltip to the Inspect button.
-   * The tooltips include the related keyboard shortcut.
-   */
-  buildButtonsTooltip: function InspectorPanel_buildButtonsTooltip() {
-    let keysbundle = Services.strings.createBundle("chrome://global-platform/locale/platformKeys.properties");
-    let separator = keysbundle.GetStringFromName("MODIFIER_SEPARATOR");
-
-    let button, tooltip;
-
-    // Inspect Button - the shortcut string is built from the <key> element
-
-    let key = null;// FIXME: this.chromeDoc.getElementById("key_inspect");
-
-    if (key) {
-      let modifiersAttr = key.getAttribute("modifiers");
-
-      let combo = [];
-
-      if (modifiersAttr.match("accel"))
-/* FIXME:
-#ifdef XP_MACOSX
-        combo.push(keysbundle.GetStringFromName("VK_META"));
-#else
-        combo.push(keysbundle.GetStringFromName("VK_CONTROL"));
-#endif
-*/
-      if (modifiersAttr.match("shift"))
-        combo.push(keysbundle.GetStringFromName("VK_SHIFT"));
-      if (modifiersAttr.match("alt"))
-        combo.push(keysbundle.GetStringFromName("VK_ALT"));
-      if (modifiersAttr.match("ctrl"))
-        combo.push(keysbundle.GetStringFromName("VK_CONTROL"));
-      if (modifiersAttr.match("meta"))
-        combo.push(keysbundle.GetStringFromName("VK_META"));
-
-      combo.push(key.getAttribute("key"));
-
-      tooltip = this.strings.formatStringFromName("inspectButtonWithShortcutKey.tooltip",
-        [combo.join(separator)], 1);
-    } else {
-      tooltip = this.strings.GetStringFromName("inspectButton.tooltip");
-    }
-
-    button = this.panelDoc.getElementById("inspector-inspect-toolbutton");
-    button.setAttribute("tooltiptext", tooltip);
   },
 
   todo: function() {

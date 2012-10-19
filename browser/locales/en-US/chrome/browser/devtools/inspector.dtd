@@ -15,3 +15,5 @@
 
 <!ENTITY inspectStyleButton.label     "Style">
 <!ENTITY inspectStyleButton.accesskey "S">
+
+<!ENTITY inspector.selectButton.tooltip     "Select element with mouse">
