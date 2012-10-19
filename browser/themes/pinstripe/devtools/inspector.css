@@ -44,10 +44,6 @@
   margin: 0 0 1px;
 }
 
-#inspector-breadcrumbs > .scrollbutton-up {
-  -moz-border-start-width: 0;
-}
-
 #inspector-breadcrumbs > .scrollbutton-up:not([disabled]):active:hover,
 #inspector-breadcrumbs > .scrollbutton-down:not([disabled]):active:hover {
   border-color: hsla(210,8%,5%,.6);
@@ -155,6 +151,10 @@
   -moz-border-image: url("chrome://browser/skin/devtools/breadcrumbs/ltr-end.png") 1 13 2 13 fill stretch;
 }
 
+#inspector-breadcrumbs[overflows] > .inspector-breadcrumbs-button:-moz-locale-dir(ltr):first-of-type {
+  border-left-width: 0;
+}
+
 #inspector-breadcrumbs[overflows] > .inspector-breadcrumbs-button:-moz-locale-dir(ltr):last-of-type {
   border-right-width: 0;
 }
@@ -207,6 +207,10 @@
 
 .inspector-breadcrumbs-button:last-of-type:-moz-locale-dir(rtl) {
   -moz-border-image: url("chrome://browser/skin/devtools/breadcrumbs/rtl-end.png") 1 13 2 13 fill stretch;
+}
+
+#inspector-breadcrumbs[overflows] > .inspector-breadcrumbs-button:-moz-locale-dir(rtl):first-of-type {
+  border-right-width: 0;
 }
 
 #inspector-breadcrumbs[overflows] > .inspector-breadcrumbs-button:last-of-type:-moz-locale-dir(rtl) {
