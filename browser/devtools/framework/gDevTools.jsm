@@ -263,6 +263,7 @@ DevTools.prototype = {
     let fragCommands = doc.createDocumentFragment();
     let fragKeys = doc.createDocumentFragment();
     let fragBroadcasters = doc.createDocumentFragment();
+    let fragAppMenuItems = doc.createDocumentFragment();
     let fragMenuItems = doc.createDocumentFragment();
 
     for (let [key, toolDefinition] of gDevTools._tools) {
@@ -272,6 +273,8 @@ DevTools.prototype = {
       fragCommands.appendChild(cmd);
       fragKeys.appendChild(key);
       fragBroadcasters.appendChild(bc);
+      fragAppMenuItems.appendChild(item);
+      item = item.cloneNode();
       fragMenuItems.appendChild(item);
     }
 
@@ -286,7 +289,7 @@ DevTools.prototype = {
 
     let amp = doc.getElementById("appmenu_webDeveloper_popup");
     let amps = doc.getElementById("appmenu_devtools_separator");
-    amp.insertBefore(fragMenuItems, amps);
+    amp.insertBefore(fragAppMenuItems, amps);
 
     let mp = doc.getElementById("menuWebDeveloperPopup");
     let mps = doc.getElementById("menu_devtools_separator");
