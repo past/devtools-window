@@ -285,8 +285,12 @@ DevTools.prototype = {
     mbs.appendChild(fragBroadcasters);
 
     let amp = doc.getElementById("appmenu_webDeveloper_popup");
-    let separator = doc.getElementById("appmenu_devtools_separator");
-    amp.insertBefore(fragMenuItems, separator);
+    let amps = doc.getElementById("appmenu_devtools_separator");
+    amp.insertBefore(fragMenuItems, amps);
+
+    let mp = doc.getElementById("menuWebDeveloperPopup");
+    let mps = doc.getElementById("menu_devtools_separator");
+    mp.insertBefore(fragMenuItems, mps);
   },
 
   /**
@@ -354,8 +358,14 @@ DevTools.prototype = {
       mbs.appendChild(bc);
 
       let amp = doc.getElementById("appmenu_webDeveloper_popup");
-      let separator = doc.getElementById("appmenu_devtools_separator");
-      amp.insertBefore(item, separator);
+      let amps = doc.getElementById("appmenu_devtools_separator");
+      amp.insertBefore(item, amps);
+
+      item = item.cloneNode();
+
+      let mp = doc.getElementById("menuWebDeveloperPopup");
+      let mps = doc.getElementById("menu_devtools_separator");
+      mp.insertBefore(item, mps);
     }
   },
 
