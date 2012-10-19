@@ -46,6 +46,7 @@
            class="devtools-toolbar"
            nowindowdrag="true">
     <toolbarbutton id="inspector-inspect-toolbutton"
+                   tooltiptext="&inspector.selectButton.tooltip;"
                    class="devtools-toolbarbutton"
                    hidden="true"
                    oncommand="inspector.highlighter.unlock()"/>
