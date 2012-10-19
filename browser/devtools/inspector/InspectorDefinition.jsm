@@ -6,14 +6,21 @@
 
 const EXPORTED_SYMBOLS = ["InspectorDefinition"];
 
-Components.utils.import('resource://gre/modules/XPCOMUtils.jsm');
+const Cu = Components.utils;
+
+Cu.import('resource://gre/modules/XPCOMUtils.jsm');
+Cu.import("resource://gre/modules/Services.jsm");
+
 XPCOMUtils.defineLazyModuleGetter(this, "InspectorPanel", "resource:///modules/devtools/InspectorPanel.jsm");
 
 const InspectorDefinition = {
   id: "inspector",
   icon: "chrome://browser/skin/devtools/tools-icons-small.png",
   url: "chrome://browser/content/devtools/inspector/inspector.xul",
-  label: "Inspector", // FIXME: l10n 
+  get label() {
+    let strings = Services.strings.createBundle("chrome://browser/locale/devtools/inspector.properties");
+    return strings.GetStringFromName("inspector.label");
+  },
 
   isTargetSupported: function(target) {
     switch (target.type) {
