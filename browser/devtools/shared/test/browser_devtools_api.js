@@ -34,13 +34,13 @@ function runTests(aTab) {
   is(gDevTools.getToolDefinitions().has(toolId), true,
     "The tool is registered");
 
-  gDevTools.openToolbox(gBrowser.selectedTab, gDevTools.HostType.TAB, toolId);
+  gDevTools.openToolbox(gBrowser.selectedTab, gDevTools.HostType.WINDOW, toolId);
 
   let toolBoxes = gDevTools.getToolBoxes(gBrowser.selectedTab);
 
   let tb = toolBoxes.get(gBrowser.selectedTab);
   is(tb.target, gBrowser.selectedTab, "toolbox target is correct");
-  is(tb.host, gDevTools.HostType.TAB, "toolbox host is correct");
+  is(tb.host, gDevTools.HostType.WINDOW, "toolbox host is correct");
   is(tb._currentToolId, toolId, "toolbox _currentToolId is correct");
 
   let toolInstances = tb.getToolInstances();

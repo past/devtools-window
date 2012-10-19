@@ -46,8 +46,7 @@ function DevTools() {
 DevTools.HostType = {
   BOTTOM: "bottom",
   SIDE: "side",
-  WINDOW: "window",
-  TAB: "tab"
+  WINDOW: "window"
 };
 
 /**
