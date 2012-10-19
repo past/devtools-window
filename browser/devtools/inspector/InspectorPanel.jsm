@@ -140,7 +140,7 @@ InspectorPanel.prototype = {
     }
 
     this.nodemenu.removeEventListener("popupshowing", this._setupNodeMenu, true);
-    this.nodemenu.remvoeEventListener("popuphiding", this._resetNodeMenu, true);
+    this.nodemenu.removeEventListener("popuphiding", this._resetNodeMenu, true);
     this.breadcrumbs.destroy();
     this.selection.off("new-node", this.onNewSelection);
     this._destroyMarkup();
