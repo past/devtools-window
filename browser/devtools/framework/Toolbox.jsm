@@ -342,7 +342,7 @@ Toolbox.prototype = {
   _createHost: function TBOX_createHost(hostType) {
     let hostTab = this._getHostTab();
     if (!Hosts[hostType]) {
-      throw new Error('Unknown host: '+ hostType);
+      throw new Error('Unknown hostType: '+ hostType);
     }
     let newHost = new Hosts[hostType](hostTab);
 
