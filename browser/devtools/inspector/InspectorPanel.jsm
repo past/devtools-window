@@ -23,7 +23,9 @@ Cu.import("resource:///modules/devtools/Highlighter.jsm");
 
 /**
  * Represents an open instance of the Inspector for a tab.
- * This is the object handed out to sidebars and other API consumers.
+ * The inspector controls the highlighter, the breadcrumbs,
+ * the markup view, and the sidebar (computed view, rule view
+ * and layout view).
  */
 function InspectorPanel(iframeWindow, toolbox) {
   this.target = toolbox.target;
@@ -130,7 +132,7 @@ InspectorPanel.prototype = {
   },
 
   /**
-   * Called by the InspectorUI when the inspector is being destroyed.
+   * Destroy the inspector.
    */
   destroy: function InspectorPanel__destroy() {
     if (this.highlighter) {
@@ -261,27 +263,6 @@ InspectorPanel.prototype = {
     if (this._markupFrame) {
       delete this._markupFrame;
     }
-  },
-
-  /**
-   * Called by InspectorUI after a tab switch, when the
-   * inspector is no longer the active tab.
-   */
-  _freeze: function InspectorPanel__freeze() {
-    this._frozen = true;
-    this.emit("frozen");
-  },
-
-  /**
-   * Called by InspectorUI after a tab switch when the
-   * inspector is back to being the active tab.
-   */
-  _thaw: function InspectorPanel__thaw() {
-    if (!this._frozen) {
-      return;
-    }
-    delete this._frozen;
-    this.emit("thaw");
   },
 
   /**
