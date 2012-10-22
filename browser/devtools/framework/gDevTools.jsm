@@ -249,7 +249,13 @@ DevTools.prototype = {
   openToolForTab: function DT_openToolForTab(tab, defaultTool) {
     let toolbox = this._toolboxes.get(tab);
     if (toolbox) {
-      toolbox.selectTool(defaultTool);
+      if (toolbox.isReady) {
+        toolbox.selectTool(defaultTool);
+      } else {
+        toolbox.once("ready", function() {
+          toolbox.selectTool(defaultTool);
+        });
+      }
     } else {
       let target = {
         type: gDevTools.TargetType.TAB,
