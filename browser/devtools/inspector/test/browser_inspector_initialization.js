@@ -5,8 +5,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 let doc;
 let salutation;
-let closing;
-let winId;
 
 function createDocument()
 {
@@ -22,156 +20,125 @@ function createDocument()
     '<p id="closing">end transmission</p>\n' +
     '</div>';
   doc.title = "Inspector Initialization Test";
-  startInspectorTests();
+
+  let tab = gBrowser.selectedTab;
+  let toolbox = gDevTools.openToolForTab(tab, "inspector");
+  toolbox.once("inspector-ready", function(event, panel) {
+    let inspector = gDevTools.getPanelForTarget("inspector", tab);
+    startInspectorTests();
+  });
 }
 
 function startInspectorTests()
 {
-  ok(InspectorUI, "InspectorUI variable exists");
-  Services.obs.addObserver(runInspectorTests,
-    InspectorUI.INSPECTOR_NOTIFICATIONS.OPENED, false);
-  InspectorUI.toggleInspectorUI();
-}
+  ok(true, "Inspector started, and notification received.");
 
-function runInspectorTests()
-{
-  Services.obs.removeObserver(runInspectorTests,
-    InspectorUI.INSPECTOR_NOTIFICATIONS.OPENED);
+  let tab = gBrowser.selectedTab;
+  let inspector = gDevTools.getPanelForTarget("inspector", tab);
 
-  ok(InspectorUI.toolbar, "we have the toolbar.");
-  ok(!InspectorUI.toolbar.hidden, "toolbar is visible");
-  ok(InspectorUI.inspecting, "Inspector is inspecting");
-  ok(!InspectorUI.markupOpen, "Inspector Tree Panel is not open");
-  ok(!InspectorUI.sidebar.visible, "Inspector sidebar should not visible.");
-  ok(InspectorUI.highlighter, "Highlighter is up");
-  InspectorUI.inspectNode(doc.body);
-  InspectorUI.stopInspecting();
+  ok(inspector, "Inspector instance is accessible");
+  ok(inspector.isReady, "Inspector instance is ready");
+  is(inspector.target.value, gBrowser.selectedTab, "Valid target");
+  ok(inspector.highlighter, "Highlighter is up");
 
-  InspectorUI.currentInspector.once("markuploaded", treePanelTests);
-  InspectorUI.currentInspector.openMarkup();
-}
+  let p = doc.querySelector("p");
 
-function treePanelTests()
-{
-  ok(InspectorUI.currentInspector.markupOpen, "Inspector Tree Panel is open");
+  inspector.selection.setNode(p);
 
-  InspectorUI.toggleSidebar();
-  ok(InspectorUI.sidebar.visible, "Inspector Sidebar should be open");
-  InspectorUI.toggleSidebar();
-  ok(!InspectorUI.sidebar.visible, "Inspector Sidebar should be closed");
-  InspectorUI.sidebar.show();
-  InspectorUI.currentInspector.once("sidebaractivated-computedview",
-    stylePanelTests)
-  InspectorUI.sidebar.activatePanel("computedview");
-}
+  testHighlighter(p);
+  testMarkupView(p);
+  testBreadcrumbs(p);
+  // FIXME: testSidebars(p);
 
-function stylePanelTests()
-{
-  ok(InspectorUI.sidebar.visible, "Inspector Sidebar is open");
-  is(InspectorUI.sidebar.activePanel, "computedview", "Computed View is open");
-  ok(computedViewTree(), "Computed view has a cssHtmlTree");
+  let span = doc.querySelector("span");
 
-  InspectorUI.sidebar.activatePanel("ruleview");
-  executeSoon(function() {
-    ruleViewTests();
+  inspector.selection.setNode(span);
+
+  testHighlighter(span);
+  testMarkupView(span);
+  testBreadcrumbs(span);
+  // FIXME: testSidebars(span);
+
+  let toolbox = gDevTools.openToolForTab(gBrowser.selectedTab, "inspector");
+  toolbox.once("destroyed", function() {
+    ok("true", "'destroyed' notification received.");
+    let toolbox = gDevTools.getToolboxForTarget(gBrowser.selectedTab);
+    ok(!toolbox, "Toolbox destroyed.");
+    executeSoon(runContextMenuTest);
   });
+  toolbox.destroy();
 }
 
-function ruleViewTests()
+
+function testHighlighter(node)
 {
-  Services.obs.addObserver(runContextMenuTest,
-      InspectorUI.INSPECTOR_NOTIFICATIONS.CLOSED, false);
+  ok(isHighlighting(), "Highlighter is highlighting");
+  is(getHighlitNode(), node, "Right node is highlighted");
+}
 
-  is(InspectorUI.sidebar.activePanel, "ruleview", "Rule View is open");
-  ok(ruleView(), "InspectorUI has a cssRuleView");
+function testMarkupView(node)
+{
+  let i = getActiveInspector();
+  is(i.markup._selectedContainer.node, node, "Right node is selected in the markup view");
+}
 
-  executeSoon(function() {
-    InspectorUI.closeInspectorUI();
-  });
+function testBreadcrumbs(node)
+{
+  let b = getActiveInspector().breadcrumbs;
+  let expectedText = b.prettyPrintNodeAsText(node);
+  let button = b.container.querySelector("button[checked=true]");
+  ok(button, "A crumbs is checked=true");
+  ok(button.getAttribute("tooltiptext"), expectedText, "Crumb refers to the right node");
+}
+
+function _clickOnInspectMenuItem(node) {
+  document.popupNode = node;
+  var contentAreaContextMenu = document.getElementById("contentAreaContextMenu");
+  var contextMenu = new nsContextMenu(contentAreaContextMenu, gBrowser);
+  contextMenu.inspectNode();
 }
 
 function runContextMenuTest()
 {
-  Services.obs.removeObserver(runContextMenuTest, InspectorUI.INSPECTOR_NOTIFICATIONS.CLOSED, false);
-  Services.obs.addObserver(inspectNodesFromContextTest, InspectorUI.INSPECTOR_NOTIFICATIONS.OPENED, false);
   salutation = doc.getElementById("salutation");
-  ok(salutation, "hello, context menu test!");
-  let eventDeets = { type : "contextmenu", button : 2 };
-  let contextMenu = document.getElementById("contentAreaContextMenu");
-  ok(contextMenu, "we have the context menu");
-  let contextInspectMenuItem = document.getElementById("context-inspect");
-  ok(contextInspectMenuItem, "we have the inspect context menu item");
-  EventUtils.synthesizeMouse(salutation, 2, 2, eventDeets);
-  is(contextMenu.state, "showing", "context menu is open");
-  is(!contextInspectMenuItem.hidden, gPrefService.getBoolPref("devtools.inspector.enabled"), "is context menu item enabled?");
-  contextMenu.hidePopup();
+  _clickOnInspectMenuItem(salutation);
   executeSoon(function() {
-    InspectorUI.openInspectorUI(salutation);
+    let inspector = gDevTools.getPanelForTarget("inspector", gBrowser.selectedTab);
+    if (inspector && inspector.isReady) {
+      executeSoon(testInitialNodeIsSelected);
+    } else {
+      let toolbox = gDevTools.openToolForTab(gBrowser.selectedTab, "inspector");
+      toolbox.once("inspector-ready", function(event, panel) {
+        executeSoon(testInitialNodeIsSelected);
+      });
+    }
   });
 }
 
-function inspectNodesFromContextTest()
-{
-  Services.obs.removeObserver(inspectNodesFromContextTest, InspectorUI.INSPECTOR_NOTIFICATIONS.OPENED, false);
-  Services.obs.addObserver(openInspectorForContextTest, InspectorUI.INSPECTOR_NOTIFICATIONS.CLOSED, false);
-  ok(!InspectorUI.inspecting, "Inspector is not actively highlighting");
-  is(InspectorUI.selection, salutation, "Inspector is highlighting salutation");
-  executeSoon(function() {
-    InspectorUI.closeInspectorUI(true);
-  });
-}
-
-function openInspectorForContextTest()
-{
-  Services.obs.removeObserver(openInspectorForContextTest, InspectorUI.INSPECTOR_NOTIFICATIONS.CLOSED);
-  Services.obs.addObserver(inspectNodesFromContextTestWhileOpen, InspectorUI.INSPECTOR_NOTIFICATIONS.OPENED, false);
-  executeSoon(function() {
-    InspectorUI.openInspectorUI(salutation);
-  });
+function testInitialNodeIsSelected() {
+  testHighlighter(salutation);
+  testMarkupView(salutation);
+  testBreadcrumbs(salutation);
+  inspectNodesFromContextTestWhileOpen();
 }
 
 function inspectNodesFromContextTestWhileOpen()
 {
-  Services.obs.removeObserver(inspectNodesFromContextTestWhileOpen, InspectorUI.INSPECTOR_NOTIFICATIONS.OPENED);
-  Services.obs.addObserver(inspectNodesFromContextTestTrap, InspectorUI.INSPECTOR_NOTIFICATIONS.OPENED, false);
-  InspectorUI.highlighter.addListener("nodeselected", inspectNodesFromContextTestHighlight);
-  is(InspectorUI.selection, salutation, "Inspector is highlighting salutation");
-  closing = doc.getElementById("closing");
-  ok(closing, "we have the closing statement");
-  executeSoon(function() {
-    InspectorUI.openInspectorUI(closing);
-  });
-}
-
-function inspectNodesFromContextTestHighlight()
-{
-  winId = InspectorUI.winID;
-  InspectorUI.highlighter.removeListener("nodeselected", inspectNodesFromContextTestHighlight);
-  Services.obs.addObserver(finishInspectorTests, InspectorUI.INSPECTOR_NOTIFICATIONS.DESTROYED, false);
-  is(InspectorUI.selection, closing, "InspectorUI.selection is header");
-  executeSoon(function() {
-    InspectorUI.closeInspectorUI();
-  });
-}
-
-function inspectNodesFromContextTestTrap()
-{
-  Services.obs.removeObserver(inspectNodesFromContextTestTrap, InspectorUI.INSPECTOR_NOTIFICATIONS.OPENED);
-  ok(false, "Inspector UI has been opened again. We Should Not Be Here!");
+  let closing = doc.getElementById("closing");
+  getActiveInspector().selection.once("new-node", function() {
+    ok(true, "Get selection's 'new-node' selection");
+    executeSoon(function() {
+      testHighlighter(closing);
+      testMarkupView(closing);
+      testBreadcrumbs(closing);
+      finishInspectorTests();
+    }
+  )});
+  _clickOnInspectMenuItem(closing);
 }
 
 function finishInspectorTests(subject, topic, aWinIdString)
 {
-  Services.obs.removeObserver(finishInspectorTests,
-    InspectorUI.INSPECTOR_NOTIFICATIONS.DESTROYED);
-
-  is(parseInt(aWinIdString), winId, "winId of destroyed Inspector matches");
-  ok(!InspectorUI.highlighter, "Highlighter is gone");
-  ok(!InspectorUI.inspecting, "Inspector is not inspecting");
-  ok(!InspectorUI._sidebar, "Inspector Sidebar is closed");
-  ok(!InspectorUI.toolbar, "toolbar is hidden");
-
-  Services.obs.removeObserver(inspectNodesFromContextTestTrap, InspectorUI.INSPECTOR_NOTIFICATIONS.OPENED);
   gBrowser.removeCurrentTab();
   finish();
 }
