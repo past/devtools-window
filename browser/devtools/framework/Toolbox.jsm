@@ -194,8 +194,8 @@ Toolbox.prototype = {
    * Onload handler for the toolbox's iframe
    */
   _onLoad: function TBOX_onLoad() {
-    let frame = this._host.frame;
-    frame.removeEventListener("DOMContentLoaded", this._onLoad, true);
+    this.frame.removeEventListener("DOMContentLoaded", this._onLoad, true);
+    this.isReady = true;
 
     let buttons = this.doc.getElementsByClassName("toolbox-dock-button");
 
@@ -294,9 +294,11 @@ Toolbox.prototype = {
    *        The id of the tool to switch to
    */
   selectTool: function TBOX_selectTool(id) {
-    let doc = this._host.frame.contentDocument;
-    let tab = doc.getElementById("toolbox-tab-" + id);
-    let tabstrip = doc.getElementById("toolbox-tabs");
+    if (!this.isReady) {
+      throw new Error("Can't select tool, wait for toolbox 'ready' event");
+    }
+    let tab = this.doc.getElementById("toolbox-tab-" + id);
+    let tabstrip = this.doc.getElementById("toolbox-tabs");
 
     // select the right tab
     let index = -1;
@@ -315,12 +317,10 @@ Toolbox.prototype = {
 
     let iframe = this.doc.getElementById("toolbox-panel-iframe-" + id);
 
+    let definition = gDevTools.getToolDefinitions().get(id);
+
     // only build the tab's content if we haven't already
-    if (!iframe.toolLoaded) {
-      iframe.toolLoaded = true;
-
-      let definition = gDevTools.getToolDefinitions().get(id);
-
+    if (iframe.src != definition.url) {
       let boundLoad = function() {
         iframe.removeEventListener("DOMContentLoaded", boundLoad, true);
         let instance = definition.build(iframe.contentWindow, this);
