@@ -216,7 +216,7 @@ Toolbox.prototype = {
 
     this.selectTool(this._defaultToolId);
 
-    this.emit("load");
+    this.emit("ready");
   },
 
   /**
