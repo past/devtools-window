@@ -187,8 +187,6 @@ Toolbox.prototype = {
     this._host.createUI(function (iframe) {
       iframe.addEventListener("DOMContentLoaded", this._onLoad, true);
       iframe.setAttribute("src", this._URL);
-      this.isReady = true;
-      this.emit("toolbox-ready");
     }.bind(this));
   },
 
