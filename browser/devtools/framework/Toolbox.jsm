@@ -242,7 +242,7 @@ Toolbox.prototype = {
     let toolbarSpec = CommandUtils.getCommandbarSpec("devtools.toolbox.toolbarspec");
     let requisition = window.DeveloperToolbar.display.requisition;
 
-    let buttons = CommandUtils.createButtons(toolbarSpec, doc, requisition);
+    let buttons = CommandUtils.createButtons(toolbarSpec, this.doc, requisition);
 
     let container = this.doc.getElementById("toolbox-buttons");
     buttons.forEach(function(button) {
