@@ -92,6 +92,7 @@
     <command id="Tools:DevToolbar" oncommand="DeveloperToolbar.toggle();" disabled="true" hidden="true"/>
     <command id="Tools:DevToolbarFocus" oncommand="DeveloperToolbar.focusToggle();" disabled="true"/>
     <command id="Tools:WebConsole" oncommand="HUDConsoleUI.toggleHUD();"/>
+    <command id="Tools:RemoteWebConsole" oncommand="HUDConsoleUI.toggleRemoteHUD();" disabled="true" hidden="true"/>
     <command id="Tools:Inspect" oncommand="gDevTools.openToolForTab(gBrowser.selectedTab, 'inspector');"/>
     <command id="Tools:Scratchpad" oncommand="Scratchpad.openScratchpad();" disabled="true" hidden="true"/>
     <command id="Tools:ResponsiveUI" oncommand="ResponsiveUI.toggle();" disabled="true" hidden="true"/>
@@ -183,6 +184,10 @@
                  type="checkbox" autocheck="false"
                  key="key_webConsole"
                  command="Tools:WebConsole"/>
+    <broadcaster id="devtoolsMenuBroadcaster_RemoteWebConsole"
+                 label="&remoteWebConsoleCmd.label;"
+                 type="checkbox" autocheck="false"
+                 command="Tools:RemoteWebConsole"/>
     <broadcaster id="devtoolsMenuBroadcaster_Inspect"
                  label="&inspectMenu.label;"
                  type="checkbox" autocheck="false"
