@@ -182,11 +182,6 @@
                  label="&remoteWebConsoleCmd.label;"
                  type="checkbox" autocheck="false"
                  command="Tools:RemoteWebConsole"/>
-    <broadcaster id="devtoolsMenuBroadcaster_Inspect"
-                 label="&inspectMenu.label;"
-                 type="checkbox" autocheck="false"
-                 command="Tools:Inspect"
-                 key="key_inspect"/>
     <broadcaster id="devtoolsMenuBroadcaster_Scratchpad"
                  label="&scratchpad.label;"
                  command="Tools:Scratchpad"
