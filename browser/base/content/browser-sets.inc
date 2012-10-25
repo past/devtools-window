@@ -91,7 +91,6 @@
     <command id="Tools:DevToolbox" oncommand="gDevTools.toggleToolboxForTab(gBrowser.selectedTab);"/>
     <command id="Tools:DevToolbar" oncommand="DeveloperToolbar.toggle();" disabled="true" hidden="true"/>
     <command id="Tools:DevToolbarFocus" oncommand="DeveloperToolbar.focusToggle();" disabled="true"/>
-    <command id="Tools:WebConsole" oncommand="HUDConsoleUI.toggleHUD();"/>
     <command id="Tools:RemoteWebConsole" oncommand="HUDConsoleUI.toggleRemoteHUD();" disabled="true" hidden="true"/>
     <command id="Tools:Inspect" oncommand="gDevTools.openToolForTab(gBrowser.selectedTab, 'inspector');"/>
     <command id="Tools:Scratchpad" oncommand="Scratchpad.openScratchpad();" disabled="true" hidden="true"/>
@@ -173,17 +172,13 @@
     <broadcaster id="devtoolsMenuBroadcaster_DevToolbox"
                  label="&devToolbarToolsButton.label;"
                  type="checkbox" autocheck="false"
-                 command="Tools:DevToolbox"/>
+                 command="Tools:DevToolbox"
+                 accesskey="&devToolbox.accesskey;"/>
     <broadcaster id="devtoolsMenuBroadcaster_DevToolbar"
                  label="&devToolbarMenu.label;"
                  type="checkbox" autocheck="false"
                  command="Tools:DevToolbar"
                  key="key_devToolbar"/>
-    <broadcaster id="devtoolsMenuBroadcaster_WebConsole"
-                 label="&webConsoleCmd.label;"
-                 type="checkbox" autocheck="false"
-                 key="key_webConsole"
-                 command="Tools:WebConsole"/>
     <broadcaster id="devtoolsMenuBroadcaster_RemoteWebConsole"
                  label="&remoteWebConsoleCmd.label;"
                  type="checkbox" autocheck="false"
@@ -262,20 +257,6 @@
     <key id="key_errorConsole" key="&errorConsoleCmd.commandkey;" command="Tools:ErrorConsole" modifiers="accel,shift"/>
     <key id="key_devToolbar" keycode="&devToolbar.keycode;" modifiers="shift"
          keytext="&devToolbar.keytext;" command="Tools:DevToolbarFocus"/>
-    <key id="key_webConsole" key="&webConsoleCmd.commandkey;" oncommand="HUDConsoleUI.toggleHUD();"
-#ifdef XP_MACOSX
-        modifiers="accel,alt"
-#else
-        modifiers="accel,shift"
-#endif
-    />
-    <key id="key_inspect" key="&inspectMenu.commandkey;" command="Tools:Inspect"
-#ifdef XP_MACOSX
-        modifiers="accel,alt"
-#else
-        modifiers="accel,shift"
-#endif
-    />
     <key id="key_responsiveUI" key="&responsiveDesignTool.commandkey;" command="Tools:ResponsiveUI"
 #ifdef XP_MACOSX
         modifiers="accel,alt"
