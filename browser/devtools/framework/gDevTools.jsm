@@ -324,7 +324,7 @@ DevTools.prototype = {
 
     let key = null;
     if (toolDefinition.key) {
-      let key = doc.createElement("key");
+      key = doc.createElement("key");
       key.setAttribute("id", "key_" + id);
 
       if (toolDefinition.key.startsWith("VK_")) {
