@@ -192,7 +192,9 @@
     <!-- DevTools broadcasters -->
     <broadcaster id="devtoolsMenuBroadcaster_DevToolbox"
                  label="&devToolbarToolsButton.label;"
-                 command="Tools:DevToolbox"/>
+                 type="checkbox" autocheck="false"
+                 command="Tools:DevToolbox"
+                 accesskey="&devToolbox.accesskey;"/>
     <broadcaster id="devtoolsMenuBroadcaster_DevToolbar"
                  label="&devToolbarMenu.label;"
                  type="checkbox" autocheck="false"

@@ -202,7 +202,7 @@ DevTools.prototype = {
   closeToolbox: function DT_closeToolbox(tab) {
     let toolbox = this._toolboxes.get(tab);
     if (toolbox == null) {
-      throw new Error('No toolbox for tab');
+      return;
     }
     toolbox.destroy();
   },
@@ -316,7 +316,7 @@ DevTools.prototype = {
     let cmd = doc.createElement("command");
     cmd.setAttribute("id", "Tools:" + id);
     cmd.setAttribute("oncommand",
-      'gDevTools.openToolFromMenu("' + id + '", gBrowser.selectedTab);');
+      'gDevTools.openToolForTab("' + id + '", gBrowser.selectedTab);');
 
     let key = doc.createElement("key");
     key.setAttribute("id", "key_" + id);
@@ -328,7 +328,7 @@ DevTools.prototype = {
     }
 
     key.setAttribute("oncommand",
-      'gDevTools.openToolFromMenu("' + id + '", gBrowser.selectedTab);');
+      'gDevTools.openToolForTab("' + id + '", gBrowser.selectedTab);');
     key.setAttribute("modifiers", toolDefinition.modifiers);
 
     let bc = doc.createElement("broadcaster");
@@ -370,14 +370,14 @@ DevTools.prototype = {
   },
 
   /**
-   * Opens the toolbox from the developer tools menu.
+   * Open the toolbox for a specific tab.
    *
    * @param  {String} aId
    *         The id of the tool to open.
    * @param  {XULTab} aTab
    *         The tab that the toolbox should be pointing at.
    */
-  openToolFromMenu: function DT_openToolFromMenu(aId, aTab) {
+  openToolForTab: function DT_openToolForTab(aId, aTab) {
     let tb = gDevTools.getToolboxForTarget(aTab);
 
     if (tb) {

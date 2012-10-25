@@ -168,17 +168,6 @@ Toolbox.prototype = {
   },
 
   /**
-   * Get/alter the default tool.
-   */
-  get defaultToolId() {
-    return this._defaultToolId;
-  },
-
-  set defaultToolId(aValue) {
-    this._defaultToolId = aValue;
-  },
-
-  /**
    * Get the iframe containing the toolbox UI
    */
   get frame() {
