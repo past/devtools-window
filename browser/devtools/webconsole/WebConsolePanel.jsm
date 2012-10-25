@@ -6,9 +6,7 @@
 
 const EXPORTED_SYMBOLS = [ "WebConsoleDefinition" ];
 
-const Cu = Components.utils;
-const Cc = Components.classes;
-const Ci = Components.interfaces;
+const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
@@ -43,6 +41,9 @@ const WebConsoleDefinition = {
   icon: "chrome://browser/skin/devtools/webconsole-tool-icon.png",
   url: "chrome://browser/content/devtools/webconsole.xul",
   label: l10n("ToolboxWebconsole.label"),
+  isTargetSupported: function(target) {
+    return target.type == DevTools.TargetType.TAB;
+  },
   build: function(iframeWindow, toolbox) {
     return new WebConsolePanel(iframeWindow, toolbox);
   }
@@ -55,9 +56,6 @@ function WebConsolePanel(iframeWindow, toolbox) {
   this._frameWindow = iframeWindow;
   this._toolbox = toolbox;
   new EventEmitter(this);
-  if (this.target.type !== DevTools.TargetType.TAB) {
-    throw new Error("Unsupported tab type: " + this.target.type);
-  }
 
   let tab = this._toolbox.target.value;
   let parentDoc = iframeWindow.document.defaultView.parent.document;
