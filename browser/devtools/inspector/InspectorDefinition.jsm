@@ -4,23 +4,35 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+"use strict";
+
 const EXPORTED_SYMBOLS = ["InspectorDefinition"];
 
-const Cu = Components.utils;
+const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
+const properties = "chrome://browser/locale/devtools/inspector.properties";
 
-Cu.import('resource://gre/modules/XPCOMUtils.jsm');
+Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+
+XPCOMUtils.defineLazyGetter(this, "osString",
+  function() Cc["@mozilla.org/xre/app-info;1"].getService(Ci.nsIXULRuntime).OS);
+
+XPCOMUtils.defineLazyGetter(this, "Strings",
+  function() Services.strings.createBundle(properties));
+
+function l10n(aName) Strings.GetStringFromName(aName);
+
 Cu.import("resource://gre/modules/Services.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "InspectorPanel", "resource:///modules/devtools/InspectorPanel.jsm");
 
 const InspectorDefinition = {
   id: "inspector",
+  accesskey: l10n("inspector.accesskey"),
+  key: l10n("inspector.commandkey"),
+  modifiers: osString == "Darwin" ? "accel,alt" : "accel,shift",
   icon: "chrome://browser/skin/devtools/tools-icons-small.png",
   url: "chrome://browser/content/devtools/inspector/inspector.xul",
-  get label() {
-    let strings = Services.strings.createBundle("chrome://browser/locale/devtools/inspector.properties");
-    return strings.GetStringFromName("inspector.label");
-  },
+  label: l10n("inspector.label"),
 
   isTargetSupported: function(target) {
     switch (target.type) {
@@ -37,3 +49,5 @@ const InspectorDefinition = {
     return new InspectorPanel(iframeWindow, toolbox, node);
   }
 };
+
+
