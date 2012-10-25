@@ -418,7 +418,7 @@ nsContextMenu.prototype = {
     if (inspector && inspector.isReady) {
       inspector.selection.setNode(this.target);
     } else {
-      let toolbox = gDevTools.openToolForTab(tab, "inspector");
+      let toolbox = gDevTools.openToolForTab("inspector", tab);
       toolbox.once("inspector-ready", function(event, panel) {
         let inspector = gDevTools.getPanelForTarget("inspector", tab);
         inspector.selection.setNode(this.target, "browser-context-menu");

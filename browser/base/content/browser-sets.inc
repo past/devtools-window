@@ -92,7 +92,6 @@
     <command id="Tools:DevToolbar" oncommand="DeveloperToolbar.toggle();" disabled="true" hidden="true"/>
     <command id="Tools:DevToolbarFocus" oncommand="DeveloperToolbar.focusToggle();" disabled="true"/>
     <command id="Tools:RemoteWebConsole" oncommand="HUDConsoleUI.toggleRemoteHUD();" disabled="true" hidden="true"/>
-    <command id="Tools:Inspect" oncommand="gDevTools.openToolForTab(gBrowser.selectedTab, 'inspector');"/>
     <command id="Tools:Scratchpad" oncommand="Scratchpad.openScratchpad();" disabled="true" hidden="true"/>
     <command id="Tools:ResponsiveUI" oncommand="ResponsiveUI.toggle();" disabled="true" hidden="true"/>
     <command id="Tools:Addons" oncommand="BrowserOpenAddonsMgr();"/>

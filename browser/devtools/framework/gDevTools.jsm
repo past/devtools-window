@@ -221,30 +221,6 @@ DevTools.prototype = {
   },
 
   /**
-   * Start a tool for the given browser tab. Open the toolbox
-   * if needed.
-   */
-  openToolForTab: function DT_openToolForTab(tab, defaultTool) {
-    let toolbox = this._toolboxes.get(tab);
-    if (toolbox) {
-      if (toolbox.isReady) {
-        toolbox.selectTool(defaultTool);
-      } else {
-        toolbox.once("ready", function() {
-          toolbox.selectTool(defaultTool);
-        });
-      }
-    } else {
-      let target = {
-        type: gDevTools.TargetType.TAB,
-        value: tab
-      }
-      toolbox = this.openToolbox(target, null, defaultTool);
-    }
-    return toolbox;
-  },
-
-  /**
    * Return a map(DevToolsTarget, DevToolBox) of all the Toolboxes
    * map is a copy, not reference (can't be altered)
    */
@@ -405,13 +381,19 @@ DevTools.prototype = {
     let tb = gDevTools.getToolboxForTarget(aTab);
 
     if (tb) {
-      tb.selectTool(aId);
+      if (tb.isReady) {
+        tb.selectTool(aId);
+      } else {
+        tb.once("ready", function() {
+          tb.selectTool(defaultTool);
+        });
+      }
     } else {
       let target = {
         type: gDevTools.TargetType.TAB,
         value: aTab
       }
-      gDevTools.openToolbox(target, null, aId);
+      this.openToolbox(target, null, aId);
     }
   },
 
