@@ -22,7 +22,7 @@ function createDocument()
   doc.title = "Inspector Initialization Test";
 
   let tab = gBrowser.selectedTab;
-  let toolbox = gDevTools.openToolForTab(tab, "inspector");
+  let toolbox = gDevTools.openToolForTab("inspector", tab);
   toolbox.once("inspector-ready", function(event, panel) {
     let inspector = gDevTools.getPanelForTarget("inspector", tab);
     startInspectorTests();
@@ -59,7 +59,7 @@ function startInspectorTests()
   testBreadcrumbs(span);
   // FIXME: testSidebars(span);
 
-  let toolbox = gDevTools.openToolForTab(gBrowser.selectedTab, "inspector");
+  let toolbox = gDevTools.openToolForTab("inspector", gBrowser.selectedTab);
   toolbox.once("destroyed", function() {
     ok("true", "'destroyed' notification received.");
     let toolbox = gDevTools.getToolboxForTarget(gBrowser.selectedTab);
@@ -107,7 +107,7 @@ function runContextMenuTest()
     if (inspector && inspector.isReady) {
       executeSoon(testInitialNodeIsSelected);
     } else {
-      let toolbox = gDevTools.openToolForTab(gBrowser.selectedTab, "inspector");
+      let toolbox = gDevTools.openToolForTab("inspector", gBrowser.selectedTab);
       toolbox.once("inspector-ready", function(event, panel) {
         executeSoon(testInitialNodeIsSelected);
       });
