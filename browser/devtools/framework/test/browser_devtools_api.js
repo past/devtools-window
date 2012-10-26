@@ -18,14 +18,14 @@ function test() {
 
 function runTests(aTab) {
   let toolDefinition = {
-    id: "test-tool",
+    id: toolId,
     killswitch: "devtools.test-tool.enabled",
     url: "about:blank",
     label: "someLabel",
     build: function(iframeWindow, toolbox) {
-      let instance = new DevToolInstance(iframeWindow, toolbox);
-      instance.on("ready", continueTests);
-      return instance;
+      let panel = new DevToolPanel(iframeWindow, toolbox);
+      toolbox.on(toolId + "-ready", continueTests);
+      return panel;
     },
   };
 
@@ -51,9 +51,8 @@ function runTests(aTab) {
   is(tb._host.hostTab, gBrowser.selectedTab, "toolbox host is correct");
 }
 
-function continueTests() {
-  let toolBoxes = gDevTools.getToolBoxes(gBrowser.selectedTab);
-  let tb = toolBoxes.get(gBrowser.selectedTab);
+function continueTests(event, panel) {
+  let tb = panel.toolbox;
 
   is(tb.currentToolId, toolId, "toolbox _currentToolId is correct");
 
@@ -67,13 +66,10 @@ function continueTests() {
   is(gDevTools.getToolDefinitions().has(toolId), false,
     "The tool is no longer registered");
 
-  finishUp();
+  finishUp(tb);
 }
 
-function finishUp() {
-  let toolBoxes = gDevTools.getToolBoxes(gBrowser.selectedTab);
-  let toolbox = toolBoxes.get(gBrowser.selectedTab);
-
+function finishUp(toolbox) {
   toolbox.destroy();
   toolbox = tempScope = null;
   gBrowser.removeCurrentTab();
@@ -81,34 +77,43 @@ function finishUp() {
 }
 
 /**
-* When a Toolbox is started it creates a DevToolInstance for each of the tools
+* When a Toolbox is started it creates a DevToolPanel for each of the tools
 * by calling toolDefinition.build(). The returned object should
 * at least implement these functions. They will be used by the ToolBox.
 *
 * There may be no benefit in doing this as an abstract type, but if nothing
 * else gives us a place to write documentation.
 */
-function DevToolInstance(iframeWindow, toolbox) {
+function DevToolPanel(iframeWindow, toolbox) {
   new EventEmitter(this);
 
   this._toolbox = toolbox;
 
-  let parentDoc = iframeWindow.document.defaultView.parent.document;
-  let iframe = parentDoc.querySelector('#toolbox-panel-iframe-test-tool');
-  let doc = iframe.contentDocument;
+  /*let doc = iframeWindow.document
   let label = doc.createElement("label");
   let textNode = doc.createTextNode("Some Tool");
 
   label.appendChild(textNode);
-  doc.body.appendChild(label);
+  doc.body.appendChild(label);*/
 
   executeSoon(function() {
-    this.emit("ready");
+    this.setReady();
   }.bind(this));
 }
 
-DevToolInstance.prototype = {
+DevToolPanel.prototype = {
   get target() this._toolbox.target,
+
+  get toolbox() this._toolbox,
+
+  get isReady() this._isReady,
+
+  _isReady: false,
+
+  setReady: function() {
+    this._isReady = true;
+    this.emit("ready");
+  },
 
   destroy: function DTI_destroy()
   {
