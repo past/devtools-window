@@ -229,7 +229,6 @@ Toolbox.prototype = {
     tabs.appendChild(radio);
     vbox.appendChild(iframe);
     deck.appendChild(vbox);
-    this.emit("tab-added");
   },
 
   /**
