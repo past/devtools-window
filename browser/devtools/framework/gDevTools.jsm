@@ -77,23 +77,9 @@ DevTools.HostType = {
   TAB: "tab"
 };
 
-/**
- * Event constants.
- * FIXME: The supported list of events needs finalizing and documenting.
- */
-DevTools.ToolEvent = {
-  TOOLREADY: "devtools-tool-ready",
-  TOOLHIDE: "devtools-tool-hide",
-  TOOLSHOW: "devtools-tool-show",
-  TOOLCLOSED: "devtools-tool-closed",
-  TOOLBOXREADY: "devtools-toolbox-ready",
-  TOOLBOXCLOSED: "devtools-toolbox-closed",
-};
-
 DevTools.prototype = {
   TargetType: DevTools.TargetType,
   HostType: DevTools.HostType,
-  ToolEvent: DevTools.ToolEvent,
 
   /**
    * Register a new developer tool.
