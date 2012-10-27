@@ -186,18 +186,10 @@ DevTools.prototype = {
   },
 
   /**
-   * FIXME: There is probably a better way of doing this
-   */
-  openDefaultToolbox: function DT_openDefaultToolbox(tab, tool) {
-    let target = {
-      type: DevTools.TargetType.TAB,
-      value: tab
-    };
-    gDevTools.openToolbox(target, undefined, tool);
-  },
-
-  /**
-   * FIXME: There is probably a better way of doing this
+   * Close the toolbox for a given tab
+   *
+   * @param  {XULTab} tab
+   *         The tab the toolbox to close is debugging
    */
   closeToolbox: function DT_closeToolbox(tab) {
     let toolbox = this._toolboxes.get(tab);
@@ -208,15 +200,46 @@ DevTools.prototype = {
   },
 
   /**
-   * Toggle a toolbox for the given browser tab
+   * Open the toolbox for a specific tab.
+   *
+   * @param  {XULTab} tab
+   *         The tab that the toolbox should be debugging
+   * @param  {String} toolId
+   *         The id of the tool to open
+   *
+   * @return {Toolbox} toolbox
+   *         The toolbox that has been opened
    */
-  toggleToolboxForTab: function toggleToolboxForTab(tab, tool) {
+  openToolboxForTab: function DT_openToolboxForTab(tab, toolId) {
+    let tb = this.getToolboxForTarget(tab);
+
+    if (tb) {
+      tb.selectTool(toolId);
+    } else {
+      let target = {
+        type: gDevTools.TargetType.TAB,
+        value: tab
+      }
+      tb = this.openToolbox(target, null, toolId);
+    }
+    return tb;
+  },
+
+  /**
+   * Toggle a toolbox for the given browser tab.
+   *
+   * @param  {XULTab} tab
+   *         The tab the toolbox is debugging
+   * @param  {string} toolId
+   *         The id of the tool to show in the toolbox, if it's to be opened.
+   */
+  toggleToolboxForTab: function DT_toggleToolboxForTab(tab, toolId) {
     let tb = this.getToolboxForTarget(tab);
 
     if (tb /* FIXME: && tool is showing */ ) {
       tb.destroy();
     } else {
-      this.openDefaultToolbox(tab, tool);
+      this.openToolboxForTab(tab, toolId);
     }
   },
 
@@ -320,7 +343,7 @@ DevTools.prototype = {
     let cmd = doc.createElement("command");
     cmd.setAttribute("id", "Tools:" + id);
     cmd.setAttribute("oncommand",
-      'gDevTools.openToolForTab("' + id + '", gBrowser.selectedTab);');
+      'gDevTools.openToolboxForTab(gBrowser.selectedTab, "' + id + '");');
 
     let key = null;
     if (toolDefinition.key) {
@@ -334,7 +357,7 @@ DevTools.prototype = {
       }
 
       key.setAttribute("oncommand",
-        'gDevTools.openToolForTab("' + id + '", gBrowser.selectedTab);');
+        'gDevTools.openToolboxForTab(gBrowser.selectedTab, "' + id + '");');
       key.setAttribute("modifiers", toolDefinition.modifiers);
     }
 
@@ -391,21 +414,7 @@ DevTools.prototype = {
    * @param  {XULTab} aTab
    *         The tab that the toolbox should be pointing at.
    */
-  openToolForTab: function DT_openToolForTab(aId, aTab) {
-    let tb = gDevTools.getToolboxForTarget(aTab);
-
-    if (tb) {
-      tb.selectTool(aId);
-    } else {
-      let target = {
-        type: gDevTools.TargetType.TAB,
-        value: aTab
-      }
-      gDevTools.openToolbox(target, null, aId);
-    }
-  },
-
-  _newWindowObserver: function GDT_newWindowObserver(aSubject, aTopic, aData) {
+  _newWindowObserver: function DT_newWindowObserver(subject, topic, data) {
     let win = aSubject.QueryInterface(Ci.nsIInterfaceRequestor)
                       .getInterface(Ci.nsIDOMWindow);
     win.addEventListener("load", function GDT_winLoad() {
