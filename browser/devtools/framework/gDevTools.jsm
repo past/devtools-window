@@ -272,9 +272,9 @@ DevTools.prototype = {
     let fragAppMenuItems = doc.createDocumentFragment();
     let fragMenuItems = doc.createDocumentFragment();
 
-    for (let [key, toolDefinition] of gDevTools._tools) {
+    for (let [key, toolDefinition] of this._tools) {
       let [cmd, key, bc, item] =
-        gDevTools._addToolToMenu(toolDefinition, chromeDoc, true);
+        this._addToolToMenu(toolDefinition, chromeDoc, true);
 
       fragCommands.appendChild(cmd);
       if (key) {
@@ -403,10 +403,13 @@ DevTools.prototype = {
   _newWindowObserver: function DT_newWindowObserver(subject, topic, data) {
     let win = aSubject.QueryInterface(Ci.nsIInterfaceRequestor)
                       .getInterface(Ci.nsIDOMWindow);
-    win.addEventListener("load", function GDT_winLoad() {
-      win.removeEventListener("load", GDT_winLoad, false);
-      gDevTools._addAllToolsToMenu(win.document);
-    }, false);
+
+    let winLoad = function winLoad() {
+      win.removeEventListener("load", winLoad, false);
+      this._addAllToolsToMenu(win.document);
+    }.bind(this);
+
+    win.addEventListener("load", winLoad, false);
   },
 
   destroy: function DT_destroy() {
