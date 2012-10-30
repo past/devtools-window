@@ -15,11 +15,9 @@ Cu.import("resource:///modules/devtools/ToolDefinitions.jsm");
 Cu.import("resource:///modules/devtools/Toolbox.jsm");
 
 /**
- * gDevTools is a singleton that controls Firefox Developer Tools.
- *
- * It is an instance of a DevTools class that holds a set of tools. This lets us
- * have alternative sets of tools, for example to allow a Firebug type
- * alternative. It has the same lifetime as the browser.
+ * DevTools is a class that represents a set of developer tools. Each
+ * instance of the DevTools class holds a set of tools and keeps track
+ * of open toolboxes in the browser.
  */
 function DevTools() {
   this._tools = new Map();
