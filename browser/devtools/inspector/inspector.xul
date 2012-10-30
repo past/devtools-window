@@ -13,7 +13,7 @@
 
  <window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
 
-   <popupset>
+   <popupset id="inspectorPopupSet">
      <!-- Used by the Markup Panel, the Highlighter and the Breadcrumbs -->
      <menupopup id="inspector-node-popup">
        <menuitem id="node-menu-copyinner"
@@ -75,7 +75,7 @@
        </vbox>
      </vbox>
      <splitter class="devtools-side-splitter"/>
-     <tabbox class="devtools-sidebar-tabs" selectedIndex="1" hidden="true">
+     <tabbox id="inspector-sidebar" class="devtools-sidebar-tabs" hidden="true">
        <tabs/>
        <tabpanels flex="1"/>
      </tabbox>

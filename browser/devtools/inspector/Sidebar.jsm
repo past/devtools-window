@@ -4,6 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+// FIXME: some comments maybe?
+
 const Cc = Components.classes;
 const Cu = Components.utils;
 const Ci = Components.interfaces;
@@ -19,22 +21,22 @@ function InToolSidebarManager(tabbox, panel) {
 }
 
 InToolSidebarManager.prototype = {
-  addView: function(id, name, url) {
-    let tab = this.doc.createElement("tab");
-    tab.setAttribute("label", name);
+  addView: function(url) {
+    let tab = this.panelDoc.createElement("tab");
     this.tabbox.tabs.appendChild(tab);
 
-    let iframe = this.doc.createElement("iframe");
+    let iframe = this.panelDoc.createElement("iframe");
     iframe.setAttribute("flex", "1");
     iframe.setAttribute("src", url);
 
     let onIFrameLoaded = function() {
+      tab.setAttribute("label", iframe.contentDocument.title);
       iframe.removeEventListener("DOMContentLoaded", onIFrameLoaded, true);
-      iframe.contentWindow.setPanel(this.panel);
+      iframe.contentWindow.setPanel(this.panel, iframe);
     }.bind(this);
     iframe.addEventListener("DOMContentLoaded", onIFrameLoaded, true);
 
-    let tabpanel = this.doc.createElement("tabpanel");
+    let tabpanel = this.panelDoc.createElement("tabpanel");
     tabpanel.appendChild(iframe);
     this.tabbox.tabpanels.appendChild(tabpanel);
   },
