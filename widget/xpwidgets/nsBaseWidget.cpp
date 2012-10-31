@@ -24,6 +24,7 @@
 #include "nsIXULRuntime.h"
 #include "nsIXULWindow.h"
 #include "nsIBaseWindow.h"
+#include "nsXULPopupManager.h"
 #include "nsEventStateManager.h"
 #include "nsIWidgetListener.h"
 #include "nsIGfxInfo.h"
@@ -47,6 +48,8 @@ static bool debug_InSecureKeyboardInputMode = false;
 #ifdef NOISY_WIDGET_LEAKS
 static int32_t gNumWidgets;
 #endif
+
+nsIRollupListener* nsBaseWidget::gRollupListener = nullptr;
 
 using namespace mozilla::layers;
 using namespace mozilla;
@@ -90,7 +93,6 @@ nsBaseWidget::nsBaseWidget()
 , mCursor(eCursor_standard)
 , mWindowType(eWindowType_child)
 , mBorderStyle(eBorderStyle_none)
-, mOnDestroyCalled(false)
 , mUseAcceleratedRendering(false)
 , mForceLayersAcceleration(false)
 , mTemporarilyUseBasicLayerManager(false)
@@ -692,8 +694,12 @@ NS_IMETHODIMP nsBaseWidget::MakeFullScreen(bool aFullScreen)
     NS_ASSERTION(screenManager, "Unable to grab screenManager.");
     if (screenManager) {
       nsCOMPtr<nsIScreen> screen;
-      screenManager->ScreenForRect(mOriginalBounds->x, mOriginalBounds->y,
-                                   mOriginalBounds->width, mOriginalBounds->height,
+      // convert dev pix to display/CSS pix for ScreenForRect
+      double scale = GetDefaultScale();
+      screenManager->ScreenForRect(mOriginalBounds->x / scale,
+                                   mOriginalBounds->y / scale,
+                                   mOriginalBounds->width / scale,
+                                   mOriginalBounds->height / scale,
                                    getter_AddRefs(screen));
       if (screen) {
         int32_t left, top, width, height;
@@ -1292,6 +1298,17 @@ void nsBaseWidget::SetSizeConstraints(const SizeConstraints& aConstraints)
 const widget::SizeConstraints& nsBaseWidget::GetSizeConstraints() const
 {
   return mSizeConstraints;
+}
+
+// static
+nsIRollupListener*
+nsBaseWidget::GetActiveRollupListener()
+{
+  // If set, then this is likely an <html:select> dropdown.
+  if (gRollupListener)
+    return gRollupListener;
+
+  return nsXULPopupManager::GetInstance();
 }
 
 void

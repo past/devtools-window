@@ -86,20 +86,47 @@ function sendMouseEvent(aEvent, aTarget, aWindow) {
  * chars (sends the right charcode, and sends a shift key for uppercase chars).
  * No other modifiers are handled at this point.
  *
- * For now this method only works for English letters (lower and upper case)
- * and the digits 0-9.
+ * For now this method only works for ASCII characters and emulates the shift
+ * key state on US keyboard layout.
  */
 function sendChar(aChar, aWindow) {
-  // DOM event charcodes match ASCII (JS charcodes) for a-zA-Z0-9.
-  var hasShift = (aChar == aChar.toUpperCase());
+  var hasShift;
+  // Emulate US keyboard layout for the shiftKey state.
+  switch (aChar) {
+    case "!":
+    case "@":
+    case "#":
+    case "$":
+    case "%":
+    case "^":
+    case "&":
+    case "*":
+    case "(":
+    case ")":
+    case "_":
+    case "+":
+    case "{":
+    case "}":
+    case ":":
+    case "\"":
+    case "|":
+    case "<":
+    case ">":
+    case "?":
+      hasShift = true;
+      break;
+    default:
+      hasShift = (aChar == aChar.toUpperCase());
+      break;
+  }
   synthesizeKey(aChar, { shiftKey: hasShift }, aWindow);
 }
 
 /**
  * Send the string aStr to the focused element.
  *
- * For now this method only works for English letters (lower and upper case)
- * and the digits 0-9.
+ * For now this method only works for ASCII characters and emulates the shift
+ * key state on US keyboard layout.
  */
 function sendString(aStr, aWindow) {
   for (var i = 0; i < aStr.length; ++i) {
@@ -179,11 +206,13 @@ function _parseModifiers(aEvent)
  * a mousedown followed by a mouse up is performed.
  *
  * aWindow is optional, and defaults to the current window object.
+ *
+ * Returns whether the event had preventDefault() called on it.
  */
 function synthesizeMouse(aTarget, aOffsetX, aOffsetY, aEvent, aWindow)
 {
   var rect = aTarget.getBoundingClientRect();
-  synthesizeMouseAtPoint(rect.left + aOffsetX, rect.top + aOffsetY,
+  return synthesizeMouseAtPoint(rect.left + aOffsetX, rect.top + aOffsetY,
        aEvent, aWindow);
 }
 function synthesizeTouch(aTarget, aOffsetX, aOffsetY, aEvent, aWindow)
@@ -207,6 +236,7 @@ function synthesizeTouch(aTarget, aOffsetX, aOffsetY, aEvent, aWindow)
 function synthesizeMouseAtPoint(left, top, aEvent, aWindow)
 {
   var utils = _getDOMWindowUtils(aWindow);
+  var defaultPrevented = false;
 
   if (utils) {
     var button = aEvent.button || 0;
@@ -214,13 +244,15 @@ function synthesizeMouseAtPoint(left, top, aEvent, aWindow)
     var modifiers = _parseModifiers(aEvent);
 
     if (("type" in aEvent) && aEvent.type) {
-      utils.sendMouseEvent(aEvent.type, left, top, button, clickCount, modifiers);
+      defaultPrevented = utils.sendMouseEvent(aEvent.type, left, top, button, clickCount, modifiers);
     }
     else {
       utils.sendMouseEvent("mousedown", left, top, button, clickCount, modifiers);
       utils.sendMouseEvent("mouseup", left, top, button, clickCount, modifiers);
     }
   }
+
+  return defaultPrevented;
 }
 function synthesizeTouchAtPoint(left, top, aEvent, aWindow)
 {

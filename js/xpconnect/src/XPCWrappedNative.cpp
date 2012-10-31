@@ -18,12 +18,12 @@
 #include "AccessCheck.h"
 #include "WrapperFactory.h"
 #include "XrayWrapper.h"
-#include "dombindings.h"
 
 #include "nsContentUtils.h"
 
 #include "mozilla/StandardInteger.h"
 #include "mozilla/Util.h"
+#include "mozilla/Likely.h"
 
 using namespace xpc;
 
@@ -312,32 +312,24 @@ XPCWrappedNative::WrapNewGlobal(XPCCallContext &ccx, xpcObjectHelper &nativeHelp
     MOZ_ASSERT(clasp->flags & JSCLASS_IS_GLOBAL);
 
     // Create the global.
-    JSObject *global;
-    JSCompartment *compartment;
-    nsresult rv = xpc::CreateGlobalObject(ccx, clasp, principal, false, &global,
-                                          &compartment);
-    NS_ENSURE_SUCCESS(rv, rv);
+    JSObject *global = xpc::CreateGlobalObject(ccx, clasp, principal);
+    if (!global)
+        return NS_ERROR_FAILURE;
+    XPCWrappedNativeScope *scope = GetCompartmentPrivate(global)->scope;
 
     // Immediately enter the global's compartment, so that everything else we
     // create ends up there.
     JSAutoCompartment ac(ccx, global);
 
-    // If requested, immediately initialize the standard classes on the global.
-    // We need to do this before creating a scope, because
-    // XPCWrappedNativeScope::SetGlobal resolves |Object| via
-    // JS_ResolveStandardClass. JS_InitStandardClasses asserts if any of the
-    // standard classes are already initialized, so this is a problem.
+    // If requested, initialize the standard classes on the global.
     if (initStandardClasses && ! JS_InitStandardClasses(ccx, global))
         return NS_ERROR_FAILURE;
 
-    // Create a scope, but don't do any extra stuff like initializing |Components|.
-    // All of that stuff happens in the caller.
-    XPCWrappedNativeScope *scope = XPCWrappedNativeScope::GetNewOrUsed(ccx, global, identity);
-    MOZ_ASSERT(scope);
-
     // Make a proto.
     XPCWrappedNativeProto *proto =
-        XPCWrappedNativeProto::GetNewOrUsed(ccx, scope, nativeHelper.GetClassInfo(), &sciProto,
+        XPCWrappedNativeProto::GetNewOrUsed(ccx,
+                                            scope,
+                                            nativeHelper.GetClassInfo(), &sciProto,
                                             UNKNOWN_OFFSETS, /* callPostCreatePrototype = */ false);
     if (!proto)
         return NS_ERROR_FAILURE;
@@ -533,8 +525,7 @@ XPCWrappedNative::GetNewOrUsed(XPCCallContext& ccx,
         ac.construct(ccx, parent);
 
         if (parent != plannedParent) {
-            XPCWrappedNativeScope* betterScope =
-                XPCWrappedNativeScope::FindInJSObjectScope(ccx, parent);
+            XPCWrappedNativeScope* betterScope = GetObjectScope(parent);
             if (betterScope != Scope)
                 return GetNewOrUsed(ccx, helper, betterScope, Interface, resultWrapper);
 
@@ -1146,7 +1137,7 @@ XPCWrappedNative::Init(XPCCallContext& ccx, JSObject* parent,
         return false;
     }
 
-    mFlatJSObject = xpc_NewSystemInheritingJSObject(ccx, jsclazz, protoJSObject, false, parent);
+    mFlatJSObject = JS_NewObject(ccx, jsclazz, protoJSObject, parent);
     if (!mFlatJSObject)
         return false;
 
@@ -1706,17 +1697,6 @@ XPCWrappedNative::ReparentWrapperIfFound(XPCCallContext& ccx,
     return NS_OK;
 }
 
-XPCWrappedNative*
-XPCWrappedNative::GetParentWrapper()
-{
-    XPCWrappedNative *wrapper = nullptr;
-    JSObject *parent = js::GetObjectParent(mFlatJSObject);
-    if (parent && IS_WN_WRAPPER(parent)) {
-        wrapper = static_cast<XPCWrappedNative*>(js::GetObjectPrivate(parent));
-    }
-    return wrapper;
-}
-
 // Orphans are sad little things - If only we could treat them better. :-(
 //
 // When a wrapper gets reparented to another scope (for example, when calling
@@ -1754,14 +1734,49 @@ XPCWrappedNative::IsOrphan()
 nsresult
 XPCWrappedNative::RescueOrphans(XPCCallContext& ccx)
 {
+    //
     // Even if we're not an orphan at the moment, one of our ancestors might
     // be. If so, we need to recursively rescue up the parent chain.
+    //
+
+    // First, get the parent object. If we're currently an orphan, the parent
+    // object is a cross-compartment wrapper. Follow the parent into its own
+    // compartment and fix it up there. We'll fix up |this| afterwards.
+    //
+    // NB: We pass stopAtOuter=false during the unwrap because Location objects
+    // are parented to outer window proxies.
     nsresult rv;
-    XPCWrappedNative *parentWrapper = GetParentWrapper();
-    if (parentWrapper && parentWrapper->IsOrphan()) {
-        rv = parentWrapper->RescueOrphans(ccx);
+    JSObject *parentObj = js::GetObjectParent(mFlatJSObject);
+    if (!parentObj)
+        return NS_OK; // Global object. We're done.
+    parentObj = js::UnwrapObject(parentObj, /* stopAtOuter = */ false);
+
+    // There's one little nasty twist here. For reasons described in bug 752764,
+    // we nuke SOW-ed objects after transplanting them. This means that nodes
+    // parented to an element (such as XUL elements), can end up with a nuked proxy
+    // in the parent chain, depending on the order of fixup. Because the proxy is
+    // nuked, we can't follow it anywhere. But we _can_ find the new wrapper for
+    // the underlying native parent, which is exactly what PreCreate does.
+    // So do that here.
+    if (MOZ_UNLIKELY(JS_IsDeadWrapper(parentObj))) {
+        rv = mScriptableInfo->GetCallback()->PreCreate(mIdentity, ccx,
+                                                       GetScope()->GetGlobalJSObject(),
+                                                       &parentObj);
         NS_ENSURE_SUCCESS(rv, rv);
     }
+
+    // Morph any slim wrappers, lest they confuse us.
+    MOZ_ASSERT(IS_WRAPPER_CLASS(js::GetObjectClass(parentObj)));
+    if (IS_SLIM_WRAPPER_OBJECT(parentObj)) {
+        bool ok = MorphSlimWrapper(ccx, parentObj);
+        NS_ENSURE_TRUE(ok, NS_ERROR_FAILURE);
+    }
+
+    // Get the WN corresponding to the parent, and recursively fix it up.
+    XPCWrappedNative *parentWrapper =
+      static_cast<XPCWrappedNative*>(js::GetObjectPrivate(parentObj));
+    rv = parentWrapper->RescueOrphans(ccx);
+    NS_ENSURE_SUCCESS(rv, rv);
 
     // Now that we know our parent is in the right place, determine if we've
     // been orphaned. If not, we have nothing to do.
@@ -1772,11 +1787,8 @@ XPCWrappedNative::RescueOrphans(XPCCallContext& ccx)
     JSObject *parentGhost = js::GetObjectParent(mFlatJSObject);
     JSObject *realParent = js::UnwrapObject(parentGhost);
     nsRefPtr<XPCWrappedNative> ignored;
-    return ReparentWrapperIfFound(ccx,
-                                  XPCWrappedNativeScope::
-                                    FindInJSObjectScope(ccx, parentGhost),
-                                  XPCWrappedNativeScope::
-                                    FindInJSObjectScope(ccx, realParent),
+    return ReparentWrapperIfFound(ccx, GetObjectScope(parentGhost),
+                                  GetObjectScope(realParent),
                                   realParent, mIdentity, getter_AddRefs(ignored));
 }
 
@@ -2193,11 +2205,9 @@ XPCWrappedNative::InitTearOffJSObject(XPCCallContext& ccx,
 {
     // This is only called while locked (during XPCWrappedNative::FindTearOff).
 
-    JSObject* obj =
-        xpc_NewSystemInheritingJSObject(ccx, Jsvalify(&XPC_WN_Tearoff_JSClass),
-                                        GetScope()->GetPrototypeJSObject(),
-                                        false, mFlatJSObject);
-
+    JSObject* obj = JS_NewObject(ccx, Jsvalify(&XPC_WN_Tearoff_JSClass),
+                                 JS_GetObjectPrototype(ccx, mFlatJSObject),
+                                 mFlatJSObject);
     if (!obj)
         return false;
 
@@ -3802,8 +3812,7 @@ ConstructSlimWrapper(XPCCallContext &ccx,
     JSAutoCompartment ac(ccx, parent);
 
     if (parent != plannedParent) {
-        XPCWrappedNativeScope *newXpcScope =
-            XPCWrappedNativeScope::FindInJSObjectScope(ccx, parent);
+        XPCWrappedNativeScope *newXpcScope = GetObjectScope(parent);
         if (newXpcScope != xpcScope) {
             SLIM_LOG_NOT_CREATED(ccx, identityObj, "crossing origins");
 
@@ -3838,9 +3847,7 @@ ConstructSlimWrapper(XPCCallContext &ccx,
     if (!jsclazz)
         return false;
 
-    wrapper = xpc_NewSystemInheritingJSObject(ccx, jsclazz,
-                                              xpcproto->GetJSProtoObject(),
-                                              false, parent);
+    wrapper = JS_NewObject(ccx, jsclazz, xpcproto->GetJSProtoObject(), parent);
     if (!wrapper)
         return false;
 

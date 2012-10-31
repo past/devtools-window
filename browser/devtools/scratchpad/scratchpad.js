@@ -42,6 +42,7 @@ const BUTTON_POSITION_REVERT=0;
  * The scratchpad object handles the Scratchpad window functionality.
  */
 var Scratchpad = {
+  _instanceId: null,
   _initialWindowTitle: document.title,
 
   /**
@@ -130,12 +131,13 @@ var Scratchpad = {
    */
   _updateTitle: function SP__updateTitle()
   {
-    if (this.filename) {
-      document.title = (this.editor && this.editor.dirty ? "*" : "") +
-                       this.filename;
-    } else {
-      document.title = this._initialWindowTitle;
+    let title = this.filename || this._initialWindowTitle;
+
+    if (this.editor && this.editor.dirty) {
+      title = "*" + title;
     }
+
+    document.title = title;
   },
 
   /**
@@ -204,6 +206,15 @@ var Scratchpad = {
    * Cached Cu.Sandbox object for the active tab content window object.
    */
   _contentSandbox: null,
+
+  /**
+   * Unique name for the current Scratchpad instance. Used to distinguish
+   * Scratchpad windows between each other. See bug 661762.
+   */
+  get uniqueName()
+  {
+    return "Scratchpad/" + this._instanceId;
+  },
 
   /**
    * Get the Cu.Sandbox object for the active tab content window object. Note
@@ -318,7 +329,7 @@ var Scratchpad = {
     let error, result;
     try {
       result = Cu.evalInSandbox(aString, this.contentSandbox, "1.8",
-                                "Scratchpad", 1);
+                                this.uniqueName, 1);
     }
     catch (ex) {
       error = ex;
@@ -340,7 +351,7 @@ var Scratchpad = {
     let error, result;
     try {
       result = Cu.evalInSandbox(aString, this.chromeSandbox, "1.8",
-                                "Scratchpad", 1);
+                                this.uniqueName, 1);
     }
     catch (ex) {
       error = ex;
@@ -719,13 +730,16 @@ var Scratchpad = {
    */
   getRecentFiles: function SP_getRecentFiles()
   {
-    let maxRecent = Services.prefs.getIntPref(PREF_RECENT_FILES_MAX);
-    let branch = Services.prefs.
-                 getBranch("devtools.scratchpad.");
-
+    let branch = Services.prefs.getBranch("devtools.scratchpad.");
     let filePaths = [];
+
+    // WARNING: Do not use getCharPref here, it doesn't play nicely with
+    // Unicode strings.
+
     if (branch.prefHasUserValue("recentFilePaths")) {
-      filePaths = JSON.parse(branch.getCharPref("recentFilePaths"));
+      let data = branch.getComplexValue("recentFilePaths",
+        Ci.nsISupportsString).data;
+      filePaths = JSON.parse(data);
     }
 
     return filePaths;
@@ -771,10 +785,16 @@ var Scratchpad = {
 
     filePaths.push(aFile.path);
 
-    let branch = Services.prefs.
-                 getBranch("devtools.scratchpad.");
-    branch.setCharPref("recentFilePaths", JSON.stringify(filePaths));
-    return;
+    // WARNING: Do not use setCharPref here, it doesn't play nicely with
+    // Unicode strings.
+
+    let str = Cc["@mozilla.org/supports-string;1"]
+      .createInstance(Ci.nsISupportsString);
+    str.data = JSON.stringify(filePaths);
+
+    let branch = Services.prefs.getBranch("devtools.scratchpad.");
+    branch.setComplexValue("recentFilePaths",
+      Ci.nsISupportsString, str);
   },
 
   /**
@@ -858,11 +878,19 @@ var Scratchpad = {
 
       let filePaths = this.getRecentFiles();
       if (maxRecent < filePaths.length) {
-        let branch = Services.prefs.
-                     getBranch("devtools.scratchpad.");
         let diff = filePaths.length - maxRecent;
         filePaths.splice(0, diff);
-        branch.setCharPref("recentFilePaths", JSON.stringify(filePaths));
+
+        // WARNING: Do not use setCharPref here, it doesn't play nicely with
+        // Unicode strings.
+
+        let str = Cc["@mozilla.org/supports-string;1"]
+          .createInstance(Ci.nsISupportsString);
+        str.data = JSON.stringify(filePaths);
+
+        let branch = Services.prefs.getBranch("devtools.scratchpad.");
+        branch.setComplexValue("recentFilePaths",
+          Ci.nsISupportsString, str);
       }
     }
   },
@@ -1000,7 +1028,7 @@ var Scratchpad = {
    */
   openWebConsole: function SP_openWebConsole()
   {
-    gDevTools.openDefaultToolbox(this.gBrowser.selectedTab, "webconsole");
+    gDevTools.openToolboxForTab(this.gBrowser.selectedTab, "webconsole");
     this.browserWindow.focus();
   },
 
@@ -1084,6 +1112,7 @@ var Scratchpad = {
     if (aEvent.target != document) {
       return;
     }
+
     let chrome = Services.prefs.getBoolPref(DEVTOOLS_CHROME_ENABLED);
     if (chrome) {
       let environmentMenu = document.getElementById("sp-environment-menu");
@@ -1094,8 +1123,6 @@ var Scratchpad = {
       errorConsoleCommand.removeAttribute("disabled");
     }
 
-    let state = null;
-
     let initialText = this.strings.formatStringFromName(
       "scratchpadIntro1",
       [LayoutHelpers.prettyKey(document.getElementById("sp-key-run")),
@@ -1103,9 +1130,21 @@ var Scratchpad = {
        LayoutHelpers.prettyKey(document.getElementById("sp-key-display"))],
       3);
 
-    if ("arguments" in window &&
-         window.arguments[0] instanceof Ci.nsIDialogParamBlock) {
-      state = JSON.parse(window.arguments[0].GetString(0));
+    let args = window.arguments;
+
+    if (args && args[0] instanceof Ci.nsIDialogParamBlock) {
+      args = args[0];
+    } else {
+      // If this Scratchpad window doesn't have any arguments, horrible
+      // things might happen so we need to report an error.
+      Cu.reportError(this.strings. GetStringFromName("scratchpad.noargs"));
+    }
+
+    this._instanceId = args.GetString(0);
+
+    let state = args.GetString(1) || null;
+    if (state) {
+      state = JSON.parse(state);
       this.setState(state);
       initialText = state.text;
     }
@@ -1245,7 +1284,7 @@ var Scratchpad = {
    */
   promptSave: function SP_promptSave(aCallback)
   {
-    if (this.filename && this.editor.dirty) {
+    if (this.editor.dirty) {
       let ps = Services.prompt;
       let flags = ps.BUTTON_POS_0 * ps.BUTTON_TITLE_SAVE +
                   ps.BUTTON_POS_1 * ps.BUTTON_TITLE_CANCEL +

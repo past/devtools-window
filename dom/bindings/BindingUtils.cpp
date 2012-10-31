@@ -11,6 +11,7 @@
 #include "AccessCheck.h"
 #include "WrapperFactory.h"
 #include "xpcprivate.h"
+#include "nsContentUtils.h"
 #include "XPCQuickStubs.h"
 #include "nsIXPConnect.h"
 
@@ -86,6 +87,14 @@ DefinePrefable(JSContext* cx, JSObject* obj, Prefable<T>* props)
   } while ((++props)->specs);
   return true;
 }
+
+bool
+DefineUnforgeableAttributes(JSContext* cx, JSObject* obj,
+                            Prefable<JSPropertySpec>* props)
+{
+  return DefinePrefable(cx, obj, props);
+}
+
 
 // We should use JSFunction objects for interface objects, but we need a custom
 // hasInstance hook because we have new interface objects on prototype chains of
@@ -498,49 +507,58 @@ XrayResolveProperty(JSContext* cx, JSObject* wrapper, jsid id,
     }
   }
 
-  if (nativeProperties->attributes) {
-    Prefable<JSPropertySpec>* attr;
-    for (attr = nativeProperties->attributes; attr->specs; ++attr) {
-      if (attr->enabled) {
-        // Set i to be the index into our full list of ids/specs that we're
-        // looking at now.
-        size_t i = attr->specs - nativeProperties->attributeSpecs;
-        for ( ; nativeProperties->attributeIds[i] != JSID_VOID; ++i) {
-          if (id == nativeProperties->attributeIds[i]) {
-            JSPropertySpec& attrSpec = nativeProperties->attributeSpecs[i];
-            // Because of centralization, we need to make sure we fault in the
-            // JitInfos as well. At present, until the JSAPI changes, the easiest
-            // way to do this is wrap them up as functions ourselves.
-            desc->attrs = attrSpec.flags & ~JSPROP_NATIVE_ACCESSORS;
-            // They all have getters, so we can just make it.
-            JSObject *global = JS_GetGlobalForObject(cx, wrapper);
-            JSFunction *fun = JS_NewFunction(cx, (JSNative)attrSpec.getter.op,
-                                             0, 0, global, nullptr);
-            if (!fun)
-              return false;
-            SET_JITINFO(fun, attrSpec.getter.info);
-            JSObject *funobj = JS_GetFunctionObject(fun);
-            desc->getter = js::CastAsJSPropertyOp(funobj);
-            desc->attrs |= JSPROP_GETTER;
-            if (attrSpec.setter.op) {
-              // We have a setter! Make it.
-              fun = JS_NewFunction(cx, (JSNative)attrSpec.setter.op, 1, 0,
-                                   global, nullptr);
+  JSPropertySpec* attributeSpecs = nativeProperties->attributeSpecs;
+  Prefable<JSPropertySpec>* attr = nativeProperties->attributes;
+  jsid* attributeIds = nativeProperties->attributeIds;
+  // Do the attribute stuff for attributes, then for unforgeable attributes
+  for (int attrIteration = 0; attrIteration < 2; ++attrIteration) {
+    if (attr) {
+      for (; attr->specs; ++attr) {
+        if (attr->enabled) {
+          // Set i to be the index into our full list of ids/specs that we're
+          // looking at now.
+          size_t i = attr->specs - attributeSpecs;
+          for ( ; attributeIds[i] != JSID_VOID; ++i) {
+            if (id == attributeIds[i]) {
+              JSPropertySpec& attrSpec = attributeSpecs[i];
+              // Because of centralization, we need to make sure we fault in the
+              // JitInfos as well. At present, until the JSAPI changes, the easiest
+              // way to do this is wrap them up as functions ourselves.
+              desc->attrs = attrSpec.flags & ~JSPROP_NATIVE_ACCESSORS;
+              // They all have getters, so we can just make it.
+              JSObject *global = JS_GetGlobalForObject(cx, wrapper);
+              JSFunction *fun = JS_NewFunction(cx, (JSNative)attrSpec.getter.op,
+                                               0, 0, global, nullptr);
               if (!fun)
                 return false;
-              SET_JITINFO(fun, attrSpec.setter.info);
-              funobj = JS_GetFunctionObject(fun);
-              desc->setter = js::CastAsJSStrictPropertyOp(funobj);
-              desc->attrs |= JSPROP_SETTER;
-            } else {
-              desc->setter = nullptr;
+              SET_JITINFO(fun, attrSpec.getter.info);
+              JSObject *funobj = JS_GetFunctionObject(fun);
+              desc->getter = js::CastAsJSPropertyOp(funobj);
+              desc->attrs |= JSPROP_GETTER;
+              if (attrSpec.setter.op) {
+                // We have a setter! Make it.
+                fun = JS_NewFunction(cx, (JSNative)attrSpec.setter.op, 1, 0,
+                                     global, nullptr);
+                if (!fun)
+                  return false;
+                SET_JITINFO(fun, attrSpec.setter.info);
+                funobj = JS_GetFunctionObject(fun);
+                desc->setter = js::CastAsJSStrictPropertyOp(funobj);
+                desc->attrs |= JSPROP_SETTER;
+              } else {
+                desc->setter = nullptr;
+              }
+              desc->obj = wrapper;
+              return true;
             }
-            desc->obj = wrapper;
-            return true;
           }
         }
       }
     }
+
+    attributeSpecs = nativeProperties->unforgeableAttributeSpecs;
+    attr = nativeProperties->unforgeableAttributes;
+    attributeIds = nativeProperties->unforgeableAttributeIds;
   }
 
   if (nativeProperties->constants) {
@@ -607,21 +625,30 @@ XrayEnumerateProperties(JS::AutoIdVector& props,
     }
   }
 
-  if (nativeProperties->attributes) {
-    Prefable<JSPropertySpec>* attr;
-    for (attr = nativeProperties->attributes; attr->specs; ++attr) {
-      if (attr->enabled) {
-        // Set i to be the index into our full list of ids/specs that we're
-        // looking at now.
-        size_t i = attr->specs - nativeProperties->attributeSpecs;
-        for ( ; nativeProperties->attributeIds[i] != JSID_VOID; ++i) {
-          if ((nativeProperties->attributeSpecs[i].flags & JSPROP_ENUMERATE) &&
-              !props.append(nativeProperties->attributeIds[i])) {
-            return false;
+  JSPropertySpec* attributeSpecs = nativeProperties->attributeSpecs;
+  Prefable<JSPropertySpec>* attr = nativeProperties->attributes;
+  jsid* attributeIds = nativeProperties->attributeIds;
+  // Do the attribute stuff for attributes, then for unforgeable attributes
+  for (int attrIteration = 0; attrIteration < 2; ++attrIteration) {
+    if (attr) {
+      for (; attr->specs; ++attr) {
+        if (attr->enabled) {
+          // Set i to be the index into our full list of ids/specs that we're
+          // looking at now.
+          size_t i = attr->specs - attributeSpecs;
+          for ( ; attributeIds[i] != JSID_VOID; ++i) {
+            if ((attributeSpecs[i].flags & JSPROP_ENUMERATE) &&
+                !props.append(attributeIds[i])) {
+              return false;
+            }
           }
         }
       }
     }
+
+    attributeSpecs = nativeProperties->unforgeableAttributeSpecs;
+    attr = nativeProperties->unforgeableAttributes;
+    attributeIds = nativeProperties->unforgeableAttributeIds;
   }
 
   if (nativeProperties->constants) {
@@ -737,6 +764,28 @@ SetXrayExpandoChain(JSObject* obj, JSObject* chain)
   } else {
     js::SetReservedSlot(obj, DOM_XRAY_EXPANDO_SLOT, v);
   }
+}
+
+JSContext*
+MainThreadDictionaryBase::ParseJSON(const nsAString& aJSON,
+                                    mozilla::Maybe<JSAutoRequest>& aAr,
+                                    mozilla::Maybe<JSAutoCompartment>& aAc,
+                                    JS::Value& aVal)
+{
+  JSContext* cx = nsContentUtils::ThreadJSContextStack()->GetSafeJSContext();
+  NS_ENSURE_TRUE(cx, nullptr);
+  JSObject* global = JS_GetGlobalObject(cx);
+  aAr.construct(cx);
+  aAc.construct(cx, global);
+  if (aJSON.IsEmpty()) {
+    return cx;
+  }
+  if (!JS_ParseJSON(cx,
+                    static_cast<const jschar*>(PromiseFlatString(aJSON).get()),
+                    aJSON.Length(), &aVal)) {
+    return nullptr;
+  }
+  return cx;
 }
 
 } // namespace dom

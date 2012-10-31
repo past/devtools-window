@@ -183,7 +183,7 @@ public:
   //nsIViewObserver interface
 
   virtual void Paint(nsIView* aViewToPaint, const nsRegion& aDirtyRegion,
-                     PaintType aType, bool aWillSendDidPaint);
+                     uint32_t aFlags);
   virtual nsresult HandleEvent(nsIFrame*       aFrame,
                                nsGUIEvent*     aEvent,
                                bool            aDontRetargetEvents,
@@ -196,7 +196,6 @@ public:
                                                         nsEventStatus* aStatus);
   virtual bool ShouldIgnoreInvalidation();
   virtual void WillPaint(bool aWillSendDidPaint);
-  virtual void DidPaint();
   virtual void WillPaintWindow(bool aWillSendDidPaint);
   virtual void DidPaintWindow();
   virtual void ScheduleViewManagerFlush();
@@ -489,6 +488,7 @@ protected:
    */
   void AddUserSheet(nsISupports* aSheet);
   void AddAgentSheet(nsISupports* aSheet);
+  void AddAuthorSheet(nsISupports* aSheet);
   void RemoveSheet(nsStyleSet::sheetType aType, nsISupports* aSheet);
 
   // Hide a view if it is a popup
@@ -697,6 +697,7 @@ protected:
   virtual void WindowSizeMoveDone();
   virtual void SysColorChanged() { mPresContext->SysColorChanged(); }
   virtual void ThemeChanged() { mPresContext->ThemeChanged(); }
+  virtual void BackingScaleFactorChanged() { mPresContext->UIResolutionChanged(); }
 
 #ifdef DEBUG
   // The reflow root under which we're currently reflowing.  Null when

@@ -270,7 +270,8 @@ class nsGlobalWindow : public nsPIDOMWindow,
                        public PRCListStr,
                        public nsIDOMWindowPerformance,
                        public nsITouchEventReceiver,
-                       public nsIInlineEventHandlers
+                       public nsIInlineEventHandlers,
+                       public nsIWindowCrypto
 {
 public:
   friend class nsDOMMozURLProperty;
@@ -334,6 +335,9 @@ public:
 
   // nsIInlineEventHandlers
   NS_DECL_NSIINLINEEVENTHANDLERS
+
+  // nsIWindowCrypto
+  NS_DECL_NSIWINDOWCRYPTO
 
   // nsPIDOMWindow
   virtual NS_HIDDEN_(nsPIDOMWindow*) GetPrivateRoot();
@@ -825,8 +829,6 @@ protected:
 
   bool CanMoveResizeWindows();
 
-  bool     GetBlurSuppression();
-
   // If aDoFlush is true, we'll flush our own layout; otherwise we'll try to
   // just flush our parent and only flush ourselves if we think we need to.
   nsresult GetScrollXY(int32_t* aScrollX, int32_t* aScrollY,
@@ -931,6 +933,12 @@ protected:
 
   // Outer windows only.
   nsDOMWindowList* GetWindowList();
+
+  // Helper for getComputedStyle and getDefaultComputedStyle
+  nsresult GetComputedStyleHelper(nsIDOMElement* aElt,
+                                  const nsAString& aPseudoElt,
+                                  bool aDefaultStylesOnly,
+                                  nsIDOMCSSStyleDeclaration** aReturn);
 
   // When adding new member variables, be careful not to create cycles
   // through JavaScript.  If there is any chance that a member variable

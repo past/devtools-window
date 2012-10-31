@@ -49,6 +49,7 @@
 #include "ImageContainer.h"
 #include "mozilla/HashFunctions.h"
 #include "mozilla/Telemetry.h"
+#include "mozilla/Types.h"
 #include <ctime>
 
 using namespace mozilla;
@@ -282,15 +283,17 @@ struct GradientCacheKey : public PLDHashEntryHdr {
   const gfxSize mGradientSize;
   enum { SINGLE_CELL = 0x01 };
   const uint32_t mFlags;
+  const gfx::BackendType mBackendType;
 
   GradientCacheKey(nsStyleGradient* aGradient, const gfxSize& aGradientSize,
-                   uint32_t aFlags)
-    : mGradient(aGradient), mGradientSize(aGradientSize), mFlags(aFlags)
+                   uint32_t aFlags, gfx::BackendType aBackendType)
+    : mGradient(aGradient), mGradientSize(aGradientSize), mFlags(aFlags),
+      mBackendType(aBackendType)
   { }
 
   GradientCacheKey(const GradientCacheKey* aOther)
     : mGradient(aOther->mGradient), mGradientSize(aOther->mGradientSize),
-      mFlags(aOther->mFlags)
+      mFlags(aOther->mFlags), mBackendType(aOther->mBackendType)
   { }
 
   static PLDHashNumber
@@ -300,6 +303,7 @@ struct GradientCacheKey : public PLDHashEntryHdr {
     hash = AddToHash(hash, aKey->mGradientSize.width);
     hash = AddToHash(hash, aKey->mGradientSize.height);
     hash = AddToHash(hash, aKey->mFlags);
+    hash = AddToHash(hash, aKey->mBackendType);
     hash = aKey->mGradient->Hash(hash);
     return hash;
   }
@@ -308,6 +312,7 @@ struct GradientCacheKey : public PLDHashEntryHdr {
   {
     return (*aKey->mGradient == *mGradient) &&
            (aKey->mGradientSize == mGradientSize) &&
+           (aKey->mBackendType == mBackendType) &&
            (aKey->mFlags == mFlags);
   }
   static KeyTypePointer KeyToPointer(KeyType aKey)
@@ -376,7 +381,7 @@ class GradientCache MOZ_FINAL : public nsExpirationTracker<GradientCacheData,4>
     }
 
     GradientCacheData* Lookup(nsStyleGradient* aKey, const gfxSize& aGradientSize,
-                              uint32_t aFlags)
+                              uint32_t aFlags, gfx::BackendType aBackendType)
     {
       // We don't cache gradient that have Calc value, because the Calc object
       // can be deallocated by the time we want to compute the hash, and thus we
@@ -387,7 +392,7 @@ class GradientCache MOZ_FINAL : public nsExpirationTracker<GradientCacheData,4>
       }
 
       GradientCacheData* gradient =
-        mHashEntries.Get(GradientCacheKey(aKey, aGradientSize, aFlags));
+        mHashEntries.Get(GradientCacheKey(aKey, aGradientSize, aFlags, aBackendType));
 
       if (gradient) {
         MarkUsed(gradient);
@@ -1434,13 +1439,16 @@ nsCSSRendering::PaintBoxShadowInner(nsPresContext* aPresContext,
     // rendered shadow (even after blurring), so those pixels must be completely
     // transparent in the shadow, so drawing them changes nothing.
     gfxContext* renderContext = aRenderingContext.ThebesContext();
-    nsRefPtr<gfxContext> shadowContext;
     nsContextBoxBlur blurringArea;
-    shadowContext =
+    gfxContext* shadowContext =
       blurringArea.Init(shadowPaintRect, 0, blurRadius, twipsPerPixel,
                         renderContext, aDirtyRect, &skipGfxRect);
     if (!shadowContext)
       continue;
+
+    // shadowContext is owned by either blurringArea or aRenderingContext.
+    MOZ_ASSERT(shadowContext == renderContext ||
+               shadowContext == blurringArea.GetContext());
 
     // Set the shadow color; if not specified, use the foreground color
     nscolor shadowColor;
@@ -2029,8 +2037,18 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
   if (aOneCellArea.Contains(aFillArea)) {
     flags |= GradientCacheKey::SINGLE_CELL;
   }
+
+  gfx::BackendType backendType = gfx::BACKEND_NONE;
+  if (ctx->IsCairo()) {
+    backendType = gfx::BACKEND_CAIRO;
+  } else {
+    gfx::DrawTarget* dt = ctx->GetDrawTarget();
+    NS_ASSERTION(dt, "If we are not using Cairo, we should have a draw target.");
+    backendType = dt->GetType();
+  }
+
   GradientCacheData* pattern =
-    gGradientCache->Lookup(aGradient, oneCellArea.Size(), flags);
+    gGradientCache->Lookup(aGradient, oneCellArea.Size(), flags, backendType);
 
   if (pattern == nullptr) {
     // Compute "gradient line" start and end relative to oneCellArea
@@ -2279,7 +2297,7 @@ nsCSSRendering::PaintGradient(nsPresContext* aPresContext,
     }
     // Register the gradient newly computed in the cache.
     pattern = new GradientCacheData(gradientPattern, forceRepeatToCoverTiles,
-      GradientCacheKey(aGradient, oneCellArea.Size(), flags));
+      GradientCacheKey(aGradient, oneCellArea.Size(), flags, backendType));
     gradientRegistered = gGradientCache->RegisterEntry(pattern);
   }
 
@@ -2834,8 +2852,8 @@ DrawBorderImage(nsPresContext*       aPresContext,
   // Get the actual image.
 
   nsCOMPtr<imgIContainer> imgContainer;
-  req->GetImage(getter_AddRefs(imgContainer));
-  NS_ASSERTION(imgContainer, "no image to draw");
+  DebugOnly<nsresult> rv = req->GetImage(getter_AddRefs(imgContainer));
+  NS_ASSERTION(NS_SUCCEEDED(rv) && imgContainer, "no image to draw");
 
   nsIntSize imageSize;
   if (NS_FAILED(imgContainer->GetWidth(&imageSize.width))) {
@@ -4033,7 +4051,7 @@ nsImageRenderer::PrepareImage()
       nsCOMPtr<imgIContainer> img;
       if (!((mFlags & FLAG_SYNC_DECODE_IMAGES) &&
             (mType == eStyleImageType_Image) &&
-            (NS_SUCCEEDED(mImage->GetImageData()->GetImage(getter_AddRefs(img))) && img)))
+            (NS_SUCCEEDED(mImage->GetImageData()->GetImage(getter_AddRefs(img))))))
         return false;
     }
   }
@@ -4042,9 +4060,11 @@ nsImageRenderer::PrepareImage()
     case eStyleImageType_Image:
     {
       nsCOMPtr<imgIContainer> srcImage;
-      mImage->GetImageData()->GetImage(getter_AddRefs(srcImage));
-      NS_ABORT_IF_FALSE(srcImage, "If srcImage is null, mImage->IsComplete() "
-                                  "should have returned false");
+      DebugOnly<nsresult> rv =
+        mImage->GetImageData()->GetImage(getter_AddRefs(srcImage));
+      NS_ABORT_IF_FALSE(NS_SUCCEEDED(rv) && srcImage,
+                        "If GetImage() is failing, mImage->IsComplete() "
+                        "should have returned false");
 
       if (!mImage->GetCropRect()) {
         mImageContainer.swap(srcImage);
@@ -4465,8 +4485,7 @@ nsImageRenderer::IsRasterImage()
   if (mType != eStyleImageType_Image)
     return false;
   nsCOMPtr<imgIContainer> img;
-  nsresult rv = mImage->GetImageData()->GetImage(getter_AddRefs(img));
-  if (NS_FAILED(rv) || !img)
+  if (NS_FAILED(mImage->GetImageData()->GetImage(getter_AddRefs(img))))
     return false;
   return img->GetType() == imgIContainer::TYPE_RASTER;
 }
@@ -4478,7 +4497,7 @@ nsImageRenderer::GetContainer()
     return nullptr;
   nsCOMPtr<imgIContainer> img;
   nsresult rv = mImage->GetImageData()->GetImage(getter_AddRefs(img));
-  if (NS_FAILED(rv) || !img)
+  if (NS_FAILED(rv))
     return nullptr;
   nsRefPtr<ImageContainer> container;
   rv = img->GetImageContainer(getter_AddRefs(container));

@@ -63,6 +63,7 @@ namespace ion {
     _(Box)                                                                  \
     _(Unbox)                                                                \
     _(GuardObject)                                                          \
+    _(GuardString)                                                          \
     _(ToDouble)                                                             \
     _(ToInt32)                                                              \
     _(TruncateToInt32)                                                      \
@@ -129,6 +130,7 @@ namespace ion {
     _(GetArgument)                                                          \
     _(Floor)                                                                \
     _(Round)                                                                \
+    _(In)                                                                   \
     _(InstanceOf)                                                           \
     _(InterruptCheck)                                                       \
     _(FunctionBoundary)                                                     \

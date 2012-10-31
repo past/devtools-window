@@ -364,11 +364,12 @@ void nsViewManager::Refresh(nsView *aView, const nsIntRegion& aRegion,
       printf("--COMPOSITE-- %p\n", mPresShell);
 #endif
       if (IsRefreshDriverPaintingEnabled()) {
-        mPresShell->Paint(aView, damageRegion, nsIPresShell::PaintType_Composite,
-                          false);
+        mPresShell->Paint(aView, damageRegion, nsIPresShell::PAINT_COMPOSITE);
       } else {
-        mPresShell->Paint(aView, damageRegion, nsIPresShell::PaintType_Full,
-                          aWillSendDidPaint);
+        mPresShell->Paint(aView, damageRegion,
+                          nsIPresShell::PAINT_LAYERS |
+                          nsIPresShell::PAINT_COMPOSITE |
+                          (aWillSendDidPaint ? nsIPresShell::PAINT_WILL_SEND_DID_PAINT : 0));
       }
 #ifdef DEBUG_INVALIDATIONS
       printf("--ENDCOMPOSITE--\n");
@@ -433,7 +434,9 @@ void nsViewManager::ProcessPendingUpdatesForView(nsView* aView,
 #endif
         nsAutoScriptBlocker scriptBlocker;
         NS_ASSERTION(aView->HasWidget(), "Must have a widget!");
-        mPresShell->Paint(aView, nsRegion(), nsIPresShell::PaintType_NoComposite, true);
+        mPresShell->Paint(aView, nsRegion(),
+                          nsIPresShell::PAINT_LAYERS |
+                          nsIPresShell::PAINT_WILL_SEND_DID_PAINT);
 #ifdef DEBUG_INVALIDATIONS
         printf("---- PAINT END ----\n");
 #endif
@@ -711,10 +714,6 @@ void nsViewManager::DidPaintWindow()
   if (shell) {
     shell->DidPaintWindow();
   }
-
-  if (!IsRefreshDriverPaintingEnabled()) {
-    mRootViewManager->CallDidPaintOnObserver();
-  }
 }
 
 nsresult nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsIView* aView, nsEventStatus* aStatus)
@@ -751,7 +750,8 @@ nsresult nsViewManager::DispatchEvent(nsGUIEvent *aEvent, nsIView* aView, nsEven
        NS_IS_IME_RELATED_EVENT(aEvent) ||
        NS_IS_NON_RETARGETED_PLUGIN_EVENT(aEvent) ||
        aEvent->message == NS_PLUGIN_ACTIVATE ||
-       aEvent->message == NS_PLUGIN_FOCUS)) {
+       aEvent->message == NS_PLUGIN_FOCUS ||
+       aEvent->message == NS_PLUGIN_RESOLUTION_CHANGED)) {
     while (view && !view->GetFrame()) {
       view = view->GetParent();
     }
@@ -1210,7 +1210,6 @@ nsViewManager::ProcessPendingUpdates()
       CallWillPaintOnObservers(true);
     }
     ProcessPendingUpdatesForView(mRootView, true);
-    CallDidPaintOnObserver();
   } else {
     ProcessPendingUpdatesForView(mRootView, true);
   }
@@ -1251,19 +1250,6 @@ nsViewManager::CallWillPaintOnObservers(bool aWillSendDidPaint)
           shell->WillPaint(aWillSendDidPaint);
         }
       }
-    }
-  }
-}
-
-void
-nsViewManager::CallDidPaintOnObserver()
-{
-  NS_PRECONDITION(IsRootVM(), "Must be root VM for this to be called!");
-
-  if (mRootView && mRootView->IsEffectivelyVisible()) {
-    nsCOMPtr<nsIPresShell> shell = GetPresShell();
-    if (shell) {
-      shell->DidPaint();
     }
   }
 }

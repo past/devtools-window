@@ -124,6 +124,8 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
             return false;
 
 #ifdef JS_ION
+        AutoAssertNoGC nogc;
+
         // If this script hasn't been compiled yet, make sure it will never
         // be compiled. IonMonkey does not guarantee |f.arguments| can be
         // fully recovered, so we try to mitigate observing this behavior by
@@ -167,10 +169,20 @@ fun_getProperty(JSContext *cx, HandleObject obj_, HandleId id, MutableHandleValu
         }
 
         vp.set(iter.calleev());
+        if (!cx->compartment->wrap(cx, vp.address()))
+            return false;
 
-        /* Censor the caller if it is from another compartment. */
+        /*
+         * Censor the caller if we can't PUNCTURE it.
+         *
+         * NB - This will get much much nicer with bug 800915
+         */
         JSObject &caller = vp.toObject();
-        if (caller.compartment() != cx->compartment) {
+        JSErrorReporter reporter = JS_SetErrorReporter(cx, NULL);
+        bool punctureThrew = !UnwrapObjectChecked(cx, &caller);
+        JS_SetErrorReporter(cx, reporter);
+        if (punctureThrew) {
+            JS_ClearPendingException(cx);
             vp.setNull();
         } else if (caller.isFunction()) {
             JSFunction *callerFun = caller.toFunction();
@@ -421,7 +433,8 @@ js::XDRInterpretedFunction(XDRState<mode> *xdr, HandleObject enclosingScope, Han
         if (!JSFunction::setTypeForScriptedFunction(cx, fun))
             return false;
         JS_ASSERT(fun->nargs == fun->script()->bindings.numArgs());
-        js_CallNewScriptHook(cx, fun->script(), fun);
+        RootedScript script(cx, fun->script());
+        js_CallNewScriptHook(cx, script, fun);
         objp.set(fun);
     }
 
@@ -437,6 +450,8 @@ js::XDRInterpretedFunction(XDRState<XDR_DECODE> *, HandleObject, HandleScript, M
 JSObject *
 js::CloneInterpretedFunction(JSContext *cx, HandleObject enclosingScope, HandleFunction srcFun)
 {
+    AssertCanGC();
+
     /* NB: Keep this in sync with XDRInterpretedFunction. */
 
     RootedObject parent(cx, NULL);
@@ -449,7 +464,8 @@ js::CloneInterpretedFunction(JSContext *cx, HandleObject enclosingScope, HandleF
     if (!JSObject::clearType(cx, clone))
         return NULL;
 
-    RawScript clonedScript = CloneScript(cx, enclosingScope, clone, srcFun->script());
+    RootedScript srcScript(cx, srcFun->script());
+    RawScript clonedScript = CloneScript(cx, enclosingScope, clone, srcScript);
     if (!clonedScript)
         return NULL;
 
@@ -461,7 +477,8 @@ js::CloneInterpretedFunction(JSContext *cx, HandleObject enclosingScope, HandleF
     if (!JSFunction::setTypeForScriptedFunction(cx, clone))
         return NULL;
 
-    js_CallNewScriptHook(cx, clone->script(), clone);
+    RootedScript cloneScript(cx, clone->script());
+    js_CallNewScriptHook(cx, cloneScript, clone);
     return clone;
 }
 
@@ -528,11 +545,6 @@ fun_trace(JSTracer *trc, RawObject obj)
     obj->toFunction()->trace(trc);
 }
 
-/*
- * Reserve two slots in all function objects for XPConnect.  Note that this
- * does not bloat every instance, only those on which reserved slots are set,
- * and those on which ad-hoc properties are defined.
- */
 JS_FRIEND_DATA(Class) js::FunctionClass = {
     js_Function_str,
     JSCLASS_NEW_RESOLVE | JSCLASS_IMPLEMENTS_BARRIERS |
@@ -608,8 +620,12 @@ JSString *
 js::FunctionToString(JSContext *cx, HandleFunction fun, bool bodyOnly, bool lambdaParen)
 {
     StringBuffer out(cx);
+    RootedScript script(cx);
 
-    if (fun->isInterpreted() && fun->script()->isGeneratorExp) {
+    if (fun->isInterpreted())
+        script = fun->script();
+
+    if (fun->isInterpreted() && script->isGeneratorExp) {
         if ((!bodyOnly && !out.append("function genexp() {")) ||
             !out.append("\n    [generator expression]\n") ||
             (!bodyOnly && !out.append("}"))) {
@@ -631,14 +647,13 @@ js::FunctionToString(JSContext *cx, HandleFunction fun, bool bodyOnly, bool lamb
         }
     }
     bool haveSource = fun->isInterpreted() && !fun->isSelfHostedBuiltin();
-    if (haveSource && !fun->script()->scriptSource()->hasSourceData() &&
-        !fun->script()->loadSource(cx, &haveSource))
+    if (haveSource && !script->scriptSource()->hasSourceData() &&
+        !JSScript::loadSource(cx, script, &haveSource))
     {
         return NULL;
     }
     if (haveSource) {
-        RootedScript script(cx, fun->script());
-        RootedString srcStr(cx, fun->script()->sourceData(cx));
+        RootedString srcStr(cx, script->sourceData(cx));
         if (!srcStr)
             return NULL;
         Rooted<JSStableString *> src(cx, srcStr->ensureStable(cx));
@@ -1098,7 +1113,9 @@ CallOrConstructBoundFunction(JSContext *cx, unsigned argc, Value *vp)
 static JSBool
 fun_isGenerator(JSContext *cx, unsigned argc, Value *vp)
 {
-    JSFunction *fun;
+    AutoAssertNoGC nogc;
+
+    RawFunction fun;
     if (!IsFunctionObject(vp[1], &fun)) {
         JS_SET_RVAL(cx, vp, BooleanValue(false));
         return true;
@@ -1462,6 +1479,7 @@ JSFunction * JS_FASTCALL
 js_CloneFunctionObject(JSContext *cx, HandleFunction fun, HandleObject parent,
                        HandleObject proto, gc::AllocKind kind)
 {
+    AssertCanGC();
     JS_ASSERT(parent);
     JS_ASSERT(proto);
     JS_ASSERT(!fun->isBoundFunction());
@@ -1475,7 +1493,7 @@ js_CloneFunctionObject(JSContext *cx, HandleFunction fun, HandleObject parent,
     clone->nargs = fun->nargs;
     clone->flags = fun->flags & ~JSFUN_EXTENDED;
     if (fun->isInterpreted()) {
-        clone->initScript(fun->script());
+        clone->initScript(fun->script().unsafeGet());
         clone->initEnvironment(parent);
     } else {
         clone->initNative(fun->native(), fun->jitInfo());
@@ -1527,8 +1545,9 @@ js_CloneFunctionObject(JSContext *cx, HandleFunction fun, HandleObject parent,
 
             GlobalObject *global = script->compileAndGo ? &script->global() : NULL;
 
-            js_CallNewScriptHook(cx, clone->script(), clone);
-            Debugger::onNewScript(cx, clone->script(), global);
+            script = clone->script();
+            js_CallNewScriptHook(cx, script, clone);
+            Debugger::onNewScript(cx, script, global);
         }
     }
     return clone;

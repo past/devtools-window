@@ -93,6 +93,10 @@ class WebGLActiveInfo;
 class WebGLShaderPrecisionFormat;
 class WebGLExtensionBase;
 
+namespace dom {
+struct WebGLContextAttributes;
+}
+
 enum FakeBlackStatus { DoNotNeedFakeBlack, DoNeedFakeBlack, DontKnowIfNeedFakeBlack };
 
 struct VertexAttrib0Status {
@@ -469,7 +473,6 @@ class WebGLContext :
     public nsIDOMWebGLRenderingContext,
     public nsICanvasRenderingContextInternal,
     public nsSupportsWeakReference,
-    public nsITimerCallback,
     public WebGLRectangleObject,
     public nsWrapperCache
 {
@@ -487,7 +490,9 @@ class WebGLContext :
         UNPACK_PREMULTIPLY_ALPHA_WEBGL = 0x9241,
         CONTEXT_LOST_WEBGL = 0x9242,
         UNPACK_COLORSPACE_CONVERSION_WEBGL = 0x9243,
-        BROWSER_DEFAULT_WEBGL = 0x9244
+        BROWSER_DEFAULT_WEBGL = 0x9244,
+        UNMASKED_VENDOR_WEBGL = 0x9245,
+        UNMASKED_RENDERER_WEBGL = 0x9246
     };
 
 public:
@@ -503,8 +508,6 @@ public:
                                  bool *triedToWrap);
 
     NS_DECL_NSIDOMWEBGLRENDERINGCONTEXT
-
-    NS_DECL_NSITIMERCALLBACK
 
     // nsICanvasRenderingContextInternal
     NS_IMETHOD SetDimensions(int32_t width, int32_t height);
@@ -601,6 +604,12 @@ public:
         return mMinCapability;
     }
 
+    void RobustnessTimerCallback(nsITimer* timer);
+
+    static void RobustnessTimerCallbackStatic(nsITimer* timer, void *thisPointer) {
+        static_cast<WebGLContext*>(thisPointer)->RobustnessTimerCallback(timer);
+    }
+
     void SetupContextLossTimer() {
         // If the timer was already running, don't restart it here. Instead,
         // wait until the previous call is done, then fire it one more time.
@@ -610,10 +619,11 @@ public:
             mDrawSinceContextLossTimerSet = true;
             return;
         }
-        
-        mContextRestorer->InitWithCallback(static_cast<nsITimerCallback*>(this),
-                                           PR_MillisecondsToInterval(1000),
-                                           nsITimer::TYPE_ONE_SHOT);
+
+        mContextRestorer->InitWithFuncCallback(RobustnessTimerCallbackStatic,
+                                               static_cast<void*>(this),
+                                               1000,
+                                               nsITimer::TYPE_ONE_SHOT);
         mContextLossTimerRunning = true;
         mDrawSinceContextLossTimerSet = false;
     }
@@ -640,10 +650,10 @@ public:
         return mHeight;
     }
         
-    JSObject *GetContextAttributes(ErrorResult &rv);
+    void GetContextAttributes(dom::WebGLContextAttributes& retval);
     bool IsContextLost() const { return !IsContextStable(); }
-    void GetSupportedExtensions(dom::Nullable< nsTArray<nsString> > &retval);
-    JSObject* GetExtension(JSContext* ctx, const nsAString& aName, ErrorResult& rv);
+    void GetSupportedExtensions(JSContext *cx, dom::Nullable< nsTArray<nsString> > &retval);
+    JSObject* GetExtension(JSContext* cx, const nsAString& aName, ErrorResult& rv);
     void ActiveTexture(WebGLenum texture);
     void AttachShader(WebGLProgram* program, WebGLShader* shader);
     void BindAttribLocation(WebGLProgram* program, WebGLuint location,
@@ -1041,7 +1051,15 @@ public:
                                const float* data);
 
     void UseProgram(WebGLProgram *prog);
+    bool ValidateAttribArraySetter(const char* name, uint32_t cnt, uint32_t arrayLength);
+    bool ValidateUniformArraySetter(const char* name, uint32_t expectedElemSize, WebGLUniformLocation *location_object,
+                                    GLint& location, uint32_t& numElementsToUpload, uint32_t arrayLength);
+    bool ValidateUniformMatrixArraySetter(const char* name, int dim, WebGLUniformLocation *location_object,
+                                          GLint& location, uint32_t& numElementsToUpload, uint32_t arrayLength,
+                                          WebGLboolean aTranspose);
+    bool ValidateUniformSetter(const char* name, WebGLUniformLocation *location_object, GLint& location);
     void ValidateProgram(WebGLProgram *prog);
+    bool ValidateUniformLocation(const char* info, WebGLUniformLocation *location_object);
 
     void VertexAttrib1f(WebGLuint index, WebGLfloat x0);
     void VertexAttrib2f(WebGLuint index, WebGLfloat x0, WebGLfloat x1);
@@ -1179,14 +1197,15 @@ protected:
 
     // extensions
     enum WebGLExtensionID {
-        OES_texture_float,
-        OES_standard_derivatives,
         EXT_texture_filter_anisotropic,
-        WEBGL_lose_context,
-        WEBGL_compressed_texture_s3tc,
+        OES_standard_derivatives,
+        OES_texture_float,
         WEBGL_compressed_texture_atc,
         WEBGL_compressed_texture_pvrtc,
+        WEBGL_compressed_texture_s3tc,
+        WEBGL_debug_renderer_info,
         WEBGL_depth_texture,
+        WEBGL_lose_context,
         WebGLExtensionID_unknown_extension
     };
     nsTArray<nsRefPtr<WebGLExtensionBase> > mExtensions;
@@ -1194,8 +1213,8 @@ protected:
     // returns true if the extension has been enabled by calling getExtension.
     bool IsExtensionEnabled(WebGLExtensionID ext) const;
 
-    // returns true if the extension is supported (as returned by getSupportedExtensions)
-    bool IsExtensionSupported(WebGLExtensionID ext) const;
+    // returns true if the extension is supported for this JSContext (this decides what getSupportedExtensions exposes)
+    bool IsExtensionSupported(JSContext *cx, WebGLExtensionID ext) const;
 
     nsTArray<WebGLenum> mCompressedTextureFormats;
 
@@ -1506,6 +1525,11 @@ struct WebGLVertexAttribData {
     GLuint actualStride() const {
         if (stride) return stride;
         return size * componentSize();
+    }
+
+    // for cycle collection
+    WebGLBuffer* get() {
+        return buf.get();
     }
 };
 
@@ -2628,6 +2652,8 @@ class WebGLFramebufferAttachment
     WebGLint mTextureLevel;
     WebGLenum mTextureCubeMapFace;
 
+    friend class WebGLFramebuffer;
+
 public:
     WebGLFramebufferAttachment(WebGLenum aAttachmentPoint)
         : mAttachmentPoint(aAttachmentPoint)
@@ -3090,7 +3116,9 @@ public:
 
     virtual JSObject* WrapObject(JSContext *cx, JSObject *scope);
 
-    NS_DECL_ISUPPORTS
+    NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+    NS_DECL_CYCLE_COLLECTION_CLASS(WebGLUniformLocation)
+
 protected:
     // nsRefPtr, not WebGLRefPtr, so that we don't prevent the program from being explicitly deleted.
     // we just want to avoid having a dangling pointer.
