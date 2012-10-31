@@ -65,8 +65,6 @@
              command="Inspector:Tilt"/>
            <toolbarbutton id="inspector-style-button"
              class="devtools-toolbarbutton"
-             label="&inspectStyleButton.label;"
-             accesskey="&inspectStyleButton.accesskey;"
              tabindex="0"
              command="Inspector:Sidebar"/>
          </hbox>
