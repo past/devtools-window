@@ -54,8 +54,23 @@ function toolRegistered(event, toolId)
   let panel = doc.getElementById("toolbox-panel-" + toolId);
   ok(panel, "new tool's panel exists in toolbox UI");
 
+  let wins = getAllBrowserWindows();
+  for each (let win in wins) {
+    let command = win.document.getElementById("Tools:" + toolId);
+    ok(command, "command for new tool added to every browser window");
+  }
+
   // then unregister it
   testUnregister();
+}
+
+function getAllBrowserWindows() {
+  let wins = [];
+  let enumerator = Services.wm.getEnumerator("navigator:browser");
+  while (enumerator.hasMoreElements()) {
+    wins.push(enumerator.getNext());
+  }
+  return wins;
 }
 
 function testUnregister()

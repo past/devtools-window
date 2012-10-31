@@ -23,10 +23,7 @@ function DevTools() {
   this._tools = new Map();
   this._toolboxes = new Map();
 
-  // We need access to the browser window in order to add menu items. Because
-  // this object is instantiated inside this jsm we need to use
-  // getMostRecentWindow in order to do so.
-  this._win = Services.wm.getMostRecentWindow("navigator:browser");
+  this._newWindowObserver = this._newWindowObserver.bind(this);
 
   Services.obs.addObserver(this._newWindowObserver,
     "xul-window-registered", false);
@@ -109,7 +106,7 @@ DevTools.prototype = {
       "devtools." + toolId + ".enabled";
     this._tools.set(toolId, toolDefinition);
 
-    this._addToolToMenu(toolDefinition);
+    this._addToolToWindows(toolDefinition);
 
     this.emit("tool-registered", toolId);
   },
@@ -292,14 +289,23 @@ DevTools.prototype = {
   },
 
   /**
+   * Add the menuitem for a tool to all open browser windows.
+   */
+  _addToolToWindows: function DT_addToolToWindows(toolDefinition) {
+    let enumerator = Services.wm.getEnumerator("navigator:browser");
+    while (enumerator.hasMoreElements()) {
+      let win = enumerator.getNext();
+      this._addToolToMenu(toolDefinition, win.document);
+    }
+  },
+
+  /**
    * Add all tools to the developer tools menu of a window.
-   * Used when a new Firefox window is opened.
    *
-   * @param {XULDocument} [chromeDoc]
+   * @param {XULDocument} doc
    *        The document to which the tool items are to be added.
    */
-  _addAllToolsToMenu: function DT_addAllToolsToMenu(chromeDoc) {
-    let doc = chromeDoc || this._win.document;
+  _addAllToolsToMenu: function DT_addAllToolsToMenu(doc) {
     let fragCommands = doc.createDocumentFragment();
     let fragKeys = doc.createDocumentFragment();
     let fragBroadcasters = doc.createDocumentFragment();
@@ -308,7 +314,7 @@ DevTools.prototype = {
 
     for (let [key, toolDefinition] of this._tools) {
       let [cmd, key, bc, item] =
-        this._addToolToMenu(toolDefinition, chromeDoc, true);
+        this._addToolToMenu(toolDefinition, doc, true);
 
       fragCommands.appendChild(cmd);
       if (key) {
@@ -345,14 +351,13 @@ DevTools.prototype = {
    *
    * @param {string} toolDefinition
    *        Tool definition of the tool to add a menu entry.
-   * @param {XULDocument} [chromeDoc]
+   * @param {XULDocument} doc
    *        The document to which the tool menu item is to be added.
    * @param {Boolean} [noAppend]
    *        Return an array of elements instead of appending them to the
    *        document. Default is false.
    */
-  _addToolToMenu: function DT_addToolToMenu(toolDefinition, chromeDoc, noAppend) {
-    let doc = chromeDoc || this._win.document;
+  _addToolToMenu: function DT_addToolToMenu(toolDefinition, doc, noAppend) {
     let id = toolDefinition.id;
 
     // Prevent multiple entries for the same tool.
@@ -430,10 +435,9 @@ DevTools.prototype = {
    * Observer for the event fired when a new Firefox window is opened
    */
   _newWindowObserver: function DT_newWindowObserver(subject, topic, data) {
-    let win = aSubject.QueryInterface(Ci.nsIInterfaceRequestor)
-                      .getInterface(Ci.nsIDOMWindow);
-
-    let winLoad = function winLoad() {
+    let win = subject.QueryInterface(Ci.nsIInterfaceRequestor)
+                     .getInterface(Ci.nsIDOMWindow);
+    let winLoad = function() {
       win.removeEventListener("load", winLoad, false);
       this._addAllToolsToMenu(win.document);
     }.bind(this);
