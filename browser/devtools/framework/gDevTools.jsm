@@ -198,10 +198,7 @@ DevTools.prototype = {
     if (tb) {
       tb.selectTool(toolId);
     } else {
-      let target = {
-        type: gDevTools.TargetType.TAB,
-        value: tab
-      }
+      let target = TargetFactory.forTab(tab);
       tb = this.openToolbox(target, null, toolId);
     }
     return tb;

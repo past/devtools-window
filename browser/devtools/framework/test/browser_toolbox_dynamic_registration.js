@@ -23,7 +23,7 @@ function test()
 
 function openToolbox()
 {
-  let target = Target.newFromTab(gBrowser.selectedTab);
+  let target = TargetFactory.forTab(gBrowser.selectedTab);
   toolbox = gDevTools.openToolbox(target);
 
   toolbox.once("ready", testRegister);
