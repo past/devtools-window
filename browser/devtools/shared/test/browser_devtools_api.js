@@ -21,7 +21,7 @@ function runTests(aTab) {
     url: "chrome://browser/content/devtools/csshtmltree.xul",
     label: "someLabel",
     build: function(aFrame) {
-      let target = Target.newFromTab(aTab);
+      let target = TargetFactory.forTab(aTab);
       return new DevToolInstance(target, this.id);
     },
   };

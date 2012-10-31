@@ -197,7 +197,7 @@ DevTools.prototype = {
     if (tb) {
       tb.selectTool(toolId);
     } else {
-      let target = Target.newFromTab(tab);
+      let target = TargetFactory.forTab(tab);
       tb = this.openToolbox(target, null, toolId);
     }
     return tb;
