@@ -58,6 +58,10 @@ var gTestIterator =
 
     this.ruleIdx++;
     if (this.ruleIdx == this.ruleElms.length) {
+      // When test is finished then name is empty and no explict-name.
+      testName(this.elm, null, "No name test. ");
+      testAbsentAttrs(this.elm, {"explicit-name" : "true"});
+
       this.markupIdx++;
       if (this.markupIdx == this.markupElms.length) {
         SimpleTest.finish();
@@ -188,6 +192,11 @@ function testNameForAttrRule(aElm, aRule)
 
   var msg = "Attribute '" + attr + "' test. ";
   testName(aElm, name, msg);
+  if (aRule.getAttribute("explict-name") != "false")
+    testAttrs(aElm, {"explicit-name" : "true"}, true);
+  else
+    testAbsentAttrs(aElm, {"explicit-name" : "true"});
+
   aElm.removeAttribute(attr);
 
   gTestIterator.iterateNext();
@@ -235,6 +244,7 @@ function testNameForElmRule(aElm, aRule)
 
   var msg = "Element '" + tagname + "' test.";
   testName(aElm, labelElm.getAttribute("a11yname"), msg);
+  testAttrs(aElm, {"explicit-name" : "true"}, true);
 
   var parentNode = labelElm.parentNode;
 
@@ -252,6 +262,7 @@ function testNameForSubtreeRule(aElm, aRule)
 {
   var msg = "From subtree test.";
   testName(aElm, aElm.getAttribute("a11yname"), msg);
+  testAbsentAttrs(aElm, {"explicit-name" : "true"});
 
   if (gDumpToConsole) {
     dump("\nProcessed from subtree rule. Wait for reorder event on " +

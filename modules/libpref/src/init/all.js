@@ -195,8 +195,8 @@ pref("media.video-queue.default-size", 10);
 // Whether to run in native HiDPI mode on machines with "Retina"/HiDPI display;
 //   <= 0 : hidpi mode disabled, display will just use pixel-based upscaling
 //   == 1 : hidpi supported if all screens share the same backingScaleFactor
-//   >= 2 : hidpi supported even with mixed backingScaleFactors (currently broken)
-pref("gfx.hidpi.enabled", 1);
+//   >= 2 : hidpi supported even with mixed backingScaleFactors (somewhat broken)
+pref("gfx.hidpi.enabled", 2);
 #endif
 
 // 0 = Off, 1 = Full, 2 = Tagged Images Only. 
@@ -358,6 +358,7 @@ pref("toolkit.telemetry.infoURL", "http://www.mozilla.com/legal/privacy/firefox.
 pref("toolkit.telemetry.debugSlowSql", false);
 
 // Identity module
+pref("toolkit.identity.enabled", false);
 pref("toolkit.identity.debug", false);
 
 // Disable remote debugging protocol logging
@@ -681,7 +682,6 @@ pref("dom.min_background_timeout_value", 1000);
 
 // Use the new DOM bindings (only affects any scopes created after the pref is
 // changed)
-pref("dom.new_bindings", true);
 pref("dom.experimental_bindings", true);
 
 // Don't use new input types
@@ -709,7 +709,6 @@ pref("javascript.options.strict",           false);
 #ifdef DEBUG
 pref("javascript.options.strict.debug",     true);
 #endif
-pref("javascript.options.relimit",          true);
 pref("javascript.options.methodjit.content", true);
 pref("javascript.options.methodjit.chrome",  true);
 pref("javascript.options.ion.content",      true);
@@ -921,7 +920,7 @@ pref("network.http.spdy.chunk-size", 4096);
 pref("network.http.spdy.timeout", 180);
 pref("network.http.spdy.coalesce-hostnames", true);
 pref("network.http.spdy.use-alternate-protocol", true);
-pref("network.http.spdy.ping-threshold", 44);
+pref("network.http.spdy.ping-threshold", 58);
 pref("network.http.spdy.ping-timeout", 8);
 pref("network.http.spdy.send-buffer-size", 131072);
 
@@ -1259,7 +1258,7 @@ pref("intl.accept_languages",               "chrome://global/locale/intl.propert
 pref("intl.menuitems.alwaysappendaccesskeys","chrome://global/locale/intl.properties");
 pref("intl.menuitems.insertseparatorbeforeaccesskeys","chrome://global/locale/intl.properties");
 pref("intl.charsetmenu.browser.static",     "chrome://global/locale/intl.properties");
-pref("intl.charsetmenu.browser.more1",      "ISO-8859-1, ISO-8859-15, IBM850, x-mac-roman, windows-1252, ISO-8859-14, ISO-8859-7, x-mac-greek, windows-1253, x-mac-icelandic, ISO-8859-10, ISO-8859-3");
+pref("intl.charsetmenu.browser.more1",      "ISO-8859-1, ISO-8859-15, IBM850, macintosh, windows-1252, ISO-8859-14, ISO-8859-7, x-mac-greek, windows-1253, x-mac-icelandic, ISO-8859-10, ISO-8859-3");
 pref("intl.charsetmenu.browser.more2",      "ISO-8859-4, ISO-8859-13, windows-1257, IBM852, ISO-8859-2, x-mac-ce, windows-1250, x-mac-croatian, IBM855, ISO-8859-5, ISO-IR-111, KOI8-R, x-mac-cyrillic, windows-1251, IBM866, KOI8-U, x-mac-ukrainian, ISO-8859-16, x-mac-romanian");
 pref("intl.charsetmenu.browser.more3",      "GB2312, gbk, gb18030, HZ-GB-2312, ISO-2022-CN, Big5, Big5-HKSCS, x-euc-tw, EUC-JP, ISO-2022-JP, Shift_JIS, EUC-KR, x-windows-949, x-johab, ISO-2022-KR");
 pref("intl.charsetmenu.browser.more4",      "armscii-8, TIS-620, ISO-8859-11, windows-874, IBM857, ISO-8859-9, x-mac-turkish, windows-1254, x-viet-tcvn5712, VISCII, x-viet-vps, windows-1258, x-mac-devanagari, x-mac-gujarati, x-mac-gurmukhi");
@@ -1611,6 +1610,12 @@ pref("layout.css.supports-rule.enabled", true);
 // Is support for CSS Flexbox enabled?
 pref("layout.css.flexbox.enabled", false);
 
+// Are sets of prefixed properties supported?
+pref("layout.css.prefixes.border-image", true);
+pref("layout.css.prefixes.transforms", true);
+pref("layout.css.prefixes.transitions", true);
+pref("layout.css.prefixes.animations", true);
+
 // pref for which side vertical scrollbars should be on
 // 0 = end-side in UI direction
 // 1 = end-side in document/content direction
@@ -1816,6 +1821,19 @@ pref("font.size.inflation.lineThreshold", 400);
  * large enough. This means that when s=0, i is always equal to m.
  */
 pref("font.size.inflation.mappingIntercept", 1);
+
+
+/*
+ * This controls the percentage that fonts will be inflated, if font
+ * size inflation is enabled. Essentially, if we have a specified font
+ * size, s, and an inflated font size, i, this specifies that the ratio
+ * i/s * 100 should never exceed the value of this preference.
+ *
+ * In order for this preference to have any effect, its value must be
+ * greater than 100, since font inflation can never decrease the ratio
+ * i/s.
+ */
+pref("font.size.inflation.maxRatio", 0);
 
 /*
  * When enabled, the touch.radius and mouse.radius prefs allow events to be dispatched
@@ -3559,7 +3577,7 @@ pref("image.http.accept", "image/png,image/*;q=0.8,*/*;q=0.5");
 #ifdef XP_MACOSX
 pref("image.high_quality_downscaling.enabled", false);
 #else
-pref("image.high_quality_downscaling.enabled", false);
+pref("image.high_quality_downscaling.enabled", true);
 #endif
 
 // The minimum percent downscaling we'll use high-quality downscaling on,
@@ -3739,8 +3757,9 @@ pref("dom.mozSettings.enabled", false);
 pref("dom.mozPermissionSettings.enabled", false);
 
 // W3C touch events
+// 0 - disabled, 1 - enabled, 2 - autodetect (win)
 #ifdef XP_WIN
-pref("dom.w3c_touch_events.enabled", true);
+pref("dom.w3c_touch_events.enabled", 2);
 #endif
 
 // enable JS dump() function.
@@ -3785,8 +3804,6 @@ pref("social.enabled", false);
 // observers (bug 780507).
 pref("dom.idle-observers-api.fuzz_time.disabled", true);
 
-pref("toolkit.identity.debug", false);
-
 // Setting that to true grant elevated privileges to apps that ask
 // for them in their manifest.
 pref("dom.mozApps.dev_mode", false);
@@ -3799,3 +3816,7 @@ pref("dom.mozApps.maxLocalId", 1000);
 // they are handled separately. This pref is only read once at startup:
 // a restart is required to enable a new value.
 pref("network.activity.blipIntervalMilliseconds", 0);
+
+// When we're asked to take a screenshot, don't wait more than 2000ms for the
+// event loop to become idle before actually taking the screenshot.
+pref("dom.browserElement.maxScreenshotDelayMS", 2000);

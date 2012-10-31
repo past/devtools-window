@@ -99,7 +99,7 @@ public class Tab {
         mPluginLayers = new HashMap<Object, Layer>();
         mState = GeckoApp.shouldShowProgress(url) ? STATE_SUCCESS : STATE_LOADING;
         mContentResolver = Tabs.getInstance().getContentResolver();
-        mContentObserver = new ContentObserver(GeckoAppShell.getHandler()) {
+        mContentObserver = new ContentObserver(null) {
             public void onChange(boolean selfChange) {
                 updateBookmark();
             }
@@ -109,6 +109,7 @@ public class Tab {
 
     public void onDestroy() {
         BrowserDB.unregisterContentObserver(mContentResolver, mContentObserver);
+        Tabs.getInstance().notifyListeners(this, Tabs.TabEvents.CLOSED);
     }
 
     public int getId() {
@@ -158,18 +159,15 @@ public class Tab {
         if (mThumbnailBuffer != null && mThumbnailBuffer.capacity() == capacity)
             return mThumbnailBuffer;
         freeBuffer();
+        mThumbnailBitmap = null;
         mThumbnailBuffer = DirectBufferAllocator.allocate(capacity);
         return mThumbnailBuffer;
     }
 
-    public Bitmap getThumbnailBitmap() {
+    synchronized public Bitmap getThumbnailBitmap() {
         if (mThumbnailBitmap != null)
             return mThumbnailBitmap;
         return mThumbnailBitmap = Bitmap.createBitmap(Tabs.getThumbnailWidth(), Tabs.getThumbnailHeight(), Bitmap.Config.RGB_565);
-    }
-
-    public void finalize() {
-        freeBuffer();
     }
 
     synchronized void freeBuffer() {
@@ -178,7 +176,6 @@ public class Tab {
     }
 
     public void updateThumbnail(final Bitmap b) {
-        final Tab tab = this;
         GeckoAppShell.getHandler().post(new Runnable() {
             public void run() {
                 if (b != null) {
@@ -193,11 +190,8 @@ public class Tab {
                 } else {
                     mThumbnail = null;
                 }
-                GeckoApp.mAppContext.mMainHandler.post(new Runnable() {
-                    public void run() {
-                        Tabs.getInstance().notifyListeners(tab, Tabs.TabEvents.THUMBNAIL);
-                    }
-                });
+
+                Tabs.getInstance().notifyListeners(Tab.this, Tabs.TabEvents.THUMBNAIL);
             }
         });
     }
@@ -240,7 +234,6 @@ public class Tab {
             mUrl = url;
             Log.d(LOGTAG, "Updated URL for tab with id: " + mId);
             updateBookmark();
-            updateHistory(mUrl, mTitle);
         }
     }
 
@@ -269,13 +262,7 @@ public class Tab {
 
         Log.d(LOGTAG, "Updated title for tab with id: " + mId);
         updateHistory(mUrl, mTitle);
-        final Tab tab = this;
-
-        GeckoAppShell.getMainHandler().post(new Runnable() {
-            public void run() {
-                Tabs.getInstance().notifyListeners(tab, Tabs.TabEvents.TITLE);
-            }
-        });
+        Tabs.getInstance().notifyListeners(this, Tabs.TabEvents.TITLE);
     }
 
     protected void addHistory(final String uri) {
@@ -299,7 +286,7 @@ public class Tab {
 
         if (mState != Tab.STATE_LOADING)
             mEnteringReaderMode = false;
-        }
+    }
 
     public int getState() {
         return mState;
@@ -364,33 +351,24 @@ public class Tab {
 
     public void setReaderEnabled(boolean readerEnabled) {
         mReaderEnabled = readerEnabled;
-        GeckoAppShell.getMainHandler().post(new Runnable() {
-            public void run() {
-                Tabs.getInstance().notifyListeners(Tab.this, Tabs.TabEvents.MENU_UPDATED);
-            }
-        });
+        Tabs.getInstance().notifyListeners(this, Tabs.TabEvents.MENU_UPDATED);
     }
 
     private void updateBookmark() {
-        final String url = getURL();
-        if (url == null)
-            return;
+        GeckoAppShell.getHandler().post(new Runnable() {
+            public void run() {
+                final String url = getURL();
+                if (url == null)
+                    return;
 
-        (new GeckoAsyncTask<Void, Void, Void>(GeckoApp.mAppContext, GeckoAppShell.getHandler()) {
-            @Override
-            public Void doInBackground(Void... params) {
                 if (url.equals(getURL())) {
                     mBookmark = BrowserDB.isBookmark(mContentResolver, url);
                     mReadingListItem = BrowserDB.isReadingListItem(mContentResolver, url);
                 }
-                return null;
-            }
 
-            @Override
-            public void onPostExecute(Void result) {
                 Tabs.getInstance().notifyListeners(Tab.this, Tabs.TabEvents.MENU_UPDATED);
             }
-        }).execute();
+        });
     }
 
     public void addBookmark() {
@@ -423,28 +401,6 @@ public class Tab {
 
         GeckoEvent e = GeckoEvent.createBroadcastEvent("Reader:Add", String.valueOf(getId()));
         GeckoAppShell.sendEventToGecko(e);
-    }
-
-    public void removeFromReadingList() {
-        if (!mReaderEnabled)
-            return;
-
-        GeckoAppShell.getHandler().post(new Runnable() {
-            public void run() {
-                String url = getURL();
-                if (url == null)
-                    return;
-
-                BrowserDB.removeReadingListItemWithURL(mContentResolver, url);
-
-                GeckoApp.mAppContext.mMainHandler.post(new Runnable() {
-                    public void run() {
-                        GeckoEvent e = GeckoEvent.createBroadcastEvent("Reader:Remove", getURL());
-                        GeckoAppShell.sendEventToGecko(e);
-                    }
-                });
-            }
-        });
     }
 
     public void readerMode() {
@@ -502,7 +458,6 @@ public class Tab {
             final String url = message.getString("url");
             mHistoryIndex++;
             mHistorySize = mHistoryIndex + 1;
-            addHistory(url);
         } else if (event.equals("Back")) {
             if (!canDoBack()) {
                 Log.e(LOGTAG, "Received unexpected back notification");
@@ -560,11 +515,7 @@ public class Tab {
         setHasTouchListeners(false);
         setCheckerboardColor(Color.WHITE);
 
-        GeckoApp.mAppContext.mMainHandler.post(new Runnable() {
-            public void run() {
-                Tabs.getInstance().notifyListeners(Tab.this, Tabs.TabEvents.LOCATION_CHANGE, uri);
-            }
-        });
+        Tabs.getInstance().notifyListeners(this, Tabs.TabEvents.LOCATION_CHANGE, uri);
     }
 
     protected void saveThumbnailToDB() {

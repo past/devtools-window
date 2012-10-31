@@ -30,6 +30,7 @@
 #include "nsCocoaFeatures.h"
 #include "nsIScreenManager.h"
 #include "nsIWidgetListener.h"
+#include "nsIPresShell.h"
 
 #include "gfxPlatform.h"
 #include "qcms.h"
@@ -56,14 +57,10 @@ int32_t gXULModalLevel = 0;
 // also made app-modal.)  See nsCocoaWindow::SetModal().
 nsCocoaWindowList *gGeckoAppModalWindowList = NULL;
 
-bool gConsumeRollupEvent;
-
 // defined in nsMenuBarX.mm
 extern NSMenu* sApplicationMenu; // Application menu shared by all menubars
 
 // defined in nsChildView.mm
-extern nsIRollupListener * gRollupListener;
-extern nsIWidget         * gRollupWidget;
 extern BOOL                gSomeMenuBarPainted;
 
 extern "C" {
@@ -89,11 +86,12 @@ NS_IMPL_ISUPPORTS_INHERITED1(nsCocoaWindow, Inherited, nsPIWidgetCocoa)
 // widget - whether or not the sheet is showing. |[mWindow isSheet]| will return
 // true *only when the sheet is actually showing*. Choose your test wisely.
 
-// roll up any popup windows
 static void RollUpPopups()
 {
-  if (gRollupListener && gRollupWidget)
-    gRollupListener->Rollup(0);
+  nsIRollupListener* rollupListener = nsBaseWidget::GetActiveRollupListener();
+  nsCOMPtr<nsIWidget> rollupWidget = rollupListener->GetRollupWidget();
+  if (rollupWidget)
+    rollupListener->Rollup(0, nullptr);
 }
 
 nsCocoaWindow::nsCocoaWindow()
@@ -176,12 +174,32 @@ nsCocoaWindow::~nsCocoaWindow()
   NS_OBJC_END_TRY_ABORT_BLOCK;
 }
 
-// fits the rect to the screen that contains the largest area of it
+// Find the screen that overlaps aRect the most,
+// if none are found default to the mainScreen.
+static NSScreen *FindTargetScreenForRect(const nsIntRect& aRect)
+{
+  NSScreen *targetScreen = [NSScreen mainScreen];
+  NSEnumerator *screenEnum = [[NSScreen screens] objectEnumerator];
+  int largestIntersectArea = 0;
+  while (NSScreen *screen = [screenEnum nextObject]) {
+    nsIntRect screenRect(nsCocoaUtils::CocoaRectToGeckoRect([screen visibleFrame]));
+    screenRect = screenRect.Intersect(aRect);
+    int area = screenRect.width * screenRect.height;
+    if (area > largestIntersectArea) {
+      largestIntersectArea = area;
+      targetScreen = screen;
+    }
+  }
+  return targetScreen;
+}
+
+// fits the rect to the screen that contains the largest area of it,
+// or to aScreen if a screen is passed in
 // NB: this operates with aRect in global CSS pixels
 static void FitRectToVisibleAreaForScreen(nsIntRect &aRect, NSScreen *aScreen)
 {
   if (!aScreen) {
-    return;
+    aScreen = FindTargetScreenForRect(aRect);
   }
 
   nsIntRect screenBounds(nsCocoaUtils::CocoaRectToGeckoRect([aScreen visibleFrame]));
@@ -234,23 +252,8 @@ nsresult nsCocoaWindow::Create(nsIWidget *aParent,
   // we have to provide an autorelease pool (see bug 559075).
   nsAutoreleasePool localPool;
 
-  // Find the screen that overlaps aRect the most,
-  // if none are found default to the mainScreen.
-  NSScreen *targetScreen = [NSScreen mainScreen];
-  NSEnumerator *screenEnum = [[NSScreen screens] objectEnumerator];
-  int largestIntersectArea = 0;
-  while (NSScreen *screen = [screenEnum nextObject]) {
-    nsIntRect screenRect(nsCocoaUtils::CocoaRectToGeckoRect([screen visibleFrame]));
-    screenRect = screenRect.Intersect(aRect);
-    int area = screenRect.width * screenRect.height;
-    if (area > largestIntersectArea) {
-      largestIntersectArea = area;
-      targetScreen = screen;
-    }
-  }
-
   nsIntRect newBounds = aRect;
-  FitRectToVisibleAreaForScreen(newBounds, targetScreen);
+  FitRectToVisibleAreaForScreen(newBounds, nullptr);
 
   // Set defaults which can be overriden from aInitData in BaseCreate
   mWindowType = eWindowType_toplevel;
@@ -420,6 +423,10 @@ nsresult nsCocoaWindow::CreateNativeWindow(const NSRect &aRect,
   mWindow = [[windowClass alloc] initWithContentRect:contentRect styleMask:features 
                                  backing:NSBackingStoreBuffered defer:YES];
 
+  // setup our notification delegate. Note that setDelegate: does NOT retain.
+  mDelegate = [[WindowDelegate alloc] initWithGeckoWindow:this];
+  [mWindow setDelegate:mDelegate];
+
   // Make sure that the content rect we gave has been honored.
   NSRect wantedFrame = [mWindow frameRectForContentRect:contentRect];
   if (!NSEqualRects([mWindow frame], wantedFrame)) {
@@ -440,9 +447,9 @@ nsresult nsCocoaWindow::CreateNativeWindow(const NSRect &aRect,
   [mWindow setContentMinSize:NSMakeSize(60, 60)];
   [mWindow disableCursorRects];
 
-  // setup our notification delegate. Note that setDelegate: does NOT retain.
-  mDelegate = [[WindowDelegate alloc] initWithGeckoWindow:this];
-  [mWindow setDelegate:mDelegate];
+  // Make sure the window starts out not draggable by the background.
+  // We will turn it on as necessary.
+  [mWindow setMovableByWindowBackground:NO];
 
   [[WindowDataMap sharedWindowDataMap] ensureDataForWindow:mWindow];
   mWindowMadeHere = true;
@@ -1023,45 +1030,48 @@ NS_IMETHODIMP nsCocoaWindow::ConstrainPosition(bool aAllowSlop,
 
   nsIntRect screenBounds;
 
+  int32_t width, height;
+
+  NSRect frame = [mWindow frame];
+
+  // zero size rects confuse the screen manager
+  width = NS_MAX<int32_t>(frame.size.width, 1);
+  height = NS_MAX<int32_t>(frame.size.height, 1);
+
   nsCOMPtr<nsIScreenManager> screenMgr = do_GetService("@mozilla.org/gfx/screenmanager;1");
   if (screenMgr) {
     nsCOMPtr<nsIScreen> screen;
-    int32_t width, height;
-
-    // zero size rects confuse the screen manager
-    width = mBounds.width > 0 ? mBounds.width : 1;
-    height = mBounds.height > 0 ? mBounds.height : 1;
     screenMgr->ScreenForRect(*aX, *aY, width, height, getter_AddRefs(screen));
 
     if (screen) {
-      screen->GetRect(&(screenBounds.x), &(screenBounds.y),
-                      &(screenBounds.width), &(screenBounds.height));
+      screen->GetRectDisplayPix(&(screenBounds.x), &(screenBounds.y),
+                                &(screenBounds.width), &(screenBounds.height));
     }
   }
 
   if (aAllowSlop) {
-    if (*aX < screenBounds.x - mBounds.width + kWindowPositionSlop) {
-      *aX = screenBounds.x - mBounds.width + kWindowPositionSlop;
+    if (*aX < screenBounds.x - width + kWindowPositionSlop) {
+      *aX = screenBounds.x - width + kWindowPositionSlop;
     } else if (*aX >= screenBounds.x + screenBounds.width - kWindowPositionSlop) {
       *aX = screenBounds.x + screenBounds.width - kWindowPositionSlop;
     }
 
-    if (*aY < screenBounds.y - mBounds.height + kWindowPositionSlop) {
-      *aY = screenBounds.y - mBounds.height + kWindowPositionSlop;
+    if (*aY < screenBounds.y - height + kWindowPositionSlop) {
+      *aY = screenBounds.y - height + kWindowPositionSlop;
     } else if (*aY >= screenBounds.y + screenBounds.height - kWindowPositionSlop) {
       *aY = screenBounds.y + screenBounds.height - kWindowPositionSlop;
     }
   } else {
     if (*aX < screenBounds.x) {
       *aX = screenBounds.x;
-    } else if (*aX >= screenBounds.x + screenBounds.width - mBounds.width) {
-      *aX = screenBounds.x + screenBounds.width - mBounds.width;
+    } else if (*aX >= screenBounds.x + screenBounds.width - width) {
+      *aX = screenBounds.x + screenBounds.width - width;
     }
 
     if (*aY < screenBounds.y) {
       *aY = screenBounds.y;
-    } else if (*aY >= screenBounds.y + screenBounds.height - mBounds.height) {
-      *aY = screenBounds.y + screenBounds.height - mBounds.height;
+    } else if (*aY >= screenBounds.y + screenBounds.height - height) {
+      *aY = screenBounds.y + screenBounds.height - height;
     }
   }
 
@@ -1283,7 +1293,9 @@ NS_METHOD nsCocoaWindow::MakeFullScreen(bool aFullScreen)
   NS_OBJC_END_TRY_ABORT_BLOCK_NSRESULT;
 }
 
-NS_IMETHODIMP nsCocoaWindow::Resize(int32_t aX, int32_t aY, int32_t aWidth, int32_t aHeight, bool aRepaint)
+nsresult nsCocoaWindow::DoResize(int32_t aX, int32_t aY,
+                                 int32_t aWidth, int32_t aHeight,
+                                 bool aRepaint, bool aConstrainToCurrentScreen)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
 
@@ -1295,9 +1307,12 @@ NS_IMETHODIMP nsCocoaWindow::Resize(int32_t aX, int32_t aY, int32_t aWidth, int3
   CGFloat scaleFactor = BackingScaleFactor();
   NSRect cocoaBounds = nsCocoaUtils::DevPixelsToCocoaPoints(newBounds, scaleFactor);
 
-  // constrain to the visible area of the window's current screen
+  // constrain to the visible area of the window's current screen if requested,
+  // or to the screen that contains the largest area of the new rect
   nsCocoaUtils::NSRectToGeckoRect(cocoaBounds, newBounds);
-  FitRectToVisibleAreaForScreen(newBounds, [mWindow screen]);
+  FitRectToVisibleAreaForScreen(newBounds,
+                                aConstrainToCurrentScreen ?
+                                    [mWindow screen] : nullptr);
 
   // then convert back to device pixels
   nsCocoaUtils::GeckoRectToNSRect(newBounds, cocoaBounds);
@@ -1321,13 +1336,16 @@ NS_IMETHODIMP nsCocoaWindow::Resize(int32_t aX, int32_t aY, int32_t aWidth, int3
   NS_OBJC_END_TRY_ABORT_BLOCK_NSRESULT;
 }
 
+NS_IMETHODIMP nsCocoaWindow::Resize(int32_t aX, int32_t aY,
+                                    int32_t aWidth, int32_t aHeight,
+                                    bool aRepaint)
+{
+  return DoResize(aX, aY, aWidth, aHeight, aRepaint, false);
+}
+
 NS_IMETHODIMP nsCocoaWindow::Resize(int32_t aWidth, int32_t aHeight, bool aRepaint)
 {
-  NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
-  
-  return Resize(mBounds.x, mBounds.y, aWidth, aHeight, aRepaint);
-
-  NS_OBJC_END_TRY_ABORT_BLOCK_NSRESULT;
+  return DoResize(mBounds.x, mBounds.y, aWidth, aHeight, aRepaint, true);
 }
 
 NS_IMETHODIMP nsCocoaWindow::GetClientBounds(nsIntRect &aRect)
@@ -1397,6 +1415,48 @@ nsCocoaWindow::BackingScaleFactor()
   }
   mBackingScaleFactor = nsCocoaUtils::GetBackingScaleFactor(mWindow);
   return mBackingScaleFactor;
+}
+
+void
+nsCocoaWindow::BackingScaleFactorChanged()
+{
+  CGFloat newScale = nsCocoaUtils::GetBackingScaleFactor(mWindow);
+
+  // ignore notification if it hasn't really changed (or maybe we have
+  // disabled HiDPI mode via prefs)
+  if (mBackingScaleFactor == newScale) {
+    return;
+  }
+
+  if (mBackingScaleFactor > 0.0) {
+    // convert size constraints to the new device pixel coordinate space
+    double scaleFactor = newScale / mBackingScaleFactor;
+    mSizeConstraints.mMinSize.width =
+      NSToIntRound(mSizeConstraints.mMinSize.width * scaleFactor);
+    mSizeConstraints.mMinSize.height =
+      NSToIntRound(mSizeConstraints.mMinSize.height * scaleFactor);
+    if (mSizeConstraints.mMaxSize.width < NS_MAXSIZE) {
+      mSizeConstraints.mMaxSize.width =
+        NS_MIN(NS_MAXSIZE,
+               NSToIntRound(mSizeConstraints.mMaxSize.width * scaleFactor));
+    }
+    if (mSizeConstraints.mMaxSize.height < NS_MAXSIZE) {
+      mSizeConstraints.mMaxSize.height =
+        NS_MIN(NS_MAXSIZE,
+               NSToIntRound(mSizeConstraints.mMaxSize.height * scaleFactor));
+    }
+  }
+
+  mBackingScaleFactor = newScale;
+
+  if (!mWidgetListener || mWidgetListener->GetXULWindow()) {
+    return;
+  }
+
+  nsIPresShell* presShell = mWidgetListener->GetPresShell();
+  if (presShell) {
+    presShell->BackingScaleFactorChanged();
+  }
 }
 
 NS_IMETHODIMP nsCocoaWindow::SetCursor(nsCursor aCursor)
@@ -1690,29 +1750,21 @@ nsMenuBarX* nsCocoaWindow::GetMenuBar()
   return mMenuBar;
 }
 
-NS_IMETHODIMP nsCocoaWindow::CaptureRollupEvents(nsIRollupListener * aListener,
-                                                 bool aDoCapture,
-                                                 bool aConsumeRollupEvent)
+NS_IMETHODIMP nsCocoaWindow::CaptureRollupEvents(nsIRollupListener* aListener, bool aDoCapture)
 {
   NS_OBJC_BEGIN_TRY_ABORT_BLOCK_NSRESULT;
 
   gRollupListener = nullptr;
-  NS_IF_RELEASE(gRollupWidget);
   
   if (aDoCapture) {
     gRollupListener = aListener;
-    gRollupWidget = this;
-    NS_ADDREF(this);
-
-    gConsumeRollupEvent = aConsumeRollupEvent;
 
     // Sometimes more than one popup window can be visible at the same time
     // (e.g. nested non-native context menus, or the test case (attachment
-    // 276885) for bmo bug 392389, which displays a non-native combo-box in
-    // a non-native popup window).  In these cases the "active" popup window
-    // (the one that corresponds to the current gRollupWidget) should be the
-    // topmost -- the (nested) context menu the mouse is currently over, or
-    // the combo-box's drop-down list (when it's displayed).  But (among
+    // 276885) for bmo bug 392389, which displays a non-native combo-box in a
+    // non-native popup window).  In these cases the "active" popup window should
+    // be the topmost -- the (nested) context menu the mouse is currently over,
+    // or the combo-box's drop-down list (when it's displayed).  But (among
     // windows that have the same "level") OS X makes topmost the window that
     // last received a mouse-down event, which may be incorrect (in the combo-
     // box case, it makes topmost the window containing the combo-box).  So
@@ -2224,6 +2276,24 @@ bool nsCocoaWindow::ShouldFocusPlugin()
   NS_OBJC_END_TRY_ABORT_BLOCK;
 }
 
+- (void)windowDidChangeBackingProperties:(NSNotification *)aNotification
+{
+  NS_OBJC_BEGIN_TRY_ABORT_BLOCK;
+
+  NSWindow *window = (NSWindow *)[aNotification object];
+
+  if ([window respondsToSelector:@selector(backingScaleFactor)]) {
+    CGFloat oldFactor =
+      [[[aNotification userInfo]
+         objectForKey:@"NSBackingPropertyOldScaleFactorKey"] doubleValue];
+    if ([window backingScaleFactor] != oldFactor) {
+      mGeckoWindow->BackingScaleFactorChanged();
+    }
+  }
+
+  NS_OBJC_END_TRY_ABORT_BLOCK;
+}
+
 - (nsCocoaWindow*)geckoWidget
 {
   return mGeckoWindow;
@@ -2517,7 +2587,94 @@ static const NSString* kStateShowsToolbarButton = @"showsToolbarButton";
 
 @end
 
-// This class allows us to have a "unified toolbar" style window. It works like this:
+@interface TitlebarMouseHandlingView : NSView<EventRedirection>
+{
+  ToolbarWindow* mWindow; // weak
+  BOOL mProcessingRightMouseDown;
+}
+
+- (id)initWithWindow:(ToolbarWindow*)aWindow;
+@end
+
+@implementation TitlebarMouseHandlingView
+
+- (id)initWithWindow:(ToolbarWindow*)aWindow
+{
+  if ((self = [super initWithFrame:[aWindow titlebarRect]])) {
+    mWindow = aWindow;
+    [self setAutoresizingMask:(NSViewWidthSizable | NSViewMinYMargin)];
+    [ChildView registerViewForDraggedTypes:self];
+    mProcessingRightMouseDown = NO;
+  }
+  return self;
+}
+
+- (NSView*)targetView
+{
+  return [mWindow mainChildView];
+}
+
+- (BOOL)mouseDownCanMoveWindow
+{
+  return [mWindow isMovableByWindowBackground];
+}
+
+// We redirect many types of events to the window's mainChildView simply by
+// passing the event object to the respective handler method. We don't need any
+// coordinate transformations because event coordinates are relative to the
+// window.
+// We only need to handle event types whose target NSView is determined by the
+// event's position. We don't need to handle key events and NSMouseMoved events
+// because those are only sent to the window's first responder. This view
+// doesn't override acceptsFirstResponder, so it will never receive those kinds
+// of events.
+
+- (void)mouseMoved:(NSEvent*)aEvent            { [[self targetView] mouseMoved:aEvent]; }
+- (void)mouseDown:(NSEvent*)aEvent             { [[self targetView] mouseDown:aEvent]; }
+- (void)mouseUp:(NSEvent*)aEvent               { [[self targetView] mouseUp:aEvent]; }
+- (void)mouseDragged:(NSEvent*)aEvent          { [[self targetView] mouseDragged:aEvent]; }
+- (void)rightMouseDown:(NSEvent*)aEvent
+{
+  // To avoid recursion...
+  if (mProcessingRightMouseDown)
+    return;
+  mProcessingRightMouseDown = YES;
+  [[self targetView] rightMouseDown:aEvent];
+  mProcessingRightMouseDown = NO;
+}
+- (void)rightMouseUp:(NSEvent*)aEvent          { [[self targetView] rightMouseUp:aEvent]; }
+- (void)rightMouseDragged:(NSEvent*)aEvent     { [[self targetView] rightMouseDragged:aEvent]; }
+- (void)otherMouseDown:(NSEvent*)aEvent        { [[self targetView] otherMouseDown:aEvent]; }
+- (void)otherMouseUp:(NSEvent*)aEvent          { [[self targetView] otherMouseUp:aEvent]; }
+- (void)otherMouseDragged:(NSEvent*)aEvent     { [[self targetView] otherMouseDragged:aEvent]; }
+- (void)scrollWheel:(NSEvent*)aEvent           { [[self targetView] scrollWheel:aEvent]; }
+- (void)swipeWithEvent:(NSEvent*)aEvent        { [[self targetView] swipeWithEvent:aEvent]; }
+- (void)beginGestureWithEvent:(NSEvent*)aEvent { [[self targetView] beginGestureWithEvent:aEvent]; }
+- (void)magnifyWithEvent:(NSEvent*)aEvent      { [[self targetView] magnifyWithEvent:aEvent]; }
+- (void)rotateWithEvent:(NSEvent*)aEvent       { [[self targetView] rotateWithEvent:aEvent]; }
+- (void)endGestureWithEvent:(NSEvent*)aEvent   { [[self targetView] endGestureWithEvent:aEvent]; }
+- (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
+  { return [[self targetView] draggingEntered:sender]; }
+- (NSDragOperation)draggingUpdated:(id <NSDraggingInfo>)sender
+  { return [[self targetView] draggingUpdated:sender]; }
+- (void)draggingExited:(id <NSDraggingInfo>)sender
+  { [[self targetView] draggingExited:sender]; }
+- (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
+  { return [[self targetView] performDragOperation:sender]; }
+- (void)draggedImage:(NSImage *)anImage endedAt:(NSPoint)aPoint operation:(NSDragOperation)operation
+  { [[self targetView] draggedImage:anImage endedAt:aPoint operation:operation]; }
+- (NSDragOperation)draggingSourceOperationMaskForLocal:(BOOL)isLocal
+  { return [[self targetView] draggingSourceOperationMaskForLocal:isLocal]; }
+- (NSArray *)namesOfPromisedFilesDroppedAtDestination:(NSURL*)dropDestination
+  { return [[self targetView] namesOfPromisedFilesDroppedAtDestination:dropDestination]; }
+- (NSMenu*)menuForEvent:(NSEvent*)aEvent
+  { return [[self targetView] menuForEvent:aEvent]; }
+
+@end
+
+// This class allows us to exercise control over the window's title bar. This
+// allows for a "unified toolbar" look, and for extending the content area into
+// the title bar. It works like this:
 // 1) We set the window's style to textured.
 // 2) Because of this, the background color applies to the entire window, including
 //     the titlebar area. For normal textured windows, the default pattern is a 
@@ -2551,6 +2708,11 @@ static const NSString* kStateShowsToolbarButton = @"showsToolbarButton";
 // to the containing window - the other direction doesn't work. That's why the
 // toolbar height is cached in the ToolbarWindow but nsNativeThemeCocoa can simply
 // query the window for its titlebar height when drawing the toolbar.
+@interface ToolbarWindow(Private)
+- (void)installTitlebarMouseHandlingView;
+- (void)uninstallTitlebarMouseHandlingView;
+@end;
+
 @implementation ToolbarWindow
 
 - (id)initWithContentRect:(NSRect)aContentRect styleMask:(NSUInteger)aStyle backing:(NSBackingStoreType)aBufferingType defer:(BOOL)aFlag
@@ -2585,6 +2747,7 @@ static const NSString* kStateShowsToolbarButton = @"showsToolbarButton";
 
   [mColor release];
   [mBackgroundColor release];
+  [mTitlebarView release];
   [super dealloc];
 
   NS_OBJC_END_TRY_ABORT_BLOCK;
@@ -2664,11 +2827,48 @@ static const NSString* kStateShowsToolbarButton = @"showsToolbarButton";
   [self setTitlebarNeedsDisplayInRect:[self titlebarRect] sync:needSyncRedraw];
 }
 
+// Extending the content area into the title bar works by redirection of both
+// drawing and mouse events.
+// The window's NSView hierarchy looks like this:
+//  - border view ([[window contentView] superview])
+//     - transparent title bar event redirection view
+//     - window controls (traffic light buttons)
+//     - content view ([window contentView], default NSView provided by the window)
+//        - our main Gecko ChildView ([window mainChildView]), which has an
+//          OpenGL context attached to it when accelerated
+//           - possibly more ChildViews for plugins
+//
+// When the window is in title bar extension mode, the mainChildView covers the
+// whole window but is only visible in the content area of the window, because
+// it's a subview of the window's contentView and thus clipped to its dimensions.
+// This clipping is a good thing because it avoids a few problems. For example,
+// if the mainChildView weren't clipped and thus visible in the titlebar, we'd
+// have have to do the rounded corner masking and the drawing of the highlight
+// line ourselves.
+// This would be especially hard in combination with OpenGL acceleration since
+// rounded corners would require making the OpenGL context transparent, which
+// would bring another set of challenges with it. Having the window controls
+// draw on top of an OpenGL context could be hard, too.
+//
+// So title bar drawing happens in the border view. The border view's drawRect
+// method is not under our control, but we can get it to call into our code
+// using some tricks, see the TitlebarAndBackgroundColor class below.
+// Specifically, we have it call the TitlebarDrawCallback function, which
+// draws the contents of mainChildView into the provided CGContext.
+// (Even if the ChildView uses OpenGL for rendering, drawing in the title bar
+// will happen non-accelerated in that CGContext.)
+//
+// Mouse event redirection happens via a TitlebarMouseHandlingView which we
+// install below.
 - (void)setDrawsContentsIntoWindowFrame:(BOOL)aState
 {
   BOOL stateChanged = ([self drawsContentsIntoWindowFrame] != aState);
   [super setDrawsContentsIntoWindowFrame:aState];
   if (stateChanged && [[self delegate] isKindOfClass:[WindowDelegate class]]) {
+    // Here we extend / shrink our mainChildView. We do that by firing a resize
+    // event which will cause the ChildView to be resized to the rect returned
+    // by nsCocoaWindow::GetClientBounds. GetClientBounds bases its return
+    // value on what we return from drawsContentsIntoWindowFrame.
     WindowDelegate *windowDelegate = (WindowDelegate *)[self delegate];
     nsCocoaWindow *geckoWindow = [windowDelegate geckoWidget];
     if (geckoWindow) {
@@ -2683,8 +2883,33 @@ static const NSString* kStateShowsToolbarButton = @"showsToolbarButton";
     // we'll send a mouse move event with the correct new position.
     ChildViewMouseTracker::ResendLastMouseMoveEvent();
 
-    [self setTitlebarNeedsDisplayInRect:[self titlebarRect]];
+    if (aState) {
+      [self installTitlebarMouseHandlingView];
+    } else {
+      [self uninstallTitlebarMouseHandlingView];
+    }
   }
+}
+
+- (void)installTitlebarMouseHandlingView
+{
+  mTitlebarView = [[TitlebarMouseHandlingView alloc] initWithWindow:self];
+  [[[self contentView] superview] addSubview:mTitlebarView positioned:NSWindowBelow relativeTo:nil];
+}
+
+- (void)uninstallTitlebarMouseHandlingView
+{
+  [mTitlebarView removeFromSuperview];
+  [mTitlebarView release];
+  mTitlebarView = nil;
+}
+
+- (ChildView*)mainChildView
+{
+  NSView* view = [[[self contentView] subviews] lastObject];
+  if (view && [view isKindOfClass:[ChildView class]])
+    return (ChildView*)view;
+  return nil;
 }
 
 // Returning YES here makes the setShowsToolbarButton method work even though
@@ -2755,6 +2980,9 @@ static const NSString* kStateShowsToolbarButton = @"showsToolbarButton";
       if (delegate && [delegate isKindOfClass:[WindowDelegate class]]) {
         nsCocoaWindow *widget = [(WindowDelegate *)delegate geckoWidget];
         if (widget) {
+          if (type == NSMouseMoved) {
+            [[self mainChildView] updateWindowDraggableStateOnMouseMove:anEvent];
+          }
           if (gGeckoAppModalWindowList && (widget != gGeckoAppModalWindowList->window))
             return;
           if (widget->HasModalDescendents())
@@ -2820,8 +3048,8 @@ TitlebarDrawCallback(void* aInfo, CGContextRef aContext)
   NSRect titlebarRect = [window titlebarRect];
 
   if ([window drawsContentsIntoWindowFrame]) {
-    NSView* view = [[[window contentView] subviews] lastObject];
-    if (!view || ![view isKindOfClass:[ChildView class]])
+    ChildView* view = [window mainChildView];
+    if (!view)
       return;
 
     // Gecko drawing assumes flippedness, but the current context isn't flipped
@@ -2832,7 +3060,7 @@ TitlebarDrawCallback(void* aInfo, CGContextRef aContext)
     CGContextTranslateCTM(aContext, 0.0f, -[window frame].size.height);
 
     NSRect flippedTitlebarRect = { NSZeroPoint, titlebarRect.size };
-    [(ChildView*)view drawRect:flippedTitlebarRect inTitlebarContext:aContext];
+    [view drawRect:flippedTitlebarRect inTitlebarContext:aContext];
   } else {
     BOOL isMain = [window isMainWindow];
     NSColor *titlebarColor = [window titlebarColorForActiveWindow:isMain];

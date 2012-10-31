@@ -748,12 +748,7 @@ void
 StackTypeSet::addPropagateThis(JSContext *cx, HandleScript script, jsbytecode *pc,
                                Type type, StackTypeSet *types)
 {
-    /* Don't add constraints when the call will be 'new' (see addCallProperty). */
-    jsbytecode *callpc = script->analysis()->getCallPC(pc);
-    if (JSOp(*callpc) == JSOP_NEW)
-        return;
-
-    add(cx, cx->analysisLifoAlloc().new_<TypeConstraintPropagateThis>(script, callpc, type, types));
+    add(cx, cx->analysisLifoAlloc().new_<TypeConstraintPropagateThis>(script, pc, type, types));
 }
 
 /* Subset constraint which filters out primitive types. */
@@ -1207,7 +1202,6 @@ TypeConstraintCallProp<access>::newType(JSContext *cx, TypeSet *source, Type typ
                 return;
             if (!types->hasPropagatedProperty())
                 object->getFromPrototypes(cx, id, types);
-            /* Bypass addPropagateThis, we already have the callpc. */
             if (access == PROPERTY_READ) {
                 types->add(cx, cx->typeLifoAlloc().new_<TypeConstraintPropagateThis>(
                                 script_, callpc, type, (StackTypeSet *) NULL));
@@ -1233,6 +1227,7 @@ TypeConstraintSetElement::newType(JSContext *cx, TypeSet *source, Type type)
 void
 TypeConstraintCall::newType(JSContext *cx, TypeSet *source, Type type)
 {
+    AssertCanGC();
     RootedScript script(cx, callsite->script);
     jsbytecode *pc = callsite->pc;
 
@@ -1321,7 +1316,8 @@ TypeConstraintCall::newType(JSContext *cx, TypeSet *source, Type type)
         return;
     }
 
-    if (!callee->script()->ensureHasTypes(cx))
+    RootedScript calleeScript(cx, callee->script());
+    if (!calleeScript->ensureHasTypes(cx))
         return;
 
     unsigned nargs = callee->nargs;
@@ -1329,18 +1325,18 @@ TypeConstraintCall::newType(JSContext *cx, TypeSet *source, Type type)
     /* Add bindings for the arguments of the call. */
     for (unsigned i = 0; i < callsite->argumentCount && i < nargs; i++) {
         StackTypeSet *argTypes = callsite->argumentTypes[i];
-        StackTypeSet *types = TypeScript::ArgTypes(callee->script(), i);
+        StackTypeSet *types = TypeScript::ArgTypes(calleeScript, i);
         argTypes->addSubsetBarrier(cx, script, pc, types);
     }
 
     /* Add void type for any formals in the callee not supplied at the call site. */
     for (unsigned i = callsite->argumentCount; i < nargs; i++) {
-        TypeSet *types = TypeScript::ArgTypes(callee->script(), i);
+        TypeSet *types = TypeScript::ArgTypes(calleeScript, i);
         types->addType(cx, Type::UndefinedType());
     }
 
-    StackTypeSet *thisTypes = TypeScript::ThisTypes(callee->script());
-    HeapTypeSet *returnTypes = TypeScript::ReturnTypes(callee->script());
+    StackTypeSet *thisTypes = TypeScript::ThisTypes(calleeScript);
+    HeapTypeSet *returnTypes = TypeScript::ReturnTypes(calleeScript);
 
     if (callsite->isNew) {
         /*
@@ -1400,7 +1396,7 @@ TypeConstraintPropagateThis::newType(JSContext *cx, TypeSet *source, Type type)
     if (!callee->script()->ensureHasTypes(cx))
         return;
 
-    TypeSet *thisTypes = TypeScript::ThisTypes(callee->script());
+    TypeSet *thisTypes = TypeScript::ThisTypes(callee->script().unsafeGet());
     if (this->types)
         this->types->addSubset(cx, thisTypes);
     else
@@ -1702,6 +1698,8 @@ HeapTypeSet::HasObjectFlags(JSContext *cx, TypeObject *object, TypeObjectFlags f
 static inline void
 ObjectStateChange(JSContext *cx, TypeObject *object, bool markingUnknown, bool force)
 {
+    AutoAssertNoGC nogc;
+
     if (object->unknownProperties())
         return;
 
@@ -2538,6 +2536,7 @@ TypeCompartment::addPendingRecompile(JSContext *cx, const RecompileInfo &info)
 void
 TypeCompartment::addPendingRecompile(JSContext *cx, HandleScript script, jsbytecode *pc)
 {
+    AutoAssertNoGC nogc;
     JS_ASSERT(script);
     if (!constrainedOutputs)
         return;
@@ -2577,6 +2576,8 @@ void
 TypeCompartment::monitorBytecode(JSContext *cx, HandleScript script, uint32_t offset,
                                  bool returnOnly)
 {
+    AutoAssertNoGC nogc;
+
     if (!script->ensureRanInference(cx))
         return;
 
@@ -3572,16 +3573,6 @@ GetInitializerType(JSContext *cx, HandleScript script, jsbytecode *pc)
     return TypeScript::InitObject(cx, script, pc, key);
 }
 
-static inline Type
-GetCalleeThisType(jsbytecode *pc)
-{
-    pc += GetBytecodeLength(pc);
-    if (*pc == JSOP_UNDEFINED)
-        return Type::UndefinedType();
-    JS_ASSERT(*pc == JSOP_IMPLICITTHIS);
-    return Type::UnknownType();
-}
-
 /* Analyze type information for a single bytecode. */
 bool
 ScriptAnalysis::analyzeTypesBytecode(JSContext *cx, unsigned offset, TypeInferenceState &state)
@@ -3816,9 +3807,6 @@ ScriptAnalysis::analyzeTypesBytecode(JSContext *cx, unsigned offset, TypeInferen
             PropertyAccess<PROPERTY_READ_EXISTING>(cx, script, pc, global, seen, id);
         else
             PropertyAccess<PROPERTY_READ>(cx, script, pc, global, seen, id);
-
-        if (op == JSOP_CALLGNAME)
-            pushed[0].addPropagateThis(cx, script, pc, GetCalleeThisType(pc));
         break;
       }
 
@@ -3829,8 +3817,6 @@ ScriptAnalysis::analyzeTypesBytecode(JSContext *cx, unsigned offset, TypeInferen
         StackTypeSet *seen = bytecodeTypes(pc);
         addTypeBarrier(cx, pc, seen, Type::UnknownType());
         seen->addSubset(cx, &pushed[0]);
-        if (op == JSOP_CALLNAME || op == JSOP_CALLINTRINSIC)
-            pushed[0].addPropagateThis(cx, script, pc, GetCalleeThisType(pc));
         break;
       }
 
@@ -3878,8 +3864,6 @@ ScriptAnalysis::analyzeTypesBytecode(JSContext *cx, unsigned offset, TypeInferen
             /* Local 'let' variable. Punt on types for these, for now. */
             pushed[0].addType(cx, Type::UnknownType());
         }
-        if (op == JSOP_CALLARG || op == JSOP_CALLLOCAL)
-            pushed[0].addPropagateThis(cx, script, pc, Type::UndefinedType());
         break;
       }
 
@@ -3910,8 +3894,6 @@ ScriptAnalysis::analyzeTypesBytecode(JSContext *cx, unsigned offset, TypeInferen
          * variable. Instead, we monitor/barrier all reads unconditionally.
          */
         bytecodeTypes(pc)->addSubset(cx, &pushed[0]);
-        if (op == JSOP_CALLALIASEDVAR)
-            pushed[0].addPropagateThis(cx, script, pc, Type::UnknownType());
         break;
 
       case JSOP_SETALIASEDVAR:
@@ -4028,8 +4010,6 @@ ScriptAnalysis::analyzeTypesBytecode(JSContext *cx, unsigned offset, TypeInferen
         }
 
         seen->addSubset(cx, &pushed[0]);
-        if (op == JSOP_CALLELEM)
-            pushed[0].addPropagateThis(cx, script, pc, Type::UndefinedType(), poppedTypes(pc, 1));
         break;
       }
 
@@ -4126,7 +4106,24 @@ ScriptAnalysis::analyzeTypesBytecode(JSContext *cx, unsigned offset, TypeInferen
         if (op == JSOP_FUNCALL || op == JSOP_FUNAPPLY)
             cx->compartment->types.monitorBytecode(cx, script, pc - script_->code);
 
-        poppedTypes(pc, argCount + 1)->addCall(cx, callsite);
+        StackTypeSet *calleeTypes = poppedTypes(pc, argCount + 1);
+
+        /*
+         * Propagate possible 'this' types to the callee except when the call
+         * came through JSOP_CALLPROP (which uses TypeConstraintCallProperty)
+         * or for JSOP_NEW (where the callee will construct the 'this' object).
+         */
+        SSAValue calleeValue = poppedValue(pc, argCount + 1);
+        if (*pc != JSOP_NEW &&
+            (calleeValue.kind() != SSAValue::PUSHED ||
+             script->code[calleeValue.pushedOffset()] != JSOP_CALLPROP))
+        {
+            HandleScript script_ = script;
+            calleeTypes->add(cx, cx->analysisLifoAlloc().new_<TypeConstraintPropagateThis>
+                                   (script_, pc, Type::UndefinedType(), callsite->thisTypes));
+        }
+
+        calleeTypes->addCall(cx, callsite);
         break;
       }
 
@@ -5576,7 +5573,7 @@ JSScript::makeAnalysis(JSContext *cx)
 /* static */ bool
 JSFunction::setTypeForScriptedFunction(JSContext *cx, HandleFunction fun, bool singleton)
 {
-    JS_ASSERT(fun->script());
+    JS_ASSERT(fun->script().unsafeGet());
     JS_ASSERT(fun->script()->function() == fun);
 
     if (!cx->typeInferenceEnabled())

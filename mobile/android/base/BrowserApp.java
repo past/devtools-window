@@ -86,19 +86,22 @@ abstract public class BrowserApp extends GeckoApp
     private FindInPageBar mFindInPageBar;
 
     // We'll ask for feedback after the user launches the app this many times.
-    private static final int FEEDBACK_LAUNCH_COUNT = 10;
+    private static final int FEEDBACK_LAUNCH_COUNT = 15;
 
     @Override
     public void onTabChanged(Tab tab, Tabs.TabEvents msg, Object data) {
         switch(msg) {
             case LOCATION_CHANGE:
                 if (Tabs.getInstance().isSelectedTab(tab)) {
-                    String url = tab.getURL();
-                    if (url.equals("about:home"))
-                        showAboutHome();
-                    else 
-                        hideAboutHome();
                     maybeCancelFaviconLoad(tab);
+                }
+                // fall through
+            case SELECTED:
+                if (Tabs.getInstance().isSelectedTab(tab)) {
+                    if ("about:home".equals(tab.getURL()))
+                        showAboutHome();
+                    else
+                        hideAboutHome();
                 }
                 break;
             case LOAD_ERROR:
@@ -108,12 +111,6 @@ abstract public class BrowserApp extends GeckoApp
                 if (Tabs.getInstance().isSelectedTab(tab)) {
                     invalidateOptionsMenu();
                 }
-                break;
-            case SELECTED:
-                if ("about:home".equals(tab.getURL()))
-                    showAboutHome();
-                else
-                    hideAboutHome();
                 break;
         }
         super.onTabChanged(tab, msg, data);
@@ -261,40 +258,23 @@ abstract public class BrowserApp extends GeckoApp
         super.finishProfileMigration();
     }
 
-    // We don't want to call super.initializeChrome in here because we don't
-    // want to create two DoorHangerPopup instances.
-    @Override void initializeChrome(String uri, Boolean isExternalURL) {
+    @Override
+    protected void initializeChrome(String uri, Boolean isExternalURL) {
+        super.initializeChrome(uri, isExternalURL);
+
         mBrowserToolbar.updateBackButton(false);
         mBrowserToolbar.updateForwardButton(false);
 
-        Intent intent = getIntent();
-        String action = intent.getAction();
-        String args = intent.getStringExtra("args");
-        if (args != null && args.contains("-profile")) {
-            Pattern p = Pattern.compile("(?:-profile\\s*)(\\w*)(\\s*)");
-            Matcher m = p.matcher(args);
-            if (m.find()) {
-                mBrowserToolbar.setTitle(null);
-            }
-        }
-
-        if (uri != null && uri.length() > 0) {
-            mBrowserToolbar.setTitle(uri);
-        }
+        mDoorHangerPopup.setAnchor(mBrowserToolbar.mFavicon);
 
         if (!isExternalURL) {
             // show about:home if we aren't restoring previous session
             if (mRestoreMode == GeckoAppShell.RESTORE_NONE) {
-                mBrowserToolbar.updateTabCount(1);
-                showAboutHome();
+                Tab tab = Tabs.getInstance().loadUrl("about:home", Tabs.LOADURL_NEW_TAB);
             }
         } else {
-            mBrowserToolbar.updateTabCount(1);
+            Tabs.getInstance().loadUrl(uri, Tabs.LOADURL_NEW_TAB | Tabs.LOADURL_USER_ENTERED);
         }
-
-        mBrowserToolbar.setProgressVisibility(isExternalURL || (mRestoreMode != GeckoAppShell.RESTORE_NONE));
-
-        mDoorHangerPopup = new DoorHangerPopup(this, mBrowserToolbar.mFavicon);
     }
 
     void toggleChrome(final boolean aShow) {

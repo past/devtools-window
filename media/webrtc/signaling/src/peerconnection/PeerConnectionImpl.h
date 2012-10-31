@@ -51,6 +51,22 @@ using namespace mozilla;
 
 namespace sipcc {
 
+struct ConstraintInfo {
+  std::string  value;
+  bool         mandatory;
+};
+typedef std::map<std::string, ConstraintInfo> constraints_map;
+
+class MediaConstraints {
+public:
+  void setBooleanConstraint(const std::string& constraint, bool enabled, bool mandatory);
+
+  void buildArray(cc_media_constraints_t** constraintarray);
+
+private:
+  constraints_map  mConstraints;
+};
+
 /* Temporary for providing audio data */
 class Fake_AudioGenerator {
  public:
@@ -79,7 +95,7 @@ Fake_AudioGenerator(nsDOMMediaStream* aStream) : mStream(aStream), mCount(0) {
     mozilla::AudioSegment segment;
     segment.Init(1);
     segment.AppendFrames(samples.forget(), 1600,
-      0, 1600, nsAudioStream::FORMAT_S16);
+      0, 1600, AUDIO_FORMAT_S16);
 
     gen->mStream->GetStream()->AsSourceStream()->AppendToTrack(1, &segment);
   }
@@ -379,6 +395,13 @@ public:
   nsresult CreateFakeMediaStream(uint32_t hint, nsIDOMMediaStream** retval);
 
   nsPIDOMWindow* GetWindow() const { return mWindow; }
+
+  // Validate constraints and construct a MediaConstraints object
+  // from a JS::Value.
+  nsresult ConvertConstraints(
+    const JS::Value& aConstraints, MediaConstraints* aObj, JSContext* aCx);
+  NS_IMETHODIMP CreateOffer(MediaConstraints& aConstraints);
+  NS_IMETHODIMP CreateAnswer(MediaConstraints& aConstraints);
 
 private:
   PeerConnectionImpl(const PeerConnectionImpl&rhs);

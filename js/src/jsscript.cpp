@@ -413,7 +413,7 @@ js::XDRScript(XDRState<mode> *xdr, HandleObject enclosingScope, HandleScript enc
     uint32_t scriptBits = 0;
 
     JSContext *cx = xdr->cx();
-    Rooted<JSScript*> script(cx);
+    RootedScript script(cx);
     nsrcnotes = ntrynotes = natoms = nobjects = nregexps = nconsts = 0;
     jssrcnote *notes = NULL;
 
@@ -924,6 +924,91 @@ SourceCompressorThread::finish()
         PR_DestroyLock(lock);
 }
 
+bool
+SourceCompressorThread::internalCompress()
+{
+    JS_ASSERT(state == COMPRESSING);
+    JS_ASSERT(tok);
+
+    ScriptSource *ss = tok->ss;
+    JS_ASSERT(!ss->ready());
+    size_t compressedLength = 0;
+    size_t nbytes = sizeof(jschar) * ss->length_;
+
+    // Memory allocation functions on JSRuntime and JSContext are not
+    // threadsafe. We have to use the js_* variants.
+
+#ifdef USE_ZLIB
+    const size_t COMPRESS_THRESHOLD = 512;
+    if (nbytes >= COMPRESS_THRESHOLD) {
+        // Try to keep the maximum memory usage down by only allocating half the
+        // size of the string, first.
+        size_t firstSize = nbytes / 2;
+        ss->data.compressed = static_cast<unsigned char *>(js_malloc(firstSize));
+        if (!ss->data.compressed)
+            return false;
+        Compressor comp(reinterpret_cast<const unsigned char *>(tok->chars), nbytes);
+        if (!comp.init())
+            return false;
+        comp.setOutput(ss->data.compressed, firstSize);
+        bool cont = !stop;
+        while (cont) {
+            switch (comp.compressMore()) {
+              case Compressor::CONTINUE:
+                break;
+              case Compressor::MOREOUTPUT: {
+                if (comp.outWritten() == nbytes) {
+                    cont = false;
+                    break;
+                }
+
+                // The compressed output is greater than half the size of the
+                // original string. Reallocate to the full size.
+                void *newmem = js_realloc(ss->data.compressed, nbytes);
+                if (!newmem) {
+                    js_free(ss->data.compressed);
+                    ss->data.compressed = NULL;
+                    return false;
+                }
+                ss->data.compressed = static_cast<unsigned char *>(newmem);
+                comp.setOutput(ss->data.compressed, nbytes);
+                break;
+              }
+              case Compressor::DONE:
+                cont = false;
+                break;
+              case Compressor::OOM:
+                return false;
+            }
+            cont = cont && !stop;
+        }
+        compressedLength = comp.outWritten();
+        if (stop || compressedLength == nbytes)
+            compressedLength = 0;
+    }
+#endif
+    if (compressedLength == 0) {
+        // Note ss->data.source might be NULL.
+        jschar *buf = static_cast<jschar *>(js_realloc(ss->data.source, nbytes));
+        if (!buf) {
+            if (ss->data.source) {
+                js_free(ss->data.source);
+                ss->data.source = NULL;
+            }
+            return false;
+        }
+        ss->data.source = buf;
+        PodCopy(ss->data.source, tok->chars, ss->length());
+    } else {
+        // Shrink the buffer to the size of the compressed data. Shouldn't fail.
+        void *newmem = js_realloc(ss->data.compressed, compressedLength);
+        JS_ASSERT(newmem);
+        ss->data.compressed = static_cast<unsigned char *>(newmem);
+    }
+    ss->compressedLength_ = compressedLength;
+    return true;
+}
+
 void
 SourceCompressorThread::threadLoop()
 {
@@ -936,45 +1021,15 @@ SourceCompressorThread::threadLoop()
           case IDLE:
             PR_WaitCondVar(wakeup, PR_INTERVAL_NO_TIMEOUT);
             break;
-          case COMPRESSING: {
-            JS_ASSERT(tok);
-            ScriptSource *ss = tok->ss;
-            JS_ASSERT(!ss->ready());
-            const size_t COMPRESS_THRESHOLD = 512;
-            size_t compressedLength = 0;
-#ifdef USE_ZLIB
-            size_t nbytes = sizeof(jschar) * ss->length();
-            if (nbytes >= COMPRESS_THRESHOLD) {
-                Compressor comp(reinterpret_cast<const unsigned char *>(tok->chars),
-                                nbytes, ss->data.compressed);
-                if (comp.init()) {
-                    while (!stop && comp.compressMore())
-                        ;
-                    compressedLength = comp.finish();
-                    if (stop || compressedLength == nbytes)
-                        compressedLength = 0;
-                }
-            }
-#endif
-            ss->compressedLength_ = compressedLength;
-            if (compressedLength == 0) {
-                PodCopy(ss->data.source, tok->chars, ss->length());
-            } else {
-                // Shrink the buffer to the size of the compressed data. The
-                // memory allocation functions on JSContext and JSRuntime are
-                // not threadsafe, so use js_realloc directly. We'll fix up the
-                // memory accounting of the runtime in waitOnCompression().
-                void *newmem = js_realloc(ss->data.compressed, compressedLength);
-                JS_ASSERT(newmem); // Reducing memory size shouldn't fail.
-                ss->data.compressed = static_cast<unsigned char *>(newmem);
-            }
+          case COMPRESSING:
+            if (!internalCompress())
+                tok->oom = true;
 
             // We hold the lock, so no one should have changed this.
             JS_ASSERT(state == COMPRESSING);
             state = IDLE;
             PR_NotifyCondVar(done);
             break;
-          }
         }
     }
 }
@@ -1014,12 +1069,9 @@ SourceCompressorThread::waitOnCompression(SourceCompressionToken *userTok)
     saveTok->ss->ready_ = true;
 #endif
 
-    // Update memory accounting if needed.
-    if (saveTok->ss->compressed()) {
-        ptrdiff_t delta = saveTok->ss->compressedLength_ - sizeof(jschar) * saveTok->ss->length();
-        JS_ASSERT(delta < 0);
-        saveTok->cx->runtime->updateMallocCounter(NULL, delta);
-    }
+    // Update memory accounting.
+    if (!saveTok->oom)
+        saveTok->cx->runtime->updateMallocCounter(NULL, saveTok->ss->computedSizeOfData());
 
     saveTok->ss = NULL;
     saveTok->chars = NULL;
@@ -1041,20 +1093,20 @@ JSScript::setScriptSource(ScriptSource *ss)
     scriptSource_ = ss;
 }
 
-bool
-JSScript::loadSource(JSContext *cx, bool *worked)
+/* static */ bool
+JSScript::loadSource(JSContext *cx, HandleScript script, bool *worked)
 {
-    JS_ASSERT(!scriptSource_->hasSourceData());
+    JS_ASSERT(!script->scriptSource_->hasSourceData());
     *worked = false;
-    if (!cx->runtime->sourceHook || !scriptSource_->sourceRetrievable())
+    if (!cx->runtime->sourceHook || !script->scriptSource_->sourceRetrievable())
         return true;
     jschar *src = NULL;
     uint32_t length;
-    if (!cx->runtime->sourceHook(cx, this, &src, &length))
+    if (!cx->runtime->sourceHook(cx, script, &src, &length))
         return false;
     if (!src)
         return true;
-    ScriptSource *ss = scriptSource();
+    ScriptSource *ss = script->scriptSource();
     ss->setSource(src, length);
     *worked = true;
     return true;
@@ -1144,15 +1196,11 @@ ScriptSource::setSourceCopy(JSContext *cx, StableCharPtr src, uint32_t length,
                             bool argumentsNotIncluded, SourceCompressionToken *tok)
 {
     JS_ASSERT(!hasSourceData());
-    const size_t nbytes = length * sizeof(jschar);
-    data.compressed = static_cast<unsigned char *>(cx->malloc_(nbytes));
-    if (!data.compressed)
-        return false;
     length_ = length;
     argumentsNotIncluded_ = argumentsNotIncluded;
 
 #ifdef JS_THREADSAFE
-    if (tok) {
+    if (tok && cx->runtime->useHelperThreads()) {
 #ifdef DEBUG
         ready_ = false;
 #endif
@@ -1162,6 +1210,9 @@ ScriptSource::setSourceCopy(JSContext *cx, StableCharPtr src, uint32_t length,
     } else
 #endif
     {
+        data.source = cx->runtime->pod_malloc<jschar>(length);
+        if (!data.source)
+            return false;
         PodCopy(data.source, src.get(), length_);
     }
 
@@ -1177,12 +1228,21 @@ ScriptSource::setSource(const jschar *src, uint32_t length)
     data.source = const_cast<jschar *>(src);
 }
 
-void
-SourceCompressionToken::ensureReady()
+bool
+SourceCompressionToken::complete()
 {
+    JS_ASSERT_IF(!ss, !chars);
 #ifdef JS_THREADSAFE
-    cx->runtime->sourceCompressorThread.waitOnCompression(this);
+    if (ss) {
+        cx->runtime->sourceCompressorThread.waitOnCompression(this);
+        JS_ASSERT(!ss);
+    }
+    if (oom) {
+        JS_ReportOutOfMemory(cx);
+        return false;
+    }
 #endif
+    return true;
 }
 
 void
@@ -1773,6 +1833,8 @@ JSScript::isShortRunning()
 bool
 JSScript::enclosingScriptsCompiledSuccessfully() const
 {
+    AutoAssertNoGC nogc;
+
     /*
      * When a nested script is succesfully compiled, it is eagerly given the
      * static JSFunction of its enclosing script. The enclosing function's
@@ -2051,6 +2113,7 @@ namespace js {
 unsigned
 CurrentLine(JSContext *cx)
 {
+    AutoAssertNoGC nogc;
     return PCToLineNumber(cx->fp()->script(), cx->regs().pc);
 }
 
@@ -2058,6 +2121,7 @@ void
 CurrentScriptFileLineOriginSlow(JSContext *cx, const char **file, unsigned *linenop,
                                 JSPrincipals **origin)
 {
+    AutoAssertNoGC nogc;
     NonBuiltinScriptFrameIter iter(cx);
 
     if (iter.done()) {
@@ -2067,7 +2131,7 @@ CurrentScriptFileLineOriginSlow(JSContext *cx, const char **file, unsigned *line
         return;
     }
 
-    RootedScript script(cx, iter.script());
+    RawScript script = iter.script();
     *file = script->filename;
     *linenop = PCToLineNumber(iter.script(), iter.pc());
     *origin = script->originPrincipals;
@@ -2086,6 +2150,8 @@ Rebase(RawScript dst, RawScript src, T *srcp)
 JSScript *
 js::CloneScript(JSContext *cx, HandleObject enclosingScope, HandleFunction fun, HandleScript src)
 {
+    AssertCanGC();
+
     /* NB: Keep this in sync with XDRScript. */
 
     uint32_t nconsts   = src->hasConsts()   ? src->consts()->length   : 0;
@@ -2549,6 +2615,7 @@ JSScript::setNeedsArgsObj(bool needsArgsObj)
 /* static */ bool
 JSScript::argumentsOptimizationFailed(JSContext *cx, HandleScript script)
 {
+    AssertCanGC();
     JS_ASSERT(script->analyzedArgsUsage());
     JS_ASSERT(script->argumentsHasVarBinding());
     JS_ASSERT(!script->isGenerator);

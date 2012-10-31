@@ -266,13 +266,14 @@ pref("media.video-queue.default-size", 3);
 pref("widget.ime.android.landscape_fullscreen", -1);
 pref("widget.ime.android.fullscreen_threshold", 250); // in hundreths of inches
 
-// optimize images memory usage
+// optimize images' memory usage
 pref("image.mem.decodeondraw", true);
 pref("content.image.allow_locking", false);
 pref("image.mem.min_discard_timeout_ms", 10000);
+pref("image.mem.max_decoded_image_kb", 5120); /* 5MB */
 
 // enable touch events interfaces
-pref("dom.w3c_touch_events.enabled", true);
+pref("dom.w3c_touch_events.enabled", 1);
 pref("dom.w3c_touch_events.safetyX", 0); // escape borders in units of 1/240"
 pref("dom.w3c_touch_events.safetyY", 120); // escape borders in units of 1/240"
 
@@ -507,7 +508,7 @@ pref("dom.experimental_forms", true);
 pref("gfx.gralloc.enabled", false);
 
 // XXXX REMOVE FOR PRODUCTION. Turns on GC and CC logging
-pref("javascript.options.mem.log", true);
+pref("javascript.options.mem.log", false);
 
 // Increase mark slice time from 10ms to 30ms
 pref("javascript.options.mem.gc_incremental_slice_ms", 30);

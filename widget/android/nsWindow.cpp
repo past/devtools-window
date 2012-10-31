@@ -771,6 +771,13 @@ nsWindow::OnGlobalAndroidEvent(AndroidGeckoEvent *ae)
             if (ae->Type() == AndroidGeckoEvent::FORCED_RESIZE || nw != gAndroidBounds.width ||
                 nh != gAndroidBounds.height) {
 
+                if (sCompositorParent != 0 && gAndroidBounds.width == 0) {
+                    // Propagate size change to compositor. This is sometimes essential
+                    // on startup, because the window size may not have been available
+                    // when the compositor was created.
+                    ScheduleResumeComposition(nw, nh);
+                }
+
                 gAndroidBounds.width = nw;
                 gAndroidBounds.height = nh;
 
@@ -1241,16 +1248,12 @@ nsWindow::OnSizeChanged(const gfxIntSize& aSize)
 {
     ALOG("nsWindow: %p OnSizeChanged [%d %d]", (void*)this, aSize.width, aSize.height);
 
-    SchedulePauseComposition();
-
     mBounds.width = aSize.width;
     mBounds.height = aSize.height;
 
     if (mWidgetListener) {
         mWidgetListener->WindowResized(this, aSize.width, aSize.height);
     }
-
-    ScheduleResumeComposition(aSize.width, aSize.height);
 }
 
 void
@@ -1421,6 +1424,10 @@ nsWindow::DispatchMultitouchEvent(nsTouchEvent &event, AndroidGeckoEvent *ae)
 
     event.modifiers = 0;
     event.time = ae->Time();
+    event.InitBasicModifiers(ae->IsCtrlPressed(),
+                             ae->IsAltPressed(),
+                             ae->IsShiftPressed(),
+                             ae->IsMetaPressed());
 
     int action = ae->Action() & AndroidMotionEvent::ACTION_MASK;
     if (action == AndroidMotionEvent::ACTION_UP ||
@@ -1956,6 +1963,7 @@ nsWindow::OnIMEEvent(AndroidGeckoEvent *ae)
                                         ae->Offset() + ae->Count());
             selEvent.mLength = uint32_t(NS_ABS(ae->Count()));
             selEvent.mReversed = ae->Count() >= 0 ? false : true;
+            selEvent.mExpandToClusterBoundary = false;
 
             DispatchEvent(&selEvent);
         }
@@ -2241,8 +2249,14 @@ void
 nsWindow::SetCompositor(mozilla::layers::CompositorParent* aCompositorParent,
                         mozilla::layers::CompositorChild* aCompositorChild)
 {
+    bool sizeChangeNeeded = (aCompositorParent && !sCompositorParent && gAndroidBounds.width != 0);
+
     sCompositorParent = aCompositorParent;
     sCompositorChild = aCompositorChild;
+
+    if (sizeChangeNeeded) {
+        ScheduleResumeComposition(gAndroidBounds.width, gAndroidBounds.height);
+    }
 }
 
 void
@@ -2267,6 +2281,20 @@ nsWindow::ScheduleResumeComposition(int width, int height)
     if (sCompositorParent) {
         sCompositorParent->ScheduleResumeOnCompositorThread(width, height);
     }
+}
+
+float
+nsWindow::ComputeRenderIntegrity()
+{
+    if (sCompositorParent) {
+        mozilla::layers::LayerManagerOGL* manager =
+          static_cast<mozilla::layers::LayerManagerOGL*>(sCompositorParent->GetLayerManager());
+        if (manager) {
+            return manager->ComputeRenderIntegrity();
+        }
+    }
+
+    return 1.f;
 }
 
 bool

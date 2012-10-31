@@ -1296,6 +1296,14 @@ nsObjectLoadingContent::UpdateObjectParameters()
     }
   }
 
+  // For eAllowPluginSkipChannel tags, if we have a non-plugin type, but can get
+  // a plugin type from the extension, prefer that to falling back to a channel.
+  if (GetTypeOfContent(newMime) != eType_Plugin && newURI &&
+      (caps & eAllowPluginSkipChannel) &&
+      IsPluginEnabledByExtension(newURI, newMime)) {
+    LOG(("OBJLC [%p]: Using extension as type hint (%s)", this, newMime.get()));
+  }
+
   ///
   /// Check if the original (pre-channel) content-type or URI changed, and
   /// record mOriginal{ContentType,URI}
@@ -1470,9 +1478,15 @@ nsObjectLoadingContent::UpdateObjectParameters()
     mURI = newURI;
   }
 
-  if (mContentType != newMime) {
+  // We don't update content type when loading, as the type is not final and we
+  // don't want to superfluously change between mOriginalContentType ->
+  // mContentType when doing |obj.data = obj.data| with a channel and differing
+  // type.
+  if (mType != eType_Loading && mContentType != newMime) {
     retval = (ParameterUpdateFlags)(retval | eParamStateChanged);
-    LOG(("OBJLC [%p]: Object effective mime type changed (%s -> %s)", this, mContentType.get(), newMime.get()));
+    retval = (ParameterUpdateFlags)(retval | eParamContentTypeChanged);
+    LOG(("OBJLC [%p]: Object effective mime type changed (%s -> %s)",
+         this, mContentType.get(), newMime.get()));
     mContentType = newMime;
   }
 
@@ -1551,6 +1565,12 @@ nsObjectLoadingContent::LoadObject(bool aNotify,
     } else {
       fallbackType = eFallbackUnsupported;
     }
+  }
+
+  // Explicit user activation should reset if the object changes content types
+  if (mActivated && (stateChange & eParamContentTypeChanged)) {
+    LOG(("OBJLC [%p]: Content type changed, clearing activation state", this));
+    mActivated = false;
   }
 
   // We synchronously start/stop plugin instances below, which may spin the
@@ -1659,6 +1679,13 @@ nsObjectLoadingContent::LoadObject(bool aNotify,
     LOG(("OBJLC [%p]: Marking plugin as click-to-play", this));
     mType = eType_Null;
     fallbackType = clickToPlayReason;
+  }
+
+  if (!mActivated && mType == eType_Plugin) {
+    // Object passed ShouldPlay and !ShouldPreview, so it should be considered
+    // activated until it changes content type
+    LOG(("OBJLC [%p]: Object implicitly activated", this));
+    mActivated = true;
   }
 
   // Sanity check: We shouldn't have any loaded resources, pending events, or
@@ -1850,8 +1877,20 @@ nsObjectLoadingContent::LoadObject(bool aNotify,
     // (this is otherwise unset by the stack class)
     mIsLoading = false;
     mFinalListener = finalListener;
-    finalListener->OnStartRequest(mChannel, nullptr);
+    rv = finalListener->OnStartRequest(mChannel, nullptr);
     mSrcStreamLoading = false;
+    if (NS_FAILED(rv)) {
+      // Failed to load new content, but since we've already notified of our
+      // transition, we can just Unload and call LoadFallback (which will notify
+      // again)
+      mType = eType_Null;
+      // This could *also* technically re-enter if OnStartRequest fails after
+      // spawning a plugin.
+      mIsLoading = true;
+      UnloadObject(false);
+      NS_ENSURE_TRUE(mIsLoading, NS_OK);
+      LoadFallback(fallbackType, true);
+    }
   }
 
   return NS_OK;
@@ -2085,7 +2124,7 @@ nsObjectLoadingContent::GetTypeOfContent(const nsCString& aMIMEType)
 
   // SVGs load as documents, but are their own capability
   bool isSVG = aMIMEType.LowerCaseEqualsLiteral("image/svg+xml");
-  bool supportType = isSVG ? eSupportSVG : eSupportDocuments;
+  Capabilities supportType = isSVG ? eSupportSVG : eSupportDocuments;
   if ((caps & supportType) && IsSupportedDocument(aMIMEType)) {
     return eType_Document;
   }
@@ -2464,15 +2503,25 @@ nsObjectLoadingContent::PlayPlugin()
   if (!nsContentUtils::IsCallerChrome())
     return NS_OK;
 
-  mActivated = true;
-  return LoadObject(true, true);
+  if (!mActivated) {
+    mActivated = true;
+    LOG(("OBJLC [%p]: Activated by user", this));
+  }
+
+  // If we're in a click-to-play or play preview state, we need to reload
+  // Fallback types >= eFallbackClickToPlay are plugin-replacement types, see
+  // header
+  if (mType == eType_Null && mFallbackType >= eFallbackClickToPlay) {
+    return LoadObject(true, true);
+  }
+
+  return NS_OK;
 }
 
 NS_IMETHODIMP
 nsObjectLoadingContent::GetActivated(bool *aActivated)
 {
-  FallbackType reason;
-  *aActivated = ShouldPlay(reason) && !ShouldPreview();
+  *aActivated = mActivated;
   return NS_OK;
 }
 
@@ -2490,11 +2539,14 @@ nsObjectLoadingContent::CancelPlayPreview()
   if (!nsContentUtils::IsCallerChrome())
     return NS_ERROR_NOT_AVAILABLE;
 
-  if (mPlayPreviewCanceled || mActivated)
-    return NS_OK;
-
   mPlayPreviewCanceled = true;
-  return LoadObject(true, true);
+  
+  // If we're in play preview state already, reload
+  if (mType == eType_Null && mFallbackType == eFallbackPlayPreview) {
+    return LoadObject(true, true);
+  }
+
+  return NS_OK;
 }
 
 bool

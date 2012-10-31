@@ -31,6 +31,7 @@ extern PRThread *gSocketThread;
 
 static NS_DEFINE_CID(kSocketTransportServiceCID, NS_SOCKETTRANSPORTSERVICE_CID);
 
+using namespace mozilla;
 using namespace mozilla::net;
 
 //-----------------------------------------------------------------------------
@@ -89,19 +90,18 @@ nsHttpConnection::~nsHttpConnection()
     if (!mEverUsedSpdy) {
         LOG(("nsHttpConnection %p performed %d HTTP/1.x transactions\n",
              this, mHttp1xTransactionCount));
-        mozilla::Telemetry::Accumulate(
-            mozilla::Telemetry::HTTP_REQUEST_PER_CONN, mHttp1xTransactionCount);
+        Telemetry::Accumulate(Telemetry::HTTP_REQUEST_PER_CONN,
+                              mHttp1xTransactionCount);
     }
 
     if (mTotalBytesRead) {
         uint32_t totalKBRead = static_cast<uint32_t>(mTotalBytesRead >> 10);
         LOG(("nsHttpConnection %p read %dkb on connection spdy=%d\n",
              this, totalKBRead, mEverUsedSpdy));
-        mozilla::Telemetry::Accumulate(
-            mEverUsedSpdy ?
-              mozilla::Telemetry::SPDY_KBREAD_PER_CONN :
-              mozilla::Telemetry::HTTP_KBREAD_PER_CONN,
-            totalKBRead);
+        Telemetry::Accumulate(mEverUsedSpdy ?
+                              Telemetry::SPDY_KBREAD_PER_CONN :
+                              Telemetry::HTTP_KBREAD_PER_CONN,
+                              totalKBRead);
     }
 }
 
@@ -294,8 +294,7 @@ nsHttpConnection::EnsureNPNComplete()
     if (NS_SUCCEEDED(rv))
         StartSpdy(spdyVersion);
 
-    mozilla::Telemetry::Accumulate(mozilla::Telemetry::SPDY_NPN_CONNECT,
-                                   mUsingSpdyVersion);
+    Telemetry::Accumulate(Telemetry::SPDY_NPN_CONNECT, mUsingSpdyVersion);
 
 npnComplete:
     LOG(("nsHttpConnection::EnsureNPNComplete setting complete to true"));
@@ -712,7 +711,8 @@ nsHttpConnection::OnHeadersAvailable(nsAHttpTransaction *trans,
     // socket transport.  We pass an error code of NS_ERROR_NET_RESET to
     // trigger the transactions 'restart' mechanism.  We tell it to reset its
     // response headers so that it will be ready to receive the new response.
-    if (responseHead->Status() == 408) {
+    uint16_t responseStatus = responseHead->Status();
+    if (responseStatus == 408) {
         Close(NS_ERROR_NET_RESET);
         *reset = true;
         return NS_OK;
@@ -789,7 +789,7 @@ nsHttpConnection::OnHeadersAvailable(nsAHttpTransaction *trans,
     // classification to general to avoid pipelining more revalidations behind
     // it.
     if (mClassification == nsAHttpTransaction::CLASS_REVALIDATION &&
-        responseHead->Status() != 304) {
+        responseStatus != 304) {
         mClassification = nsAHttpTransaction::CLASS_GENERAL;
     }
     
@@ -842,7 +842,7 @@ nsHttpConnection::OnHeadersAvailable(nsAHttpTransaction *trans,
         NS_ABORT_IF_FALSE(!mUsingSpdyVersion,
                           "SPDY NPN Complete while using proxy connect stream");
         mProxyConnectStream = 0;
-        if (responseHead->Status() == 200) {
+        if (responseStatus == 200) {
             LOG(("proxy CONNECT succeeded! ssl=%s\n",
                  mConnInfo->UsingSSL() ? "true" :"false"));
             *reset = true;
@@ -866,12 +866,14 @@ nsHttpConnection::OnHeadersAvailable(nsAHttpTransaction *trans,
     }
     
     const char *upgradeReq = requestHead->PeekHeader(nsHttp::Upgrade);
-    if (upgradeReq) {
+    // Don't use persistent connection for Upgrade unless there's an auth failure:
+    // some proxies expect to see auth response on persistent connection.
+    if (upgradeReq && responseStatus != 401 && responseStatus != 407) {
         LOG(("HTTP Upgrade in play - disable keepalive\n"));
         DontReuse();
     }
     
-    if (responseHead->Status() == 101) {
+    if (responseStatus == 101) {
         const char *upgradeResp = responseHead->PeekHeader(nsHttp::Upgrade);
         if (!upgradeReq || !upgradeResp ||
             !nsHttp::FindToken(upgradeResp, upgradeReq,
@@ -1269,7 +1271,7 @@ nsHttpConnection::OnSocketWritable()
             //
             mTransaction->OnTransportStatus(mSocketTransport,
                                             NS_NET_STATUS_WAITING_FOR,
-                                            LL_ZERO);
+                                            0);
 
             rv = ResumeRecv(); // start reading
             again = false;

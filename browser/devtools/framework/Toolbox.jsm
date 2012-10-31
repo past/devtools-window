@@ -20,15 +20,23 @@ const EXPORTED_SYMBOLS = [ "Toolbox" ];
 
 /**
  * A "Toolbox" is the component that holds all the tools for one specific
- * target. Visually, it's a document (about:devtools) that includes the tools
- * tabs and all the iframes where the tool panels will be living in.
+ * target. Visually, it's a document that includes the tools tabs and all
+ * the iframes where the tool panels will be living in.
+ *
+ * @param {object} target
+ *        The object the toolbox is debugging.
+ * @param {DevTools.HostType} hostType
+ *        Type of host that will host the toolbox (e.g. sidebar, window)
+ * @param {string} selectedTool
+ *        Tool to select initially
  */
 function Toolbox(target, hostType, selectedTool) {
   this._target = target;
   this._toolPanels = new Map();
 
   this._onLoad = this._onLoad.bind(this);
-  this._handleEvent = this._handleEvent.bind(this);
+  this._toolRegistered = this._toolRegistered.bind(this);
+  this._toolUnregistered = this._toolUnregistered.bind(this);
   this.destroy = this.destroy.bind(this);
 
   if (!hostType) {
@@ -47,8 +55,8 @@ function Toolbox(target, hostType, selectedTool) {
 
   new EventEmitter(this);
 
-  gDevTools.on("tool-registered", this._handleEvent);
-  gDevTools.on("tool-unregistered", this._handleEvent);
+  gDevTools.on("tool-registered", this._toolRegistered);
+  gDevTools.on("tool-unregistered", this._toolUnregistered);
 }
 
 Toolbox.prototype = {
@@ -59,68 +67,11 @@ Toolbox.prototype = {
     LAST_TOOL: "devtools.toolbox.selectedTool"
   },
 
-  _handleEvent: function TB_handleEvent(aEventId, ...args) {
-    let toolId;
-
-    switch(aEventId) {
-      /**
-       * Handler for the tool-registered event.
-       * @param  {String} aToolId
-       *         The ID of the registered tool.
-       */
-      case "tool-registered":
-        toolId = args[0];
-
-        let defs = gDevTools.getToolDefinitions();
-        let tool = defs.get(toolId);
-
-        this._buildTabForTool(tool);
-        break;
-
-      /**
-       * Handler for the tool-unregistered event.
-       * @param  {String} aToolId
-       *         The ID of the unregistered tool.
-       */
-      case "tool-unregistered":
-        toolId = args[0];
-
-        let doc = this._host.frame.contentWindow.document;
-        let radio = doc.getElementById("toolbox-tab-" + toolId);
-        let panel = doc.getElementById("toolbox-panel-" + toolId);
-
-        if (this._currentToolId == toolId) {
-          let nextToolName = null;
-          if (radio.nextSibling) {
-            nextToolName = radio.nextSibling.getAttribute("toolid");
-          }
-          if (radio.previousSibling) {
-            nextToolName = radio.previousSibling.getAttribute("toolid");
-          }
-          if (nextToolName) {
-            this.selectTool(nextToolName);
-          }
-        }
-
-        if (radio) {
-          radio.parentNode.removeChild(radio);
-        }
-
-        if (panel) {
-          panel.parentNode.removeChild(panel);
-        }
-
-        if (this._toolPanels.has(toolId)) {
-          let instance = this._toolPanels.get(toolId);
-          instance.destroy();
-          this._toolPanels.delete(toolId);
-        }
-        break;
-    }
-  },
-
   /**
    * Returns a *copy* of the _toolPanels collection.
+   *
+   * @return {Map} panels
+   *         All the running panels in the toolbox
    */
   getToolPanels: function TB_getToolPanels() {
     let panels = new Map();
@@ -140,8 +91,8 @@ Toolbox.prototype = {
     return this._target;
   },
 
-  set target(aValue) {
-    this._target = aValue;
+  set target(value) {
+    this._target = value;
   },
 
   /**
@@ -152,8 +103,8 @@ Toolbox.prototype = {
     return this._host.type;
   },
 
-  set hostType(aValue) {
-    this._switchToHost(aValue);
+  set hostType(value) {
+    this._switchToHost(value);
   },
 
   /**
@@ -163,36 +114,44 @@ Toolbox.prototype = {
     return this._currentToolId;
   },
 
-  set currentToolId(aValue) {
-    this._currentToolId = aValue;
+  set currentToolId(value) {
+    this._currentToolId = value;
   },
 
   /**
-   * Get the iframe containing the toolbox UI
+   * Get the iframe containing the toolbox UI.
    */
   get frame() {
     return this._host.frame;
   },
 
   /**
+   * Shortcut to the document containing the toolbox UI
+   */
+  get doc() {
+    return this.frame.contentDocument;
+  },
+
+  /**
    * Open the toolbox
    */
   open: function TBOX_open() {
-    this._host.createUI(function (iframe) {
+    this._host.once("ready", function(event, iframe) {
       iframe.addEventListener("DOMContentLoaded", this._onLoad, true);
       iframe.setAttribute("src", this._URL);
     }.bind(this));
+
+    this._host.open();
   },
 
   /**
    * Onload handler for the toolbox's iframe
    */
   _onLoad: function TBOX_onLoad() {
-    let frame = this._host.frame;
-    frame.removeEventListener("DOMContentLoaded", this._onLoad, true);
+    this.frame.removeEventListener("DOMContentLoaded", this._onLoad, true);
+    this.isReady = true;
 
-    let doc = frame.contentDocument;
-    let buttons = doc.getElementsByClassName("toolbox-dock-button");
+    let buttons = this.doc.getElementsByClassName("toolbox-dock-button");
 
     for (let i = 0; i < buttons.length; i++) {
       let button = buttons[i];
@@ -203,15 +162,15 @@ Toolbox.prototype = {
       .bind(this), true);
     }
 
-    let closeButton = doc.getElementById("toolbox-close");
+    let closeButton = this.doc.getElementById("toolbox-close");
     closeButton.addEventListener("command", this.destroy, true);
 
     this._buildTabs();
-    this._buildButtons(frame);
+    this._buildButtons(this.frame);
 
     this.selectTool(this._defaultToolId);
 
-    this.emit("load");
+    this.emit("ready");
   },
 
   /**
@@ -225,6 +184,9 @@ Toolbox.prototype = {
 
   /**
    * Add buttons to the UI as specified in the devtools.window.toolbarspec pref
+   *
+   * @param {iframe} frame
+   *        The iframe to contain the buttons
    */
   _buildButtons: function TBOX_buildButtons(frame) {
     let window = frame.ownerDocument.defaultView;
@@ -235,12 +197,11 @@ Toolbox.prototype = {
     }
 
     let toolbarSpec = CommandUtils.getCommandbarSpec("devtools.toolbox.toolbarspec");
-    let doc = frame.contentDocument;
     let requisition = window.DeveloperToolbar.display.requisition;
 
-    let buttons = CommandUtils.createButtons(toolbarSpec, doc, requisition);
+    let buttons = CommandUtils.createButtons(toolbarSpec, this.doc, requisition);
 
-    let container = doc.getElementById("toolbox-buttons");
+    let container = this.doc.getElementById("toolbox-buttons");
     buttons.forEach(function(button) {
       container.appendChild(button);
     }.bind(this));
@@ -249,19 +210,17 @@ Toolbox.prototype = {
   /**
    * Build a tab for one tool definition and add to the toolbox
    *
-   * @param {string} aToolDefinition
+   * @param {string} toolDefinition
    *        Tool definition of the tool to build a tab for.
    */
-  _buildTabForTool: function TBOX_buildTabForTool(aToolDefinition) {
-    let doc = this._host.frame.contentDocument;
-    let tabs = doc.getElementById("toolbox-tabs");
-    let deck = doc.getElementById("toolbox-deck");
+  _buildTabForTool: function TBOX_buildTabForTool(toolDefinition) {
+    let tabs = this.doc.getElementById("toolbox-tabs");
+    let deck = this.doc.getElementById("toolbox-deck");
 
-    let definition = aToolDefinition;
-    let id = definition.id;
+    let id = toolDefinition.id;
 
-    let radio = doc.createElement("radio");
-    radio.setAttribute("label", definition.label);
+    let radio = this.doc.createElement("radio");
+    radio.setAttribute("label", toolDefinition.label);
     radio.className = "toolbox-tab devtools-tab";
     radio.id = "toolbox-tab-" + id;
     radio.setAttribute("toolid", id);
@@ -269,11 +228,11 @@ Toolbox.prototype = {
       this.selectTool(id);
     }.bind(this, id));
 
-    let vbox = doc.createElement("vbox");
+    let vbox = this.doc.createElement("vbox");
     vbox.className = "toolbox-panel";
     vbox.id = "toolbox-panel-" + id;
 
-    let iframe = doc.createElement("iframe");
+    let iframe = this.doc.createElement("iframe");
     iframe.className = "toolbox-panel-iframe";
     iframe.id = "toolbox-panel-iframe-" + id;
     iframe.setAttribute("toolid", id);
@@ -291,9 +250,11 @@ Toolbox.prototype = {
    *        The id of the tool to switch to
    */
   selectTool: function TBOX_selectTool(id) {
-    let doc = this._host.frame.contentDocument;
-    let tab = doc.getElementById("toolbox-tab-" + id);
-    let tabstrip = doc.getElementById("toolbox-tabs");
+    if (!this.isReady) {
+      throw new Error("Can't select tool, wait for toolbox 'ready' event");
+    }
+    let tab = this.doc.getElementById("toolbox-tab-" + id);
+    let tabstrip = this.doc.getElementById("toolbox-tabs");
 
     // select the right tab
     let index = -1;
@@ -307,21 +268,26 @@ Toolbox.prototype = {
     tabstrip.selectedIndex = index;
 
     // and select the right iframe
-    let deck = doc.getElementById("toolbox-deck");
+    let deck = this.doc.getElementById("toolbox-deck");
     deck.selectedIndex = index;
 
-    let iframe = doc.getElementById("toolbox-panel-iframe-" + id);
+    let iframe = this.doc.getElementById("toolbox-panel-iframe-" + id);
+
+    let definition = gDevTools.getToolDefinitions().get(id);
 
     // only build the tab's content if we haven't already
-    if (!iframe.toolLoaded) {
-      iframe.toolLoaded = true;
-
-      let definition = gDevTools.getToolDefinitions().get(id);
-
+    if (iframe.src != definition.url) {
       let boundLoad = function() {
         iframe.removeEventListener("DOMContentLoaded", boundLoad, true);
-        let instance = definition.build(iframe.contentWindow, this);
-        this._toolPanels.set(id, instance);
+        let panel = definition.build(iframe.contentWindow, this);
+        this._toolPanels.set(id, panel);
+        if (panel.isReady) {
+          this.emit(id + "-ready", panel);
+        } else {
+          panel.once("ready", function(event) {
+            this.emit(id + "-ready", panel);
+          }.bind(this));
+        }
       }.bind(this);
 
       iframe.addEventListener("DOMContentLoaded", boundLoad, true);
@@ -336,8 +302,11 @@ Toolbox.prototype = {
   /**
    * Create a host object based on the given host type.
    *
-   * @param string hostType
+   * @param {string} hostType
    *        The host type of the new host object
+   *
+   * @return {Host} host
+   *        The created host object
    */
   _createHost: function TBOX_createHost(hostType) {
     let hostTab = this._getHostTab();
@@ -355,6 +324,9 @@ Toolbox.prototype = {
   /**
    * Switch to a new host for the toolbox UI. E.g.
    * bottom, sidebar, separate window.
+   *
+   * @param {string} hostType
+   *        The host type of the new host object
    */
   _switchToHost: function TBOX_switchToHost(hostType) {
     if (hostType == this._host.type) {
@@ -363,14 +335,13 @@ Toolbox.prototype = {
 
     let newHost = this._createHost(hostType);
 
-    newHost.createUI(function(iframe) {
+    newHost.once("ready", function(event, iframe) {
       // change toolbox document's parent to the new host
       iframe.QueryInterface(Components.interfaces.nsIFrameLoaderOwner);
-      iframe.swapFrameLoaders(this._host.frame);
+      iframe.swapFrameLoaders(this.frame);
 
-      // destroy old host's UI
-      this._host.destroyUI();
       this._host.off("window-closed", this.destroy);
+      this._host.destroy();
 
       this._host = newHost;
 
@@ -380,6 +351,8 @@ Toolbox.prototype = {
 
       this.emit("host-changed");
     }.bind(this));
+
+    newHost.open();
   },
 
   /**
@@ -398,9 +371,7 @@ Toolbox.prototype = {
    * Set the docking buttons to reflect the current host
    */
   _setDockButtons: function TBOX_setDockButtons() {
-    let doc = this._host.frame.contentDocument;
-
-    let buttons = doc.querySelectorAll(".toolbox-dock-button");
+    let buttons = this.doc.querySelectorAll(".toolbox-dock-button");
     for (let button of buttons) {
       if (button.id == "toolbox-dock-" + this._host.type) {
         button.checked = true;
@@ -412,13 +383,66 @@ Toolbox.prototype = {
   },
 
   /**
+   * Handler for the tool-registered event.
+   * @param  {string} event
+   *         Name of the event ("tool-registered")
+   * @param  {string} toolId
+   *         Id of the tool that was registered
+   */
+  _toolRegistered: function TBOX_toolRegistered(event, toolId) {
+    let defs = gDevTools.getToolDefinitions();
+    let tool = defs.get(toolId);
+
+    this._buildTabForTool(tool);
+  },
+
+  /**
+   * Handler for the tool-unregistered event.
+   * @param  {string} event
+   *         Name of the event ("tool-unregistered")
+   * @param  {string} toolId
+   *         Id of the tool that was unregistered
+   */
+  _toolUnregistered: function TBOX_toolUnregistered(event, toolId) {
+    let radio = this.doc.getElementById("toolbox-tab-" + toolId);
+    let panel = this.doc.getElementById("toolbox-panel-" + toolId);
+
+    if (this._currentToolId == toolId) {
+      let nextToolName = null;
+      if (radio.nextSibling) {
+        nextToolName = radio.nextSibling.getAttribute("toolid");
+      }
+      if (radio.previousSibling) {
+        nextToolName = radio.previousSibling.getAttribute("toolid");
+      }
+      if (nextToolName) {
+        this.selectTool(nextToolName);
+      }
+    }
+
+    if (radio) {
+      radio.parentNode.removeChild(radio);
+    }
+
+    if (panel) {
+      panel.parentNode.removeChild(panel);
+    }
+
+    if (this._toolPanels.has(toolId)) {
+      let instance = this._toolPanels.get(toolId);
+      instance.destroy();
+      this._toolPanels.delete(toolId);
+    }
+  },
+
+
+  /**
    * Get the toolbox's notification box
    *
    * @return The notification box element.
    */
   getNotificationBox: function TBOX_getNotificationBox() {
-    let doc = this._host.frame.contentDocument;
-    return doc.getElementById("toolbox-notificationbox");
+    return this.doc.getElementById("toolbox-notificationbox");
   },
 
   /**
@@ -429,10 +453,10 @@ Toolbox.prototype = {
       panel.destroy();
     }
 
-    this._host.destroyUI();
+    this._host.destroy();
 
-    gDevTools.off("tool-registered", this._handleEvent);
-    gDevTools.off("tool-unregistered", this._handleEvent);
+    gDevTools.off("tool-registered", this._toolRegistered);
+    gDevTools.off("tool-unregistered", this._toolUnregistered);
 
     this.emit("destroyed");
   }

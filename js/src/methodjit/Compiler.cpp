@@ -704,7 +704,7 @@ MakeJITScript(JSContext *cx, JSScript *script)
 
             Bytecode *code = analysis->maybeCode(offset);
             if (!code)
-                continue;
+                op = JSOP_NOP; /* Ignore edges from unreachable opcodes. */
 
             /* Whether this should be the last opcode in the chunk. */
             bool finishChunk = false;
@@ -1292,17 +1292,7 @@ mjit::Compiler::markUndefinedLocal(uint32_t offset, uint32_t i)
     uint32_t depth = ssa.getFrame(a->inlineIndex).depth;
     uint32_t slot = LocalSlot(script_, i);
     Address local(JSFrameReg, sizeof(StackFrame) + (depth + i) * sizeof(Value));
-    if (!cx->typeInferenceEnabled() || !analysis->trackSlot(slot)) {
-        masm.storeValue(UndefinedValue(), local);
-    } else {
-        Lifetime *lifetime = analysis->liveness(slot).live(offset);
-        if (lifetime)
-            masm.storeValue(UndefinedValue(), local);
-#ifdef DEBUG
-        else
-            masm.storeValue(ObjectValueCrashOnTouch(), local);
-#endif
-    }
+    masm.storeValue(UndefinedValue(), local);
 }
 
 void
@@ -5091,7 +5081,7 @@ mjit::Compiler::jsop_getprop(PropertyName *name, JSValueType knownType,
         /*
          * Check if we are accessing the 'length' property of a known dense array.
          * Note that if the types are known to indicate dense arrays, their lengths
-         * must fit in an int32.
+         * must fit in an int32_t.
          */
         if (!types->hasObjectFlags(cx, types::OBJECT_FLAG_NON_DENSE_ARRAY)) {
             bool isObject = top->isTypeKnown();
@@ -5119,7 +5109,7 @@ mjit::Compiler::jsop_getprop(PropertyName *name, JSValueType knownType,
 
         /*
          * Check if we're accessing the 'length' property of a typed array.
-         * The typed array length always fits in an int32.
+         * The typed array length always fits in an int32_t.
          */
         if (!types->hasObjectFlags(cx, types::OBJECT_FLAG_NON_TYPED_ARRAY)) {
             if (top->isConstant()) {

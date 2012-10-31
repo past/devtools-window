@@ -290,6 +290,8 @@ IonActivation::~IonActivation()
 IonCode *
 IonCode::New(JSContext *cx, uint8 *code, uint32 bufferSize, JSC::ExecutablePool *pool)
 {
+    AssertCanGC();
+
     IonCode *codeObj = gc::NewGCThing<IonCode>(cx, gc::FINALIZE_IONCODE, sizeof(IonCode));
     if (!codeObj) {
         pool->release();
@@ -754,108 +756,156 @@ ion::ToggleBarriers(JSCompartment *comp, bool needs)
 namespace js {
 namespace ion {
 
-bool
-CompileBackEnd(IonBuilder *builder)
+LIRGraph *
+CompileBackEnd(MIRGenerator *mir)
 {
     IonSpewPass("BuildSSA");
     // Note: don't call AssertGraphCoherency before SplitCriticalEdges,
     // the graph is not in RPO at this point.
 
-    MIRGraph &graph = builder->graph();
+    MIRGraph &graph = mir->graph();
 
-    if (!SplitCriticalEdges(builder, graph))
-        return false;
+    if (mir->shouldCancel("Start"))
+        return NULL;
+
+    if (!SplitCriticalEdges(graph))
+        return NULL;
     IonSpewPass("Split Critical Edges");
     AssertGraphCoherency(graph);
 
+    if (mir->shouldCancel("Split Critical Edges"))
+        return NULL;
+
     if (!RenumberBlocks(graph))
-        return false;
+        return NULL;
     IonSpewPass("Renumber Blocks");
     AssertGraphCoherency(graph);
 
+    if (mir->shouldCancel("Renumber Blocks"))
+        return NULL;
+
     if (!BuildDominatorTree(graph))
-        return false;
+        return NULL;
     // No spew: graph not changed.
 
+    if (mir->shouldCancel("Dominator Tree"))
+        return NULL;
+
     // This must occur before any code elimination.
-    if (!EliminatePhis(graph))
-        return false;
+    if (!EliminatePhis(mir, graph))
+        return NULL;
     IonSpewPass("Eliminate phis");
     AssertGraphCoherency(graph);
 
+    if (mir->shouldCancel("Eliminate phis"))
+        return NULL;
+
     if (!BuildPhiReverseMapping(graph))
-        return false;
+        return NULL;
     // No spew: graph not changed.
 
+    if (mir->shouldCancel("Phi reverse mapping"))
+        return NULL;
+
     // This pass also removes copies.
-    if (!ApplyTypeInformation(graph))
-        return false;
+    if (!ApplyTypeInformation(mir, graph))
+        return NULL;
     IonSpewPass("Apply types");
     AssertGraphCoherency(graph);
+
+    if (mir->shouldCancel("Apply types"))
+        return NULL;
 
     // Alias analysis is required for LICM and GVN so that we don't move
     // loads across stores.
     if (js_IonOptions.licm || js_IonOptions.gvn) {
-        AliasAnalysis analysis(graph);
+        AliasAnalysis analysis(mir, graph);
         if (!analysis.analyze())
-            return false;
+            return NULL;
         IonSpewPass("Alias analysis");
         AssertGraphCoherency(graph);
+
+        if (mir->shouldCancel("Alias analysis"))
+            return NULL;
     }
 
     if (js_IonOptions.edgeCaseAnalysis) {
-        EdgeCaseAnalysis edgeCaseAnalysis(graph);
+        EdgeCaseAnalysis edgeCaseAnalysis(mir, graph);
         if (!edgeCaseAnalysis.analyzeEarly())
-            return false;
+            return NULL;
         IonSpewPass("Edge Case Analysis (Early)");
         AssertGraphCoherency(graph);
+
+        if (mir->shouldCancel("Edge Case Analysis (Early)"))
+            return NULL;
     }
 
     if (js_IonOptions.gvn) {
-        ValueNumberer gvn(graph, js_IonOptions.gvnIsOptimistic);
+        ValueNumberer gvn(mir, graph, js_IonOptions.gvnIsOptimistic);
         if (!gvn.analyze())
-            return false;
+            return NULL;
         IonSpewPass("GVN");
         AssertGraphCoherency(graph);
+
+        if (mir->shouldCancel("GVN"))
+            return NULL;
     }
 
     if (js_IonOptions.rangeAnalysis) {
         RangeAnalysis r(graph);
         if (!r.addBetaNobes())
-            return false;
+            return NULL;
         IonSpewPass("Beta");
         AssertGraphCoherency(graph);
 
+        if (mir->shouldCancel("RA Beta"))
+            return NULL;
+
         if (!r.analyze())
-            return false;
+            return NULL;
         IonSpewPass("Range Analysis");
         AssertGraphCoherency(graph);
 
+        if (mir->shouldCancel("Range Analysis"))
+            return NULL;
+
         if (!r.removeBetaNobes())
-            return false;
+            return NULL;
         IonSpewPass("De-Beta");
         AssertGraphCoherency(graph);
+
+        if (mir->shouldCancel("RA De-Beta"))
+            return NULL;
     }
 
-    if (!EliminateDeadCode(graph))
-        return false;
+    if (!EliminateDeadCode(mir, graph))
+        return NULL;
     IonSpewPass("DCE");
     AssertGraphCoherency(graph);
 
+    if (mir->shouldCancel("DCE"))
+        return NULL;
+
     if (js_IonOptions.licm) {
-        LICM licm(graph);
+        LICM licm(mir, graph);
         if (!licm.analyze())
-            return false;
+            return NULL;
         IonSpewPass("LICM");
         AssertGraphCoherency(graph);
+
+        if (mir->shouldCancel("LICM"))
+            return NULL;
     }
 
     if (js_IonOptions.edgeCaseAnalysis) {
-        EdgeCaseAnalysis edgeCaseAnalysis(graph);
+        EdgeCaseAnalysis edgeCaseAnalysis(mir, graph);
         if (!edgeCaseAnalysis.analyzeLate())
-            return false;
+            return NULL;
         IonSpewPass("Edge Case Analysis (Late)");
         AssertGraphCoherency(graph);
+
+        if (mir->shouldCancel("Edge Case Analysis (Late)"))
+            return NULL;
     }
 
     // Note: bounds check elimination has to run after all other passes that
@@ -863,28 +913,36 @@ CompileBackEnd(IonBuilder *builder)
     // index, code motion after this pass could incorrectly move a load or
     // store before its bounds check.
     if (!EliminateRedundantBoundsChecks(graph))
-        return false;
+        return NULL;
     IonSpewPass("Bounds Check Elimination");
     AssertGraphCoherency(graph);
 
-    LIRGraph *lir = builder->temp().lifoAlloc()->new_<LIRGraph>(&graph);
-    if (!lir)
-        return false;
+    if (mir->shouldCancel("Bounds Check Elimination"))
+        return NULL;
 
-    LIRGenerator lirgen(builder, graph, *lir);
+    LIRGraph *lir = mir->temp().lifoAlloc()->new_<LIRGraph>(&graph);
+    if (!lir)
+        return NULL;
+
+    LIRGenerator lirgen(mir, graph, *lir);
     if (!lirgen.generate())
-        return false;
+        return NULL;
     IonSpewPass("Generate LIR");
 
+    if (mir->shouldCancel("Generate LIR"))
+        return NULL;
+
     if (js_IonOptions.lsra) {
-        LinearScanAllocator regalloc(&lirgen, *lir);
+        LinearScanAllocator regalloc(mir, &lirgen, *lir);
         if (!regalloc.go())
-            return false;
+            return NULL;
         IonSpewPass("Allocate Registers", &regalloc);
+
+        if (mir->shouldCancel("Allocate Registers"))
+            return NULL;
     }
 
-    builder->lir = lir;
-    return true;
+    return lir;
 }
 
 class AutoDestroyAllocator
@@ -909,8 +967,10 @@ class AutoDestroyAllocator
 void
 AttachFinishedCompilations(JSContext *cx)
 {
+#ifdef JS_THREADSAFE
+    AssertCanGC();
     IonCompartment *ion = cx->compartment->ionCompartment();
-    if (!ion)
+    if (!ion || !cx->runtime->workerThreadState)
         return;
 
     AutoLockWorkerThreadState lock(cx->runtime);
@@ -923,11 +983,11 @@ AttachFinishedCompilations(JSContext *cx)
     while (!compilations.empty()) {
         IonBuilder *builder = compilations.popCopy();
 
-        if (builder->lir) {
-            JSScript *script = builder->script();
+        if (builder->backgroundCompiledLir) {
+            RootedScript script(cx, builder->script());
             IonContext ictx(cx, cx->compartment, &builder->temp());
 
-            CodeGenerator codegen(builder, *builder->lir);
+            CodeGenerator codegen(builder, *builder->backgroundCompiledLir);
 
             types::AutoEnterCompilation enterCompiler(cx, types::AutoEnterCompilation::Ion);
             enterCompiler.initExisting(builder->recompileInfo);
@@ -954,6 +1014,7 @@ AttachFinishedCompilations(JSContext *cx)
     }
 
     compilations.clear();
+#endif
 }
 
 static const size_t BUILDER_LIFO_ALLOC_PRIMARY_CHUNK_SIZE = 1 << 12;
@@ -961,6 +1022,7 @@ static const size_t BUILDER_LIFO_ALLOC_PRIMARY_CHUNK_SIZE = 1 << 12;
 static bool
 IonCompile(JSContext *cx, JSScript *script, JSFunction *fun, jsbytecode *osrPc, bool constructing)
 {
+    AssertCanGC();
 #if JS_TRACE_LOGGING
     AutoTraceLog logger(TraceLogging::defaultLogger(),
                         TraceLogging::ION_COMPILE_START,
@@ -1004,7 +1066,7 @@ IonCompile(JSContext *cx, JSScript *script, JSFunction *fun, jsbytecode *osrPc, 
     IonBuilder *builder = alloc->new_<IonBuilder>(cx, temp, graph, &oracle, info);
     JS_ASSERT(!builder->script()->ion);
 
-    IonSpewNewFunction(graph, builder->script());
+    IonSpewNewFunction(graph, builder->script().unsafeGet());
 
     if (!builder->build()) {
         IonSpew(IonSpew_Abort, "Builder failed to build.");
@@ -1012,7 +1074,7 @@ IonCompile(JSContext *cx, JSScript *script, JSFunction *fun, jsbytecode *osrPc, 
     }
     builder->clearForBackEnd();
 
-    if (js_IonOptions.parallelCompilation) {
+    if (js_IonOptions.parallelCompilation && OffThreadCompilationAvailable(cx)) {
         builder->script()->ion = ION_COMPILING_SCRIPT;
 
         if (!StartOffThreadIonCompile(cx, builder)) {
@@ -1027,12 +1089,13 @@ IonCompile(JSContext *cx, JSScript *script, JSFunction *fun, jsbytecode *osrPc, 
         return true;
     }
 
-    if (!CompileBackEnd(builder)) {
+    LIRGraph *lir = CompileBackEnd(builder);
+    if (!lir) {
         IonSpew(IonSpew_Abort, "Failed during back-end compilation.");
         return false;
     }
 
-    CodeGenerator codegen(builder, *builder->lir);
+    CodeGenerator codegen(builder, *lir);
     if (!codegen.generate()) {
         IonSpew(IonSpew_Abort, "Failed during code generation.");
         return false;
@@ -1294,6 +1357,7 @@ ion::CanEnterUsingFastInvoke(JSContext *cx, HandleScript script)
         return Method_Error;
 
     // This can GC, so afterward, script->ion is not guaranteed to be valid.
+    AssertCanGC();
     if (!cx->compartment->ionCompartment()->enterJIT(cx))
         return Method_Error;
 
@@ -1306,6 +1370,7 @@ ion::CanEnterUsingFastInvoke(JSContext *cx, HandleScript script)
 static IonExecStatus
 EnterIon(JSContext *cx, StackFrame *fp, void *jitcode)
 {
+    AssertCanGC();
     JS_CHECK_RECURSION(cx, return IonExec_Error);
     JS_ASSERT(ion::IsEnabled(cx));
     JS_ASSERT(CheckFrame(fp));
@@ -1345,7 +1410,7 @@ EnterIon(JSContext *cx, StackFrame *fp, void *jitcode)
         }
         calleeToken = CalleeToToken(&fp->callee());
     } else {
-        calleeToken = CalleeToToken(fp->script());
+        calleeToken = CalleeToToken(fp->script().unsafeGet());
     }
 
     // Caller must construct |this| before invoking the Ion function.
@@ -1385,7 +1450,8 @@ EnterIon(JSContext *cx, StackFrame *fp, void *jitcode)
 IonExecStatus
 ion::Cannon(JSContext *cx, StackFrame *fp)
 {
-    JSScript *script = fp->script();
+    AssertCanGC();
+    RootedScript script(cx, fp->script());
     IonScript *ion = script->ion;
     IonCode *code = ion->method();
     void *jitcode = code->raw();
@@ -1416,7 +1482,8 @@ ion::Cannon(JSContext *cx, StackFrame *fp)
 IonExecStatus
 ion::SideCannon(JSContext *cx, StackFrame *fp, jsbytecode *pc)
 {
-    JSScript *script = fp->script();
+    AssertCanGC();
+    RootedScript script(cx, fp->script());
     IonScript *ion = script->ion;
     IonCode *code = ion->method();
     void *osrcode = code->raw() + ion->osrEntryOffset();
@@ -1451,7 +1518,7 @@ ion::FastInvoke(JSContext *cx, HandleFunction fun, CallArgs &args)
 {
     JS_CHECK_RECURSION(cx, return IonExec_Error);
 
-    HandleScript script = fun->script();
+    RootedScript script(cx, fun->script());
     IonScript *ion = script->ionScript();
     IonCode *code = ion->method();
     void *jitcode = code->raw();
@@ -1506,6 +1573,7 @@ ion::FastInvoke(JSContext *cx, HandleFunction fun, CallArgs &args)
 static void
 InvalidateActivation(FreeOp *fop, uint8 *ionTop, bool invalidateAll)
 {
+    AutoAssertNoGC nogc;
     IonSpew(IonSpew_Invalidate, "BEGIN invalidating activation");
 
     size_t frameno = 1;
@@ -1551,7 +1619,7 @@ InvalidateActivation(FreeOp *fop, uint8 *ionTop, bool invalidateAll)
         if (it.checkInvalidation())
             continue;
 
-        JSScript *script = it.script();
+        RawScript script = it.script();
         if (!script->hasIonScript())
             continue;
 
