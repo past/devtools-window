@@ -1590,7 +1590,7 @@ var gBrowserInit = {
                          'viewToolbarsMenu', 'viewSidebarMenuMenu', 'Browser:Reload',
                          'viewFullZoomMenu', 'pageStyleMenu', 'charsetMenu', 'View:PageSource', 'View:FullScreen',
                          'viewHistorySidebar', 'Browser:AddBookmarkAs', 'Browser:BookmarkAllTabs',
-                         'View:PageInfo', 'Tasks:InspectPage', 'Browser:ToggleTabView', 'Browser:ToggleAddonBar'];
+                         'View:PageInfo', 'Browser:ToggleTabView', 'Browser:ToggleAddonBar'];
     var element;
 
     for (let disabledItem of disabledItems) {
