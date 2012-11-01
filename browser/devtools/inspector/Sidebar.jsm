@@ -4,23 +4,32 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// FIXME: some comments maybe?
-
 const Cc = Components.classes;
 const Cu = Components.utils;
 const Ci = Components.interfaces;
 
-let EXPORTED_SYMBOLS = ["InToolSidebarManager"];
+let EXPORTED_SYMBOLS = ["InspectorSidebar"];
 
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
-function InToolSidebarManager(tabbox, panel) {
+/**
+ * InspectorSidebar provides methods to register views in the sidebar.
+ * It's assumed that the sidebar contains a xul:tabbox.
+ */
+function InspectorSidebar(tabbox, panel) {
   this.tabbox = tabbox;
   this.panelDoc = this.tabbox.ownerDocument;
   this.panel = panel;
 }
 
-InToolSidebarManager.prototype = {
+InspectorSidebar.prototype = {
+
+  /**
+   * Register a view. A view is a document.
+   * The document must have a title, which will be used as the name of the tab.
+   *
+   * @param string url
+   */
   addView: function(url) {
     let tab = this.panelDoc.createElement("tab");
     this.tabbox.tabs.appendChild(tab);
@@ -58,6 +67,7 @@ InToolSidebarManager.prototype = {
   },
 
   destroy: function() {
+    this.hide();
     this.tabbox = null;
     this.panelDoc = null;
     this.panel = null;

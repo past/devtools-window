@@ -97,7 +97,7 @@ function InspectorPanel(iframeWindow, toolbox) {
   }.bind(this));
 
   let tabbox = this.panelDoc.querySelector("#inspector-sidebar");
-  this.sidebar = new InToolSidebarManager(tabbox, this);
+  this.sidebar = new InspectorSidebar(tabbox, this);
 
   this.sidebar.addView("chrome://browser/content/devtools/cssruleview.xul");
   this.sidebar.addView("chrome://browser/content/devtools/csshtmltree.xul");
