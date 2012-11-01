@@ -121,6 +121,8 @@ DevTools.prototype = {
   unregisterTool: function DT_unregisterTool(toolId) {
     this._tools.delete(toolId);
 
+    this._removeToolFromWindows(toolId);
+
     this.emit("tool-unregistered", toolId);
   },
 
@@ -290,6 +292,9 @@ DevTools.prototype = {
 
   /**
    * Add the menuitem for a tool to all open browser windows.
+   *
+   * @param {object} toolDefinition
+   *        properties of the tool to add
    */
   _addToolToWindows: function DT_addToolToWindows(toolDefinition) {
     let enumerator = Services.wm.getEnumerator("navigator:browser");
@@ -429,6 +434,44 @@ DevTools.prototype = {
       let mps = doc.getElementById("menu_devtools_separator");
       mp.insertBefore(item, mps);
     }
+  },
+
+  /**
+   * Add the menuitem for a tool to all open browser windows.
+   *
+   * @param {object} toolId
+   *        id of the tool to remove
+   */
+  _removeToolFromWindows: function DT_removeToolFromWindows(toolId) {
+    let enumerator = Services.wm.getEnumerator("navigator:browser");
+    while (enumerator.hasMoreElements()) {
+      let win = enumerator.getNext();
+      this._removeToolFromMenu(toolId, win.document);
+    }
+  },
+
+  /**
+   * Remove a tool's menuitem from a window
+   *
+   * @param {string} toolDefinition
+   *        Tool definition of the tool to add a menu entry for
+   * @param {XULDocument} doc
+   *        The document to which the tool menu item is to be removed from
+   */
+  _removeToolFromMenu: function DT_removeToolFromMenu(toolId, doc) {
+    let command = doc.getElementById("Tools:" + toolId);
+    command.parentNode.removeChild(command);
+
+    let key = doc.getElementById("key_" + toolId);
+    if (key) {
+      key.parentNode.removeChild(key);
+    }
+
+    let bc = doc.getElementById("devtoolsMenuBroadcaster_" + toolId);
+    bc.parentNode.removeChild(bc);
+
+    let item = doc.getElementById("appmenu_devToolbar" + toolId);
+    item.parentNode.removeChild(item);
   },
 
   /**
