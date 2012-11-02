@@ -13,6 +13,7 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 Cu.import("resource:///modules/devtools/ToolDefinitions.jsm");
 Cu.import("resource:///modules/devtools/Toolbox.jsm");
+Cu.import("resource:///modules/devtools/Target.jsm");
 
 /**
  * DevTools is a singleton that represents a set of developer tools, it holds a
@@ -26,26 +27,6 @@ function DevTools() {
 
   new EventEmitter(this);
 }
-
-/**
- * Each toolbox has a |target| that indicates what is being debugged/inspected.
- * A target is an object with this shape:
- * {
- *   type: DevTools.TargetType.[TAB|REMOTE|CHROME],
- *   value: ...
- * }
- *
- * When type = TAB, then 'value' contains a XUL Tab
- * When type = REMOTE, then 'value' contains an object with host and port
- *   properties, for example:
- *   { type: TargetType.TAB, value: { host: 'localhost', port: 4325 } }
- * When type = CHROME, then 'value' contains a XUL window
- */
-DevTools.TargetType = {
-  TAB: "tab",
-  REMOTE: "remote",
-  CHROME: "chrome"
-};
 
 /**
  * The developer tools can be 'hosted' either embedded in a browser window, or
@@ -69,7 +50,6 @@ DevTools.HostType = {
 };
 
 DevTools.prototype = {
-  TargetType: DevTools.TargetType,
   HostType: DevTools.HostType,
 
   /**
@@ -179,16 +159,16 @@ DevTools.prototype = {
    *        The toolbox that was opened
    */
   openToolbox: function DT_openToolbox(target, hostType, defaultToolId) {
-    if (this._toolboxes.has(target.value)) {
+    if (this._toolboxes.has(target.tab)) {
       // only allow one toolbox per target
       return null;
     }
 
     let tb = new Toolbox(target, hostType, defaultToolId);
 
-    this._toolboxes.set(target.value, tb);
+    this._toolboxes.set(target.tab, tb);
     tb.once("destroyed", function() {
-      this._toolboxes.delete(target.value);
+      this._toolboxes.delete(target.tab);
     }.bind(this));
 
     tb.open();
@@ -227,10 +207,7 @@ DevTools.prototype = {
     if (tb) {
       tb.selectTool(toolId);
     } else {
-      let target = {
-        type: gDevTools.TargetType.TAB,
-        value: tab
-      }
+      let target = TargetFactory.forTab(tab);
       tb = this.openToolbox(target, null, toolId);
     }
     return tb;
