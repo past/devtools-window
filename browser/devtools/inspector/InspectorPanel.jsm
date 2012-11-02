@@ -332,7 +332,6 @@ InspectorPanel.prototype = {
     let toDelete = this.selection.node;
 
     let parent = this.selection.node.parentNode;
-    //this.selection.setNode(parent, "inspector")
 
     // If the markup panel is active, use the markup panel to delete
     // the node, making this an undoable action.
