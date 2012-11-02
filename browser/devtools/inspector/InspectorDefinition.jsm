@@ -45,8 +45,8 @@ const InspectorDefinition = {
     }
   },
 
-  build: function(iframeWindow, toolbox, node) {
-    return new InspectorPanel(iframeWindow, toolbox, node);
+  build: function(iframeWindow, toolbox) {
+    return new InspectorPanel(iframeWindow, toolbox);
   }
 };
 
