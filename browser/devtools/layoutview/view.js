@@ -122,7 +122,7 @@ LayoutView.prototype = {
       // the header is updated.
       if (this.inspector.selection.isConnected() &&
           this.inspector.selection.isElementNode()) {
-          this.update();
+        this.update();
       }
     }
   },
