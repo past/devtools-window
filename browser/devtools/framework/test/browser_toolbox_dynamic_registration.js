@@ -7,6 +7,8 @@ let toolbox;
 let temp = [];
 Cu.import("resource:///modules/devtools/Toolbox.jsm", temp);
 let Target = temp.Target;
+Cu.import("resource:///modules/devtools/Target.jsm", temp);
+let TargetFactory = temp.TargetFactory;
 
 function test()
 {
