@@ -15,6 +15,9 @@ Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 /**
  * InspectorSidebar provides methods to register views in the sidebar.
  * It's assumed that the sidebar contains a xul:tabbox.
+ *
+ * @param {Node} a <tabbox> node.
+ * @param {ToolPanel} Related ToolPanel instance.
  */
 function InspectorSidebar(tabbox, panel) {
   this.tabbox = tabbox;
@@ -23,14 +26,13 @@ function InspectorSidebar(tabbox, panel) {
 }
 
 InspectorSidebar.prototype = {
-
   /**
    * Register a view. A view is a document.
    * The document must have a title, which will be used as the name of the tab.
    *
-   * @param string url
+   * @param {string} url
    */
-  addView: function(url) {
+  addView: function InspectorSidebar_addView(url) {
     let tab = this.panelDoc.createElement("tab");
     this.tabbox.tabs.appendChild(tab);
 
@@ -50,7 +52,10 @@ InspectorSidebar.prototype = {
     this.tabbox.tabpanels.appendChild(tabpanel);
   },
 
-  toggle: function() {
+  /**
+   * Toggle sidebar's visibility state.
+   */
+  toggle: function InspectorSidebar_toggle() {
     if (this.tabbox.hasAttribute("hidden")) {
       this.show();
     } else {
@@ -58,14 +63,23 @@ InspectorSidebar.prototype = {
     }
   },
 
-  show: function() {
+  /**
+   * Show the sidebar.
+   */
+  show: function InspectorSidebar_show() {
     this.tabbox.removeAttribute("hidden");
   },
 
-  hide: function() {
+  /**
+   * Show the sidebar.
+   */
+  hide: function InspectorSidebar_hide() {
     this.tabbox.setAttribute("hidden", "true");
   },
 
+  /**
+   * Clean-up.
+   */
   destroy: function() {
     this.hide();
     this.tabbox = null;
