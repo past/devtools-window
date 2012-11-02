@@ -192,17 +192,11 @@ InspectorPanel.prototype = {
    */
   _setupNodeMenu: function InspectorPanel_setupNodeMenu() {
     // Set the pseudo classes
-    let hover = this.panelDoc.getElementById("node-menu-pseudo-hover");
-    let focus = this.panelDoc.getElementById("node-menu-pseudo-focus");
-    let active = this.panelDoc.getElementById("node-menu-pseudo-active");
-
-    let isHover = DOMUtils.hasPseudoClassLock(this.selection.node, ":hover");
-    let isFocus = DOMUtils.hasPseudoClassLock(this.selection.node, ":focus");
-    let isActive = DOMUtils.hasPseudoClassLock(this.selection.node, ":active");
-
-    hover.setAttribute("checked", isHover);
-    focus.setAttribute("checked", isFocus);
-    active.setAttribute("checked", isActive);
+    for (let name of ["hover", "active", "focus"]) {
+      let menu = this.panelDoc.getElementById("node-menu-pseudo-" + name);
+      let checked = DOMUtils.hasPseudoClassLock(this.selection.node, ":" + name);
+      menu.setAttribute("checked", checked);
+    }
 
     // Disable delete item if needed
     let deleteNode = this.panelDoc.getElementById("node-menu-delete");
@@ -211,7 +205,6 @@ InspectorPanel.prototype = {
     } else {
       deleteNode.removeAttribute("disabled");
     }
-
   },
 
   _resetNodeMenu: function InspectorPanel_resetNodeMenu() {
