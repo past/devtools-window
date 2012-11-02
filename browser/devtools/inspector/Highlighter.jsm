@@ -183,11 +183,11 @@ Highlighter.prototype = {
       this.lock();
     }
 
-    let canHiglightNode = this.selection.isNode() &&
+    let canHighlightNode = this.selection.isNode() &&
                           this.selection.isConnected() &&
                           this.selection.isElementNode();
 
-    if (canHiglightNode) {
+    if (canHighlightNode) {
       this.show();
       this.updateInfobar();
       this.invalidateSize();
