@@ -57,7 +57,7 @@ function InspectorPanel(iframeWindow, toolbox) {
   this.breadcrumbs = new HTMLBreadcrumbs(this);
 
   if (this.tabTarget) {
-    this.highlighter = new Highlighter(this.selection, this.target.value, this);
+    this.highlighter = new Highlighter(this.target.value, this);
     let button = this.panelDoc.getElementById("inspector-inspect-toolbutton");
     button.hidden = false;
     this.updateInspectorButton = function() {
