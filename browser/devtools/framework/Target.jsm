@@ -13,7 +13,9 @@ Components.utils.import("resource:///modules/devtools/EventEmitter.jsm");
  */
 const TargetFactory = {
   /**
-   * Construct a Target from a local XUL tab
+   * Construct a Target
+   * @param {XULTab} tab
+   *        The tab to use in creating a new target
    */
   forTab: function(tab) {
     let target = Object.create(Target.prototype);
@@ -31,7 +33,9 @@ const TargetFactory = {
   },
 
   /**
-   * Construct a Target for a local chrome Window
+   * Construct a Target
+   * @param {nsIDOMWindow} chromeWindow
+   *        The chromeWindow to use in creating a new target
    */
   forWindow: function(chromeWindow) {
     let target = Object.create(Target.prototype);
@@ -49,7 +53,11 @@ const TargetFactory = {
   },
 
   /**
-   * Construct a Target for a remote chrome window
+   * Construct a Target for a remote global
+   * @param {FIXME} connection
+   *        The connection to a remote mozilla instance
+   * @param {string} id
+   *        The id of a debuggable window in the remote instance
    */
   forRemote: function(connection, id) {
     let target = Object.create(Target.prototype);
@@ -87,6 +95,8 @@ const TargetFactory = {
   /**
    * The listing counterpart to TargetFactory.forRemote which gets
    * an array of Targets for all available remote web pages.
+   * @param {FIXME} connection
+   *        The connection to a remote mozilla instance
    */
   getRemoteWebPages: function(connection) {
     return FixmeRemoteThing.getIds(connection).then(function(ids) {
