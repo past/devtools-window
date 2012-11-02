@@ -13,7 +13,9 @@ Components.utils.import("resource:///modules/devtools/EventEmitter.jsm");
  */
 const TargetFactory = {
   /**
-   * Construct a Target from a local XUL tab
+   * Construct a Target
+   * @param {XULTab} tab
+   *        The tab to use in creating a new target
    */
   forTab: function(tab) {
     let target = Object.create(Target.prototype);
@@ -31,7 +33,9 @@ const TargetFactory = {
   },
 
   /**
-   * Construct a Target for a local chrome Window
+   * Construct a Target
+   * @param {nsIDOMWindow} chromeWindow
+   *        The chromeWindow to use in creating a new target
    */
   forWindow: function(chromeWindow) {
     let target = Object.create(Target.prototype);
@@ -49,7 +53,11 @@ const TargetFactory = {
   },
 
   /**
-   * Construct a Target for a remote chrome window
+   * Construct a Target for a remote global
+   * @param {FIXME} connection
+   *        The connection to a remote mozilla instance
+   * @param {string} id
+   *        The id of a debuggable window in the remote instance
    */
   forRemote: function(connection, id) {
     let target = Object.create(Target.prototype);
@@ -61,8 +69,8 @@ const TargetFactory = {
     target._remote = true;
 
     // FIXME: implement
-    target.name = '...';
-    target.url = '...';
+    target.name = "...";
+    target.url = "...";
 
     return target;
   },
@@ -87,8 +95,10 @@ const TargetFactory = {
   /**
    * The listing counterpart to TargetFactory.forRemote which gets
    * an array of Targets for all available remote web pages.
+   * @param {FIXME} connection
+   *        The connection to a remote mozilla instance
    */
-  getRemoteWebPages: function(connection) {
+  allRemotes: function(connection) {
     return FixmeRemoteThing.getIds(connection).then(function(ids) {
       return ids.map(function(id) {
         return TargetFactory.forRemote(connection, id);
@@ -129,14 +139,14 @@ const TargetFactory = {
  * To compare to targets use 't1.equals(t2)'.
  */
 function Target() {
-  throw new Error('Use TargetFactory.newXXX or Target.getXXX to create a Target');
+  throw new Error("Use TargetFactory.newXXX or Target.getXXX to create a Target in place of 'new Target()'");
 }
 
 /**
  * isRemote implies that all communication with the target must be via the
  * debug API.
  */
-Object.defineProperty(Target.prototype, 'isRemote', {
+Object.defineProperty(Target.prototype, "isRemote", {
   get: function() {
     return this._remote;
   },
@@ -150,7 +160,7 @@ Object.defineProperty(Target.prototype, 'isRemote', {
  * We should be looking to use 'supports()' in place of version where
  * possible.
  */
-Object.defineProperty(Target.prototype, 'version', {
+Object.defineProperty(Target.prototype, "version", {
   get: function() {
     // FIXME: return something better
     return 20;
