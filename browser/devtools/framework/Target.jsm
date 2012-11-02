@@ -98,7 +98,7 @@ const TargetFactory = {
    * @param {FIXME} connection
    *        The connection to a remote mozilla instance
    */
-  getRemoteWebPages: function(connection) {
+  allRemotes: function(connection) {
     return FixmeRemoteThing.getIds(connection).then(function(ids) {
       return ids.map(function(id) {
         return TargetFactory.forRemote(connection, id);
