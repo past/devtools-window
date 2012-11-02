@@ -69,8 +69,8 @@ const TargetFactory = {
     target._remote = true;
 
     // FIXME: implement
-    target.name = '...';
-    target.url = '...';
+    target.name = "...";
+    target.url = "...";
 
     return target;
   },
@@ -146,7 +146,7 @@ function Target() {
  * isRemote implies that all communication with the target must be via the
  * debug API.
  */
-Object.defineProperty(Target.prototype, 'isRemote', {
+Object.defineProperty(Target.prototype, "isRemote", {
   get: function() {
     return this._remote;
   },
@@ -160,7 +160,7 @@ Object.defineProperty(Target.prototype, 'isRemote', {
  * We should be looking to use 'supports()' in place of version where
  * possible.
  */
-Object.defineProperty(Target.prototype, 'version', {
+Object.defineProperty(Target.prototype, "version", {
   get: function() {
     // FIXME: return something better
     return 20;
