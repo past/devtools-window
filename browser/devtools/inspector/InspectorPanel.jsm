@@ -215,7 +215,7 @@ InspectorPanel.prototype = {
     }
   },
 
-  _initMarkup: function InspectorPanel_initMarkupPane() {
+  _initMarkup: function InspectorPanel_initMarkup() {
     let doc = this.panelDoc;
 
     this._markupBox = doc.getElementById("markup-box");
