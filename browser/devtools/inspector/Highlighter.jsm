@@ -272,6 +272,7 @@ Highlighter.prototype = {
     this.nodeInfo.container.removeAttribute("locked");
     this.attachMouseListeners();
     this.locked = false;
+    this.chromeWin.focus();
     if (this.selection.isElementNode() &&
         this.selection.isConnected()) {
       this.showOutline();
