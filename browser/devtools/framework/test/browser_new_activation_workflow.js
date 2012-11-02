@@ -16,10 +16,7 @@ function test() {
 function loadWebConsole(aTab) {
   ok(gDevTools, "gDevTools exists");
 
-  let target = {
-    type: gDevTools.TargetType.TAB,
-    value: gBrowser.selectedTab
-  };
+  let target = TargetFactory.forTab(gBrowser.selectedTab);
   toolbox = gDevTools.openToolbox(target, "bottom", "webconsole");
   toolbox.once("load", checkToolLoading);
 }
@@ -41,10 +38,7 @@ function selectAndCheckById(id) {
 
 function testToggle() {
   toolbox.once("destroyed", function() {
-    let target = {
-      type: gDevTools.TargetType.TAB,
-      value: gBrowser.selectedTab
-    };
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
     toolbox = gDevTools.openToolbox(target, "bottom", "styleeditor");
     toolbox.once("load", checkStyleEditorLoaded);
   }.bind(this));

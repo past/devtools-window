@@ -37,10 +37,7 @@ function runTests(aTab) {
   is(gDevTools.getToolDefinitions().has(toolId), true,
     "The tool is registered");
 
-  let target = {
-    type: gDevTools.TargetType.TAB,
-    value: gBrowser.selectedTab
-  };
+  let target = TargetFactory.forTab(gBrowser.selectedTab);
 
   gDevTools.openToolbox(target, "bottom", toolId);
 
