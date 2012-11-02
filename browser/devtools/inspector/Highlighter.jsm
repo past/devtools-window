@@ -76,9 +76,8 @@ const PSEUDO_CLASSES = [":hover", ":active", ":focus"];
  * @param object aWindow
  * @param SuperNode aSuperNode
  */
-function Highlighter(aSelection, aTab, aInspector)
+function Highlighter(aTab, aInspector)
 {
-  this.selection = aSelection;
   this.tab = aTab;
   this.browser = aTab.linkedBrowser;
   this.chromeDoc = aTab.ownerDocument;
@@ -91,6 +90,10 @@ function Highlighter(aSelection, aTab, aInspector)
 }
 
 Highlighter.prototype = {
+  get selection() {
+    return this.inspector.selection;
+  },
+
   _init: function Highlighter__init()
   {
     this.unlock = this.unlock.bind(this);
