@@ -84,7 +84,7 @@ Toolbox.prototype = {
 
   /**
    * Get/alter the target of a Toolbox so we're debugging something different.
-   * See TargetType for more details.
+   * See Target.jsm for more details.
    * TODO: Do we allow |toolbox.target = null;| ?
    */
   get target() {
