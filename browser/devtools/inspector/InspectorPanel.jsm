@@ -115,7 +115,7 @@ InspectorPanel.prototype = {
    * Target setter.
    */
   set target(value) {
-    throw "Not implemented yet";
+    this._target = value;
   },
 
   /**
