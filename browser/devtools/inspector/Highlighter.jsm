@@ -486,34 +486,35 @@ Highlighter.prototype = {
    */
   updateInfobar: function Highlighter_updateInfobar()
   {
-    if (this.selection.isElementNode()) {
-      let node = this.selection.node;
-
-      // Tag name
-      this.nodeInfo.tagNameLabel.textContent = node.tagName;
-
-      // ID
-      this.nodeInfo.idLabel.textContent = node.id ? "#" + node.id : "";
-
-      // Classes
-      let classes = this.nodeInfo.classesBox;
-
-      classes.textContent = node.classList.length ?
-                              "." + Array.join(node.classList, ".") : "";
-
-      // Pseudo-classes
-      let pseudos = PSEUDO_CLASSES.filter(function(pseudo) {
-        return DOMUtils.hasPseudoClassLock(node, pseudo);
-      }, this);
-
-      let pseudoBox = this.nodeInfo.pseudoClassesBox;
-      pseudoBox.textContent = pseudos.join("");
-    } else {
+    if (!this.selection.isElementNode()) {
       this.nodeInfo.tagNameLabel.textContent = "";
       this.nodeInfo.idLabel.textContent = "";
       this.nodeInfo.classesBox.textContent = "";
       this.nodeInfo.pseudoClassesBox.textContent = "";
+      return;
     }
+
+    let node = this.selection.node;
+
+    // Tag name
+    this.nodeInfo.tagNameLabel.textContent = node.tagName;
+
+    // ID
+    this.nodeInfo.idLabel.textContent = node.id ? "#" + node.id : "";
+
+    // Classes
+    let classes = this.nodeInfo.classesBox;
+
+    classes.textContent = node.classList.length ?
+                            "." + Array.join(node.classList, ".") : "";
+
+    // Pseudo-classes
+    let pseudos = PSEUDO_CLASSES.filter(function(pseudo) {
+      return DOMUtils.hasPseudoClassLock(node, pseudo);
+    }, this);
+
+    let pseudoBox = this.nodeInfo.pseudoClassesBox;
+    pseudoBox.textContent = pseudos.join("");
   },
 
   /**
