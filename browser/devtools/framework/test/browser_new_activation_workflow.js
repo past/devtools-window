@@ -22,7 +22,7 @@ function loadWebConsole(aTab) {
 
   let target = TargetFactory.forTab(gBrowser.selectedTab);
   toolbox = gDevTools.openToolbox(target, "bottom", "webconsole");
-  toolbox.once("load", checkToolLoading);
+  toolbox.once("webconsole-ready", checkToolLoading);
 }
 
 function checkToolLoading() {
@@ -44,7 +44,7 @@ function testToggle() {
   toolbox.once("destroyed", function() {
     let target = TargetFactory.forTab(gBrowser.selectedTab);
     toolbox = gDevTools.openToolbox(target, "bottom", "styleeditor");
-    toolbox.once("load", checkStyleEditorLoaded);
+    toolbox.once("styleeditor-ready", checkStyleEditorLoaded);
   }.bind(this));
 
   gDevTools.toggleToolboxForTab(gBrowser.selectedTab);
