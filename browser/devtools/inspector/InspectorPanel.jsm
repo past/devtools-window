@@ -27,7 +27,7 @@ Cu.import("resource:///modules/devtools/Highlighter.jsm");
  * and layout view).
  */
 function InspectorPanel(iframeWindow, toolbox) {
-  this.target = toolbox.target;
+  this._target = toolbox._target;
 
   if (this.target.type == DevTools.TargetType.REMOTE) {
     throw "Unsupported target";
@@ -98,10 +98,24 @@ function InspectorPanel(iframeWindow, toolbox) {
 
 InspectorPanel.prototype = {
   /**
-   * Selected (super)node (read only)
+   * Selection object (read only)
    */
   get selection() {
     return this._selection;
+  },
+
+  /**
+   * Target getter.
+   */
+  get target() {
+    return this._target;
+  },
+
+  /**
+   * Target setter.
+   */
+  set target(value) {
+    throw "Not implemented yet";
   },
 
   /**
