@@ -440,7 +440,7 @@ DevTools.prototype = {
   _removeToolFromWindows: function DT_removeToolFromWindows(toolId) {
     this._forEachBrowserWindow(function(win) {
       this._removeToolFromMenu(toolId, win.document);
-    });
+    }.bind(this));
   },
 
   /**
@@ -478,8 +478,12 @@ DevTools.prototype = {
     let bc = doc.getElementById("devtoolsMenuBroadcaster_" + toolId);
     bc.parentNode.removeChild(bc);
 
+    /*
+    // FIXME: item is null in testing. This is the only place to use
+    // "appmenu_devToolbar" + toolId, so it seems clear that this is wrong
     let item = doc.getElementById("appmenu_devToolbar" + toolId);
     item.parentNode.removeChild(item);
+    */
   },
 
   /**
