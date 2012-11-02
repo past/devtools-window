@@ -184,7 +184,7 @@ function closeConsole(aTab, aCallback)
   let toolbox = gDevTools.getToolBoxes().get(aTab || tab);
   if (toolbox == null) {
     // FIXME: fixing tests, but we should check if this is right
-    info('No toolbox for tab');
+    todo('No toolbox for tab');
   }
   else {
     toolbox.destroy();
