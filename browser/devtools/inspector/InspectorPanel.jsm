@@ -9,7 +9,7 @@ const Cu = Components.utils;
 const Ci = Components.interfaces;
 const Cr = Components.results;
 
-var EXPORTED_SYMBOLS = ["InspectorPanel"];
+const EXPORTED_SYMBOLS = ["InspectorPanel"];
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/devtools/MarkupView.jsm");
@@ -18,7 +18,6 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource:///modules/devtools/gDevTools.jsm");
 Cu.import("resource:///modules/devtools/Selection.jsm");
 Cu.import("resource:///modules/devtools/Breadcrumbs.jsm");
-Cu.import("resource:///modules/devtools/Highlighter.jsm");
 Cu.import("resource:///modules/devtools/Highlighter.jsm");
 
 /**
