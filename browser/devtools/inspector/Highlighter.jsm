@@ -28,8 +28,7 @@ const PSEUDO_CLASSES = [":hover", ":active", ":focus"];
  * API:
  *
  *   // Constructor and destructor.
- *   // @param aWindow - browser.xul window.
- *   Highlighter(aWindow, aSuperNode);
+ *   Highlighter(aTab, aInspector)
  *   void destroy();
  *
  *   // Show and hide the highlighter
@@ -73,8 +72,8 @@ const PSEUDO_CLASSES = [":hover", ":active", ":focus"];
 /**
  * Constructor.
  *
- * @param object aWindow
- * @param SuperNode aSuperNode
+ * @param aTab Browser's tab.
+ * @param aInspector Inspector panel.
  */
 function Highlighter(aTab, aInspector)
 {
