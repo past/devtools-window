@@ -63,10 +63,6 @@
             accesskey="&inspect3DViewButton.accesskey;"
             tabindex="0"
             command="Inspector:Tilt"/>
-          <toolbarbutton id="inspector-style-button"
-            class="devtools-toolbarbutton"
-            tabindex="0"
-            command="Inspector:Sidebar"/>
         </hbox>
       </toolbar>
       <vbox flex="1" id="markup-box">
