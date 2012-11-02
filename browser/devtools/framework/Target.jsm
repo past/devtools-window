@@ -139,7 +139,7 @@ const TargetFactory = {
  * To compare to targets use 't1.equals(t2)'.
  */
 function Target() {
-  throw new Error('Use TargetFactory.newXXX or Target.getXXX to create a Target');
+  throw new Error("Use TargetFactory.newXXX or Target.getXXX to create a Target in place of 'new Target()'");
 }
 
 /**
