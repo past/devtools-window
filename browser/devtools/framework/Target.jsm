@@ -17,7 +17,7 @@ const TargetFactory = {
    * @param {XULTab} tab
    *        The tab to use in creating a new target
    */
-  forTab: function(tab) {
+  forTab: function TF_forTab(tab) {
     let target = Object.create(Target.prototype);
     new EventEmitter(target);
 
@@ -37,7 +37,7 @@ const TargetFactory = {
    * @param {nsIDOMWindow} chromeWindow
    *        The chromeWindow to use in creating a new target
    */
-  forWindow: function(chromeWindow) {
+  forWindow: function TF_forWindow(chromeWindow) {
     let target = Object.create(Target.prototype);
     new EventEmitter(target);
 
@@ -59,7 +59,7 @@ const TargetFactory = {
    * @param {string} id
    *        The id of a debuggable window in the remote instance
    */
-  forRemote: function(connection, id) {
+  forRemote: function TF_forRemote(connection, id) {
     let target = Object.create(Target.prototype);
     new EventEmitter(target);
 
@@ -78,7 +78,7 @@ const TargetFactory = {
   /**
    * Get all of the targets known to some browser instance (local if null)
    */
-  allTargets: function() {
+  allTargets: function TF_allTargets() {
     let chromeWindows = [];
     let wm = Components.classes["@mozilla.org/appshell/window-mediator;1"]
                        .getService(Components.interfaces.nsIWindowMediator);
@@ -98,7 +98,7 @@ const TargetFactory = {
    * @param {FIXME} connection
    *        The connection to a remote mozilla instance
    */
-  allRemotes: function(connection) {
+  allRemotes: function TF_allRemotes(connection) {
     return FixmeRemoteThing.getIds(connection).then(function(ids) {
       return ids.map(function(id) {
         return TargetFactory.forRemote(connection, id);
@@ -147,7 +147,7 @@ function Target() {
  * debug API.
  */
 Object.defineProperty(Target.prototype, "isRemote", {
-  get: function() {
+  get: function Target_getIsRemote() {
     return this._remote;
   },
   enumerable: true
@@ -161,7 +161,7 @@ Object.defineProperty(Target.prototype, "isRemote", {
  * possible.
  */
 Object.defineProperty(Target.prototype, "version", {
-  get: function() {
+  get: function Target_getVersion() {
     // FIXME: return something better
     return 20;
   },
@@ -173,6 +173,6 @@ Object.defineProperty(Target.prototype, "version", {
  * where we have the features well enough defined for this to make lots of
  * sense.
  */
-Target.prototype.supports = function(feature) {
+Target.prototype.supports = function Target_supports(feature) {
   return false;
 };
