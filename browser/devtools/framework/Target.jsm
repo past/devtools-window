@@ -16,6 +16,7 @@ const TargetFactory = {
    * Construct a Target
    * @param {XULTab} tab
    *        The tab to use in creating a new target
+   * @return A target object
    */
   forTab: function TF_forTab(tab) {
     let target = Object.create(Target.prototype);
@@ -36,6 +37,7 @@ const TargetFactory = {
    * Construct a Target
    * @param {nsIDOMWindow} chromeWindow
    *        The chromeWindow to use in creating a new target
+   * @return A target object
    */
   forWindow: function TF_forWindow(chromeWindow) {
     let target = Object.create(Target.prototype);
@@ -58,6 +60,7 @@ const TargetFactory = {
    *        The connection to a remote mozilla instance
    * @param {string} id
    *        The id of a debuggable window in the remote instance
+   * @return A target object
    */
   forRemote: function TF_forRemote(connection, id) {
     let target = Object.create(Target.prototype);
@@ -77,6 +80,7 @@ const TargetFactory = {
 
   /**
    * Get all of the targets known to some browser instance (local if null)
+   * @return An array of target objects
    */
   allTargets: function TF_allTargets() {
     let chromeWindows = [];
@@ -97,6 +101,7 @@ const TargetFactory = {
    * an array of Targets for all available remote web pages.
    * @param {FIXME} connection
    *        The connection to a remote mozilla instance
+   * @return An array of target objects
    */
   allRemotes: function TF_allRemotes(connection) {
     return FixmeRemoteThing.getIds(connection).then(function(ids) {
