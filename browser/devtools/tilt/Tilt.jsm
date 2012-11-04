@@ -48,7 +48,22 @@ Cu.import("resource:///modules/devtools/TiltGL.jsm");
 Cu.import("resource:///modules/devtools/TiltUtils.jsm");
 Cu.import("resource:///modules/devtools/TiltVisualizer.jsm");
 
-this.EXPORTED_SYMBOLS = ["Tilt"];
+this.EXPORTED_SYMBOLS = ["TiltManager"];
+
+this.TiltManager = {
+  _instances: new WeakMap(),
+  getTiltForBrowser: function(aChromeWindow)
+  {
+    if (this._instances.has(aChromeWindow))
+    {
+      return this._instances.get(aChromeWindow);
+    } else {
+      let tilt = new Tilt(aChromeWindow);
+      this._instances.set(aChromeWindow, tilt);
+      return tilt;
+    }
+  },
+}
 
 /**
  * Object managing instances of the visualizer.
@@ -79,7 +94,7 @@ Tilt.prototype = {
   /**
    * Initializes a visualizer for the current tab.
    */
-  initialize: function T_initialize()
+  initializeForCurrentTab: function T_initializeForCurrentTab()
   {
     let id = this.currentWindowId;
 
@@ -186,7 +201,7 @@ Tilt.prototype = {
    */
   _whenShown: function T__whenShown()
   {
-    this.tiltButton.checked = true;
+    // Nothing for now.
   },
 
   /**
@@ -195,7 +210,7 @@ Tilt.prototype = {
    */
   _whenHidden: function T__whenHidden()
   {
-    this.tiltButton.checked = false;
+    // Nothing for now.
   },
 
   /**
@@ -212,7 +227,7 @@ Tilt.prototype = {
 
   /**
    * A node was selected in the Inspector.
-   * Called from InspectorUI.
+   * FIXME: not called
    *
    * @param {Element} aNode
    *                  the newly selected node
@@ -236,9 +251,6 @@ Tilt.prototype = {
     // load the preferences from the devtools.tilt branch
     TiltVisualizer.Prefs.load();
 
-    // hide the button in the Inspector toolbar if Tilt is not enabled
-    this.tiltButton.hidden = !this.enabled;
-
     // add the necessary observers to handle specific notifications
     Services.obs.addObserver(
       this._whenInitializing.bind(this), TILT_NOTIFICATIONS.INITIALIZING, false);
@@ -249,39 +261,13 @@ Tilt.prototype = {
     Services.obs.addObserver(
       this._whenHidden.bind(this), TILT_NOTIFICATIONS.HIDDEN, false);
 
-    Services.obs.addObserver(function(aSubject, aTopic, aWinId) {
-      this.destroy(aWinId); }.bind(this),
-      this.chromeWindow.InspectorUI.INSPECTOR_NOTIFICATIONS.DESTROYED, false);
-
     this.chromeWindow.gBrowser.tabContainer.addEventListener("TabSelect",
       this._onTabSelect.bind(this), false);
 
-
-    // FIXME: this shouldn't be done here, see bug #705131
-    let onOpened = function() {
-      if (this.inspector && this.highlighter && this.currentInstance) {
-        this.inspector.stopInspecting();
-        this.inspectButton.disabled = true;
-        this.highlighter.hide();
-      }
-    }.bind(this);
-
-    let onClosed = function() {
-      if (this.inspector && this.highlighter) {
-        this.inspectButton.disabled = false;
-        this.highlighter.show();
-      }
-    }.bind(this);
-
-    Services.obs.addObserver(onOpened,
-      this.chromeWindow.InspectorUI.INSPECTOR_NOTIFICATIONS.OPENED, false);
-    Services.obs.addObserver(onClosed,
-      this.chromeWindow.InspectorUI.INSPECTOR_NOTIFICATIONS.CLOSED, false);
     Services.obs.addObserver(onOpened,
       TILT_NOTIFICATIONS.INITIALIZING, false);
     Services.obs.addObserver(onClosed,
       TILT_NOTIFICATIONS.DESTROYED, false);
-
 
     this._setupFinished = true;
   },
@@ -311,35 +297,4 @@ Tilt.prototype = {
   {
     return this.visualizers[this.currentWindowId];
   },
-
-  /**
-   * Gets the current InspectorUI instance.
-   */
-  get inspector()
-  {
-    return this.chromeWindow.InspectorUI;
-  },
-
-  /**
-   * Gets the current Highlighter instance from the InspectorUI.
-   */
-  get highlighter()
-  {
-    return this.inspector.highlighter;
-  },
-
-  /**
-   * Gets the Tilt button in the Inspector toolbar.
-   */
-  get tiltButton()
-  {
-    return this.chromeWindow.document.getElementById("inspector-3D-button");
-  },
-
-  /**
-   * Gets the Inspect button in the Inspector toolbar.
-   */
-  get inspectButton() {
-    return this.chromeWindow.document.getElementById("inspector-inspect-toolbutton");
-  }
 };
