@@ -109,7 +109,8 @@ Tilt.prototype = {
       chromeWindow: this.chromeWindow,
       contentWindow: this.chromeWindow.gBrowser.selectedBrowser.contentWindow,
       parentNode: this.chromeWindow.gBrowser.selectedBrowser.parentNode,
-      notifications: this.NOTIFICATIONS
+      notifications: this.NOTIFICATIONS,
+      tab: this.chromeWindow.gBrowser.selectedTab
     });
 
     // make sure the visualizer object was initialized properly
@@ -178,42 +179,6 @@ Tilt.prototype = {
   },
 
   /**
-   * Handles any supplementary post-initialization work, done immediately
-   * after a TILT_NOTIFICATIONS.INITIALIZING notification.
-   */
-  _whenInitializing: function T__whenInitializing()
-  {
-    this._whenShown();
-  },
-
-  /**
-   * Handles any supplementary post-destruction work, done immediately
-   * after a TILT_NOTIFICATIONS.DESTROYED notification.
-   */
-  _whenDestroyed: function T__whenDestroyed()
-  {
-    this._whenHidden();
-  },
-
-  /**
-   * Handles any necessary changes done when the Tilt surface is shown,
-   * after a TILT_NOTIFICATIONS.SHOWN notification.
-   */
-  _whenShown: function T__whenShown()
-  {
-    // Nothing for now.
-  },
-
-  /**
-   * Handles any necessary changes done when the Tilt surface is hidden,
-   * after a TILT_NOTIFICATIONS.HIDDEN notification.
-   */
-  _whenHidden: function T__whenHidden()
-  {
-    // Nothing for now.
-  },
-
-  /**
    * Handles the event fired when a tab is selected.
    */
   _onTabSelect: function T__onTabSelect()
@@ -251,23 +216,8 @@ Tilt.prototype = {
     // load the preferences from the devtools.tilt branch
     TiltVisualizer.Prefs.load();
 
-    // add the necessary observers to handle specific notifications
-    Services.obs.addObserver(
-      this._whenInitializing.bind(this), TILT_NOTIFICATIONS.INITIALIZING, false);
-    Services.obs.addObserver(
-      this._whenDestroyed.bind(this), TILT_NOTIFICATIONS.DESTROYED, false);
-    Services.obs.addObserver(
-      this._whenShown.bind(this), TILT_NOTIFICATIONS.SHOWN, false);
-    Services.obs.addObserver(
-      this._whenHidden.bind(this), TILT_NOTIFICATIONS.HIDDEN, false);
-
     this.chromeWindow.gBrowser.tabContainer.addEventListener("TabSelect",
       this._onTabSelect.bind(this), false);
-
-    Services.obs.addObserver(onOpened,
-      TILT_NOTIFICATIONS.INITIALIZING, false);
-    Services.obs.addObserver(onClosed,
-      TILT_NOTIFICATIONS.DESTROYED, false);
 
     this._setupFinished = true;
   },
