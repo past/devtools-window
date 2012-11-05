@@ -13,7 +13,7 @@ Cu.import("resource:///modules/devtools/LayoutHelpers.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
-var EXPORTED_SYMBOLS = ["Highlighter"];
+this.EXPORTED_SYMBOLS = ["Highlighter"];
 
 const PSEUDO_CLASSES = [":hover", ":active", ":focus"];
   // add ":visited" and ":link" after bug 713106 is fixed
@@ -75,7 +75,7 @@ const PSEUDO_CLASSES = [":hover", ":active", ":focus"];
  * @param aTarget The inspection target.
  * @param aInspector Inspector panel.
  */
-function Highlighter(aTarget, aInspector)
+this.Highlighter = function Highlighter(aTarget, aInspector)
 {
   this.target = aTarget;
   this.tab = aTarget.tab;
