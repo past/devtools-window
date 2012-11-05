@@ -1505,8 +1505,7 @@ var gBrowserInit = {
     if (!gStartupRan)
       return;
 
-    if (!__lookupGetter__("gDevTools"))
-      gDevTools.destroy(window.document);
+    gDevTools.destroy(window.document);
 
     // First clean up services initialized in gBrowserInit.onLoad (or those whose
     // uninit methods don't depend on the services having been initialized).
