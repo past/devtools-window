@@ -79,7 +79,7 @@ function continueTests(event, panel) {
 }
 
 function finishUp() {
-  toolbox = tempScope = null;
+  tempScope = null;
   gBrowser.removeCurrentTab();
   finish();
 }
