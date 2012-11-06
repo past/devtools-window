@@ -225,8 +225,8 @@ Toolbox.prototype = {
     radio.id = "toolbox-tab-" + id;
     radio.setAttribute("toolid", id);
 
-    let ordinal = (typeof toolDefinition.ordinal == "undefined") ?
-                  99 : toolDefinition.ordinal;
+    let ordinal = (typeof toolDefinition.ordinal == "number") ?
+                  toolDefinition.ordinal : 99;
     radio.setAttribute("ordinal", ordinal);
 
     radio.addEventListener("command", function(id) {
