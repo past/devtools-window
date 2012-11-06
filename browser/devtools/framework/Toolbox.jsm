@@ -16,6 +16,10 @@ XPCOMUtils.defineLazyModuleGetter(this, "gDevTools",
 XPCOMUtils.defineLazyModuleGetter(this, "CommandUtils",
                                   "resource:///modules/devtools/DeveloperToolbar.jsm");
 
+Components.utils.import("resource://gre/modules/devtools/Require.jsm");
+
+let Requisition = require('gcli/cli').Requisition;
+
 this.EXPORTED_SYMBOLS = [ "Toolbox" ];
 
 /**
@@ -189,15 +193,9 @@ Toolbox.prototype = {
    *        The iframe to contain the buttons
    */
   _buildButtons: function TBOX_buildButtons(frame) {
-    let window = frame.ownerDocument.defaultView;
-    // FIXME: Once we move the DeveloperToolbar into the Devtools Window we
-    // might not need this check.
-    if (!window.DeveloperToolbar || !window.DeveloperToolbar.display) {
-      return;
-    }
-
     let toolbarSpec = CommandUtils.getCommandbarSpec("devtools.toolbox.toolbarspec");
-    let requisition = window.DeveloperToolbar.display.requisition;
+    let environment = { chromeDocument: frame.ownerDocument };
+    let requisition = new Requisition(environment);
 
     let buttons = CommandUtils.createButtons(toolbarSpec, this.doc, requisition);
 
