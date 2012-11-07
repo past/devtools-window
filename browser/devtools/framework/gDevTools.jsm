@@ -448,6 +448,15 @@ DevTools.prototype = {
 
   _updateMenuCheckbox: function DT_updateMenuCheckbox() {
     let win = Services.wm.getMostRecentWindow("navigator:browser");
+    if (!win) {
+      // FIXME: We should check that bailing out isn't perpetuating an error
+      // Not having this causes:
+      // TEST-UNEXPECTED-FAIL | .../browser_webconsole_view_source.js
+      // an unexpected uncaught JS exception reported through window.onerror
+      // TypeError: win is null at resource:///modules/devtools/gDevTools.jsm:451
+      return;
+    }
+
     let tab = win.gBrowser.selectedTab;
     let appmenuitem = win.document.getElementById("appmenu_devToolbox");
     let menuitem = win.document.getElementById("menu_devToolbox");
@@ -550,7 +559,8 @@ DevTools.prototype = {
     this._forEachBrowserWindow(function() {
       numWindows++;
     });
-    if(numWindows == 0) {
+
+    if (numWindows == 0) {
       delete this._tools;
       delete this._toolboxes;
     }
