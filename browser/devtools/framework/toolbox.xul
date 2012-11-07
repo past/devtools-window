@@ -12,6 +12,9 @@
 <window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
   <notificationbox id="toolbox-notificationbox" flex="1">
     <toolbar class="devtools-tabbar">
+      <hbox id="toolbox-controls">
+        <toolbarbutton id="toolbox-close" class="devtools-closebutton"></toolbarbutton>
+      </hbox>
       <radiogroup id="toolbox-tabs" orient="horizontal">
       </radiogroup>
       <hbox flex="1" pack="end">
@@ -22,7 +25,6 @@
                        data-position="side"></toolbarbutton>
         <toolbarbutton id="toolbox-dock-window" class="toolbox-dock-button"
                        data-position="window"></toolbarbutton>
-        <toolbarbutton id="toolbox-close" class="devtools-closebutton"></toolbarbutton>
       </hbox>
     </toolbar>
     <deck id="toolbox-deck" flex="1">
