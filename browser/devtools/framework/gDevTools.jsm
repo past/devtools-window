@@ -538,7 +538,7 @@ DevTools.prototype = {
 
     // Destroy toolboxes for closed window
     for (let [target, toolbox] of this._toolboxes) {
-      if (target.ownerDocument.defaultView == window) {
+      if (target.ownerDocument.defaultView == doc.defaultView) {
         toolbox.destroy();
       }
     }
@@ -547,7 +547,7 @@ DevTools.prototype = {
     tabContainer.removeEventListener("TabSelect",
                                      this._updateMenuCheckbox, false);
     let numWindows = 0;
-    this._forEachBrowserWindow(function(win) {
+    this._forEachBrowserWindow(function() {
       numWindows++;
     });
     if(numWindows == 0) {
