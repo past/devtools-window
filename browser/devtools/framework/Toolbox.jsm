@@ -80,7 +80,8 @@ Toolbox.prototype = {
 
   _prefs: {
     LAST_HOST: "devtools.toolbox.host",
-    LAST_TOOL: "devtools.toolbox.selectedTool"
+    LAST_TOOL: "devtools.toolbox.selectedTool",
+    SIDE_ENABLED: "devtools.toolbox.sideEnabled"
   },
 
   HostType: Toolbox.HostType,
@@ -173,9 +174,11 @@ Toolbox.prototype = {
       dockBox.removeChild(dockBox.firstChild);
     }
 
+    let sideEnabled = Services.prefs.getBoolPref(this._prefs.SIDE_ENABLED);
+
     for each (let position in this.HostType) {
-      if (position == this.hostType) {
-        // don't show button for the current host
+      if (position == this.hostType ||
+         (!sideEnabled && position == this.HostType.SIDE)) {
         continue;
       }
 
