@@ -177,12 +177,12 @@ DevTools.prototype = {
     tb.once("destroyed", function() {
       this.emit("toolbox-destroyed", target.tab);
       this._toolboxes.delete(target.tab);
-      // this._updateMenuCheckbox();
+      this._updateMenuCheckbox();
     }.bind(this));
 
     tb.once("ready", function() {
       this.emit("toolbox-ready", tb);
-      // this._updateMenuCheckbox();
+      this._updateMenuCheckbox();
     }.bind(this));
 
     tb.open();
@@ -453,7 +453,9 @@ DevTools.prototype = {
     let menuitem = win.document.getElementById("menu_devToolbox");
     let hasToolbox = !!this.getToolboxForTarget(tab);
 
-    appmenuitem.setAttribute("checked", hasToolbox);
+    if (appmenuitem) {
+      appmenuitem.setAttribute("checked", hasToolbox);
+    }
     menuitem.setAttribute("checked", hasToolbox);
   },
 
