@@ -19,6 +19,7 @@ XPCOMUtils.defineLazyModuleGetter(this, "CommandUtils",
 Components.utils.import("resource://gre/modules/devtools/Require.jsm");
 
 let Requisition = require('gcli/cli').Requisition;
+let CommandOutputManager = require('gcli/canon').CommandOutputManager;
 
 this.EXPORTED_SYMBOLS = [ "Toolbox" ];
 
@@ -196,6 +197,7 @@ Toolbox.prototype = {
     let toolbarSpec = CommandUtils.getCommandbarSpec("devtools.toolbox.toolbarspec");
     let environment = { chromeDocument: frame.ownerDocument };
     let requisition = new Requisition(environment);
+    requisition.commandOutputManager = new CommandOutputManager();
 
     let buttons = CommandUtils.createButtons(toolbarSpec, this.doc, requisition);
 
