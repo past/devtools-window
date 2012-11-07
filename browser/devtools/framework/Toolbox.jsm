@@ -163,25 +163,44 @@ Toolbox.prototype = {
   },
 
   /**
+   * Build the buttons for changing hosts. Called every time
+   * the host changes.
+   */
+  _buildDockButtons: function TBOX_createDockButtons() {
+    let dockBox = this.doc.getElementById("toolbox-dock-buttons");
+
+    while (dockBox.firstChild) {
+      dockBox.removeChild(dockBox.firstChild);
+    }
+
+    for each (let position in this.HostType) {
+      if (position == this.hostType) {
+        // don't show button for the current host
+        continue;
+      }
+
+      let button = this.doc.createElement("toolbarbutton");
+      button.id = "toolbox-dock-" + position;
+      button.className = "toolbox-dock-button";
+      button.addEventListener("command", function(position) {
+        this.hostType = position;
+      }.bind(this, position));
+
+      dockBox.appendChild(button);
+    }
+  },
+
+  /**
    * Onload handler for the toolbox's iframe
    */
   _onLoad: function TBOX_onLoad() {
     this.frame.removeEventListener("DOMContentLoaded", this._onLoad, true);
     this.isReady = true;
 
-    let buttons = this.doc.getElementsByClassName("toolbox-dock-button");
-
-    for (let i = 0; i < buttons.length; i++) {
-      let button = buttons[i];
-      button.addEventListener("command", function() {
-        let position = button.getAttribute("data-position");
-        this._switchToHost(position);
-      }
-      .bind(this), true);
-    }
-
     let closeButton = this.doc.getElementById("toolbox-close");
     closeButton.addEventListener("command", this.destroy, true);
+
+    this._buildDockButtons();
 
     this._buildTabs();
     this._buildButtons(this.frame);
@@ -365,7 +384,7 @@ Toolbox.prototype = {
 
       Services.prefs.setCharPref(this._prefs.LAST_HOST, this._host.type);
 
-      this._setDockButtons();
+      this._buildDockButtons();
 
       this.emit("host-changed");
     }.bind(this));
@@ -382,21 +401,6 @@ Toolbox.prototype = {
     } else {
       let win = Services.wm.getMostRecentWindow("navigator:browser");
       return win.gBrowser.selectedTab;
-    }
-  },
-
-  /**
-   * Set the docking buttons to reflect the current host
-   */
-  _setDockButtons: function TBOX_setDockButtons() {
-    let buttons = this.doc.querySelectorAll(".toolbox-dock-button");
-    for (let button of buttons) {
-      if (button.id == "toolbox-dock-" + this._host.type) {
-        button.checked = true;
-      }
-      else {
-        button.checked = false;
-      }
     }
   },
 
