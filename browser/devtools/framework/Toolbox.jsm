@@ -288,9 +288,11 @@ Toolbox.prototype = {
         this._toolPanels.set(id, panel);
         if (panel.isReady) {
           this.emit(id + "-ready", panel);
+          gDevTools.emit(id + "-ready", this, panel);
         } else {
           panel.once("ready", function(event) {
             this.emit(id + "-ready", panel);
+            gDevTools.emit(id + "-ready", this, panel);
           }.bind(this));
         }
       }.bind(this);
