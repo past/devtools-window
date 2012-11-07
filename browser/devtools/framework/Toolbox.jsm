@@ -31,7 +31,7 @@ this.EXPORTED_SYMBOLS = [ "Toolbox" ];
  *
  * @param {object} target
  *        The object the toolbox is debugging.
- * @param {DevTools.HostType} hostType
+ * @param {Toolbox.HostType} hostType
  *        Type of host that will host the toolbox (e.g. sidebar, window)
  * @param {string} selectedTool
  *        Tool to select initially
@@ -65,6 +65,16 @@ this.Toolbox = function Toolbox(target, hostType, selectedTool) {
   gDevTools.on("tool-unregistered", this._toolUnregistered);
 }
 
+/**
+ * The toolbox can be 'hosted' either embedded in a browser window
+ * or in a separate window.
+ */
+Toolbox.HostType = {
+  BOTTOM: "bottom",
+  SIDE: "side",
+  WINDOW: "window"
+}
+
 Toolbox.prototype = {
   _URL: "chrome://browser/content/devtools/framework/toolbox.xul",
 
@@ -72,6 +82,8 @@ Toolbox.prototype = {
     LAST_HOST: "devtools.toolbox.host",
     LAST_TOOL: "devtools.toolbox.selectedTool"
   },
+
+  HostType: Toolbox.HostType,
 
   /**
    * Returns a *copy* of the _toolPanels collection.
