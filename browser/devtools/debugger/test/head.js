@@ -87,10 +87,12 @@ function removeTab(aTab, aWindow) {
 
 function closeDebuggerAndFinish(aRemoteFlag, aCallback, aWindow) {
   let targetWindow = aWindow || window;
-  let debuggerUI = targetWindow.DebuggerUI;
-
-  let debuggerClosed = false;
-  let debuggerDisconnected = false;
+  // let dbg = gDevTools.getPanelForTarget("jsdebugger", targetWindow);
+  let debuggerClosed = true;
+  let debuggerDisconnected = true;
+  gDevTools.closeToolbox(gTab);
+  debuggerDisconnected = true;
+  _maybeFinish();
 
   function _maybeFinish() {
     if (debuggerClosed && debuggerDisconnected) {
@@ -100,20 +102,20 @@ function closeDebuggerAndFinish(aRemoteFlag, aCallback, aWindow) {
     }
   }
 
-  debuggerUI.chromeWindow.addEventListener("Debugger:Shutdown", function cleanup() {
-    debuggerUI.chromeWindow.removeEventListener("Debugger:Shutdown", cleanup, false);
-    debuggerDisconnected = true;
-    _maybeFinish();
-  }, false);
-  if (!aRemoteFlag) {
-    debuggerUI.getDebugger().close(function() {
-      debuggerClosed = true;
-      _maybeFinish();
-    });
-  } else {
-    debuggerClosed = true;
-    debuggerUI.getRemoteDebugger().close();
-  }
+  // dbg.chromeWindow.addEventListener("Debugger:Shutdown", function cleanup() {
+  //   dbg.chromeWindow.removeEventListener("Debugger:Shutdown", cleanup, false);
+  //   debuggerDisconnected = true;
+  //   _maybeFinish();
+  // }, false);
+  // if (!aRemoteFlag) {
+  //   dbg.getDebugger().close(function() {
+  //     debuggerClosed = true;
+  //     _maybeFinish();
+  //   });
+  // } else {
+  //   debuggerClosed = true;
+  //   dbg.getRemoteDebugger().close();
+  // }
 }
 
 function get_tab_actor_for_url(aClient, aURL, aCallback) {
@@ -166,16 +168,16 @@ function debug_tab_pane(aURL, aOnDebugging) {
     gBrowser.selectedTab = gTab;
     let debuggee = tab.linkedBrowser.contentWindow.wrappedJSObject;
 
-    let pane = DebuggerUI.toggleDebugger();
-    pane._frame.addEventListener("Debugger:Connected", function dbgConnected() {
-      pane._frame.removeEventListener("Debugger:Connected", dbgConnected, true);
+    let toolbox = gDevTools.openToolboxForTab(tab, "jsdebugger");
+    toolbox.once("jsdebugger-ready", function dbgReady() {
+      let dbg = gDevTools.getPanelForTarget("jsdebugger", tab);
 
       // Wait for the initial resume...
-      pane.contentWindow.gClient.addOneTimeListener("resumed", function() {
-        pane.contentWindow.DebuggerView.Variables.lazyEmpty = false;
-        aOnDebugging(tab, debuggee, pane);
+      dbg.contentWindow.gClient.addOneTimeListener("resumed", function() {
+        dbg._view.Variables.lazyEmpty = false;
+        aOnDebugging(tab, debuggee, dbg);
       });
-    }, true);
+    });
   });
 }
 
