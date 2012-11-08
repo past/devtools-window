@@ -28,7 +28,7 @@ this.StyleEditorPanel = function StyleEditorPanel(panelWin, toolbox) {
   let contentWin = toolbox.target.tab.linkedBrowser.contentWindow;
   this.setPage(contentWin);
 
-  this.emit("ready");
+  this.isReady = true;
 }
 
 StyleEditorPanel.prototype = {
