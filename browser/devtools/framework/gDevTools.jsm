@@ -15,6 +15,8 @@ Cu.import("resource:///modules/devtools/ToolDefinitions.jsm");
 Cu.import("resource:///modules/devtools/Toolbox.jsm");
 Cu.import("resource:///modules/devtools/Target.jsm");
 
+const FORBIDDEN_IDS = new Set("toolbox", "");
+
 /**
  * DevTools is a class that represents a set of developer tools, it holds a
  * set of tools and keeps track of open toolboxes in the browser.
@@ -27,35 +29,16 @@ this.DevTools = function DevTools() {
   // to use bind in order to preserve the context of "this."
   this.init = this.init.bind(this);
 
+  // destroy() is an observer's handler so we need to preserve context.
+  this.destroy = this.destroy.bind(this);
+
   // Bind _updateMenuCheckbox() to preserve context.
   this._updateMenuCheckbox = this._updateMenuCheckbox.bind(this);
 
   new EventEmitter(this);
 }
 
-/**
- * The developer tools can be 'hosted' either embedded in a browser window, or
- * in a separate tab. Other hosts may be possible here, like a separate XUL
- * window.
- *
- * A Toolbox host is an object with this shape:
- * {
- *   type: DevTools.HostType.[BOTTOM|TAB],
- *   element: ...
- * }
- *
- * Definition of the 'element' property is left as an exercise to the
- * implementor.
- */
-DevTools.HostType = {
-  BOTTOM: "bottom",
-  SIDE: "side",
-  WINDOW: "window"
-};
-
 DevTools.prototype = {
-  HostType: DevTools.HostType,
-
   /**
    * Initialize the DevTools class.
    *
@@ -73,6 +56,8 @@ DevTools.prototype = {
 
     let tabContainer = doc.getElementById("tabbrowser-tabs")
     tabContainer.addEventListener("TabSelect", this._updateMenuCheckbox, false);
+
+    Services.obs.addObserver(this.destroy, "quit-application-granted", false);
   },
 
   /**
@@ -100,6 +85,10 @@ DevTools.prototype = {
    */
   registerTool: function DT_registerTool(toolDefinition) {
     let toolId = toolDefinition.id;
+
+    if (!toolId || FORBIDDEN_IDS.has(toolId)) {
+      throw new Error("Invalid definition.id");
+    }
 
     toolDefinition.killswitch = toolDefinition.killswitch ||
       "devtools." + toolId + ".enabled";
@@ -157,7 +146,7 @@ DevTools.prototype = {
    *
    * @param {Target} target
    *         The target the toolbox will debug
-   * @param {DevTools.HostType} hostType
+   * @param {Toolbox.HostType} hostType
    *        The type of host (bottom, top, side)
    * @param {string} defaultToolId
    *        The id of the initial tool to show
@@ -446,14 +435,16 @@ DevTools.prototype = {
     }
   },
 
+  /**
+   * Update the "Toggle Toolbox" checkbox in the developer tools menu. This is
+   * called when a toolbox is created or destroyed.
+   */
   _updateMenuCheckbox: function DT_updateMenuCheckbox() {
     let win = Services.wm.getMostRecentWindow("navigator:browser");
+
+    // In the case of a browser window being closed the checkbox no longer
+    // exists so we bail out.
     if (!win) {
-      // FIXME: We should check that bailing out isn't perpetuating an error
-      // Not having this causes:
-      // TEST-UNEXPECTED-FAIL | .../browser_webconsole_view_source.js
-      // an unexpected uncaught JS exception reported through window.onerror
-      // TypeError: win is null at resource:///modules/devtools/gDevTools.jsm:451
       return;
     }
 
@@ -524,9 +515,19 @@ DevTools.prototype = {
   },
 
   /**
-   * Destroy this DevTools instance.
+   * Called on browser unload to remove menu entries, toolboxes and event
+   * listeners from the closed browser window.
+   *
+   * @param  {XULWindow} win
+   *         The window containing the menu entr
    */
-  destroy: function DT_destroy(doc) {
+  forgetWindow: function DT_forgetWindow(win) {
+    if (!this._tools) {
+      return;
+    }
+
+    let doc = win.document;
+
     let nodeids = [
       "Tools:",
       "key_",
@@ -547,7 +548,7 @@ DevTools.prototype = {
 
     // Destroy toolboxes for closed window
     for (let [target, toolbox] of this._toolboxes) {
-      if (target.ownerDocument.defaultView == doc.defaultView) {
+      if (target.ownerDocument.defaultView == win) {
         toolbox.destroy();
       }
     }
@@ -555,16 +556,17 @@ DevTools.prototype = {
     let tabContainer = doc.getElementById("tabbrowser-tabs")
     tabContainer.removeEventListener("TabSelect",
                                      this._updateMenuCheckbox, false);
-    let numWindows = 0;
-    this._forEachBrowserWindow(function() {
-      numWindows++;
-    });
+  },
 
-    if (numWindows == 0) {
-      delete this._tools;
-      delete this._toolboxes;
-    }
-  }
+  /**
+   * All browser windows have been closed, tidy up remaining objects.
+   */
+  destroy: function() {
+    Services.obs.removeObserver(this.destroy, "quit-application-granted");
+
+    delete this._tools;
+    delete this._toolboxes;
+  },
 };
 
 /**
