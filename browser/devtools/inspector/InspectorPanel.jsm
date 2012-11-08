@@ -145,16 +145,6 @@ InspectorPanel.prototype = {
   },
 
   /**
-   * Returns true if a given sidebar panel is currently visible.
-   * @param string aPanelName
-   *        The panel name as registered with registerSidebar
-   */
-  isSidePanelVisible: function InspectorPanel_isPanelVisible(aPanelName) {
-    return this.sidebar.visible &&
-           this.sidebar.activePanel === aPanelName;
-  },
-
-  /**
    * Destroy the inspector.
    */
   destroy: function InspectorPanel__destroy() {
