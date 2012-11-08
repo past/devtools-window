@@ -171,11 +171,12 @@ function debug_tab_pane(aURL, aOnDebugging) {
     let toolbox = gDevTools.openToolboxForTab(tab, "jsdebugger");
     toolbox.once("jsdebugger-ready", function dbgReady() {
       let dbg = gDevTools.getPanelForTarget("jsdebugger", tab);
-
-      // Wait for the initial resume...
-      dbg.contentWindow.gClient.addOneTimeListener("resumed", function() {
-        dbg._view.Variables.lazyEmpty = false;
-        aOnDebugging(tab, debuggee, dbg);
+      dbg.once("connected", function() {
+        // Wait for the initial resume...
+        dbg.contentWindow.gClient.addOneTimeListener("resumed", function() {
+          dbg._view.Variables.lazyEmpty = false;
+          aOnDebugging(tab, debuggee, dbg);
+        });
       });
     });
   });

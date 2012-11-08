@@ -33,6 +33,8 @@ function test() {
     gDebugger = gPane.contentWindow;
     resumed = true;
 
+    gDebugger.addEventListener("Debugger:SourceShown", onScriptShown);
+
     gDebugger.DebuggerController.activeThread.addOneTimeListener("framesadded", function () {
       framesAdded = true;
       executeSoon(startTest);
@@ -48,11 +50,9 @@ function test() {
     executeSoon(startTest);
   }
 
-  window.addEventListener("Debugger:SourceShown", onScriptShown);
-
   function startTest() {
     if (scriptShown && framesAdded && resumed && !testStarted) {
-      window.removeEventListener("Debugger:SourceShown", onScriptShown);
+      gDebugger.removeEventListener("Debugger:SourceShown", onScriptShown);
       testStarted = true;
       Services.tm.currentThread.dispatch({ run: performTest }, 0);
     }
@@ -61,7 +61,7 @@ function test() {
   function performTest() {
     gScripts = gDebugger.DebuggerView.Sources;
     gEditor = gDebugger.editor;
-    gBreakpoints = gPane.breakpoints;
+    gBreakpoints = gPane.getAllBreakpoints();
     is(Object.keys(gBreakpoints), 0, "There are no breakpoints");
 
     gEditor.addEventListener(SourceEditor.EVENTS.BREAKPOINT_CHANGE,
