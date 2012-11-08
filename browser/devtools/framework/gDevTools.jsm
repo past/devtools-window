@@ -98,7 +98,7 @@ DevTools.prototype = {
     let toolId = toolDefinition.id;
 
     if (!toolId || FORBIDDEN_IDS.has(toolId)) {
-      throw "Invalid definition.id";
+      throw new Error("Invalid definition.id");
     }
 
     toolDefinition.killswitch = toolDefinition.killswitch ||
