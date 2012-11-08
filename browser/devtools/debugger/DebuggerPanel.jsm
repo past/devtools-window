@@ -104,7 +104,7 @@ DebuggerPanel.prototype = {
   },
 
   getBreakpoint: function() {
-    this._bkp.getBreakpoint.apply(this._bkp, arguments);
+    return this._bkp.getBreakpoint.apply(this._bkp, arguments);
   },
 
   getAllBreakpoints: function() {
