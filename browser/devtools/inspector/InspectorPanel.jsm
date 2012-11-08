@@ -154,6 +154,9 @@ InspectorPanel.prototype = {
       this.highlighter.destroy();
     }
 
+    this.sidebar.destroy();
+    this.sidebar = null;
+
     this.nodemenu.removeEventListener("popupshowing", this._setupNodeMenu, true);
     this.nodemenu.removeEventListener("popuphiding", this._resetNodeMenu, true);
     this.breadcrumbs.destroy();
