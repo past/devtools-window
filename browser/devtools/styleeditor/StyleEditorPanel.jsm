@@ -38,13 +38,14 @@ StyleEditorPanel.prototype = {
     let chromeRoot = this.panelDoc.getElementById("style-editor-chrome");
     let chrome = new StyleEditorChrome(chromeRoot, contentWindow);
     this.panelWin.styleEditorChrome = chrome;
+    this.selectStyleSheet(null, null, null);
   },
 
   /**
    * Select a stylesheet.
    */
   selectStyleSheet: function StyleEditor_selectStyleSheet(stylesheet, line, col) {
-    // FIXME
+    this.panelWin.styleEditorChrome.selectStyleSheet(stylesheet, line, col);
   },
 
   /**
