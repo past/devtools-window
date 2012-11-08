@@ -149,18 +149,14 @@ function attach_thread_actor_for_url(aClient, aURL, aCallback) {
   });
 }
 
-function wait_for_connect_and_resume(aOnDebugging, aWindow) {
-  let targetWindow = aWindow || window;
-  let targetDocument = targetWindow.document;
-
-  targetDocument.addEventListener("Debugger:Connected", function dbgConnected(aEvent) {
-    targetDocument.removeEventListener("Debugger:Connected", dbgConnected, true);
-
+function wait_for_connect_and_resume(aOnDebugging, aTab) {
+  let dbg = gDevTools.getPanelForTarget("jsdebugger", aTab);
+  dbg.once("connected", function dbgConnected() {
     // Wait for the initial resume...
-    aEvent.target.ownerDocument.defaultView.gClient.addOneTimeListener("resumed", function() {
+    dbg.contentWindow.gClient.addOneTimeListener("resumed", function() {
       aOnDebugging();
     });
-  }, true);
+  });
 }
 
 function debug_tab_pane(aURL, aOnDebugging) {
