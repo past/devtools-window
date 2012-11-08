@@ -35,16 +35,16 @@ InspectorSidebar.prototype = {
    * @param {string} url
    */
   addView: function InspectorSidebar_addView(id, url) {
-    let tab = this.panelDoc.createElement("tab");
-    this.tabbox.tabs.appendChild(tab);
-
     let iframe = this.panelDoc.createElement("iframe");
     iframe.className = "iframe-" + id;
     iframe.setAttribute("flex", "1");
     iframe.setAttribute("src", url);
 
     let onIFrameLoaded = function() {
-      tab.setAttribute("label", iframe.contentDocument.title);
+      let tab = this.tabbox.tabs.appendItem(iframe.contentDocument.title);
+      if (this.tabbox.selectedIndex < 0) {
+        this.tabbox.selectedTab = tab;
+      }
       iframe.removeEventListener("DOMContentLoaded", onIFrameLoaded, true);
       iframe.contentWindow.setPanel(this.panel, iframe);
     }.bind(this);
