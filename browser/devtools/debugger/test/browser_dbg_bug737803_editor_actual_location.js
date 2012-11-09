@@ -30,7 +30,7 @@ function test() {
     gTab = aTab;
     gPane = aPane;
     gDebuggee = aDebuggee;
-    gDebugger = gPane.contentWindow;
+    gDebugger = gPane.panelWin;
     resumed = true;
 
     gDebugger.addEventListener("Debugger:SourceShown", onScriptShown);

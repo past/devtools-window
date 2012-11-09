@@ -153,7 +153,7 @@ function wait_for_connect_and_resume(aOnDebugging, aTab) {
   let dbg = gDevTools.getPanelForTarget("jsdebugger", aTab);
   dbg.once("connected", function dbgConnected() {
     // Wait for the initial resume...
-    dbg.contentWindow.gClient.addOneTimeListener("resumed", function() {
+    dbg.panelWin.gClient.addOneTimeListener("resumed", function() {
       aOnDebugging();
     });
   });
@@ -169,7 +169,7 @@ function debug_tab_pane(aURL, aOnDebugging) {
       let dbg = gDevTools.getPanelForTarget("jsdebugger", tab);
       dbg.once("connected", function() {
         // Wait for the initial resume...
-        dbg.contentWindow.gClient.addOneTimeListener("resumed", function() {
+        dbg.panelWin.gClient.addOneTimeListener("resumed", function() {
           dbg._view.Variables.lazyEmpty = false;
           aOnDebugging(tab, debuggee, dbg);
         });
@@ -191,7 +191,7 @@ function debug_remote(aURL, aOnDebugging, aBeforeTabAdded) {
       win._dbgwin.removeEventListener("Debugger:Connected", dbgConnected, true);
 
       // Wait for the initial resume...
-      win.contentWindow.gClient.addOneTimeListener("resumed", function() {
+      win.panelWin.gClient.addOneTimeListener("resumed", function() {
         win._dbgwin.DebuggerView.Variables.lazyEmpty = false;
         aOnDebugging(tab, debuggee, win);
       });

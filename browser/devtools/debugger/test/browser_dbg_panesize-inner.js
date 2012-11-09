@@ -19,7 +19,7 @@ function test() {
       let someWidth1 = parseInt(Math.random() * 200) + 100;
       let someWidth2 = parseInt(Math.random() * 200) + 100;
 
-      let content = dbg.contentWindow;
+      let content = dbg.panelWin;
       let stackframes;
       let variables;
 

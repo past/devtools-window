@@ -50,7 +50,7 @@ function DebuggerPanel(iframeWindow, toolbox) {
   this._controller = iframeWindow.DebuggerController;
   this._view = iframeWindow.DebuggerView;
   this._bkp = this._controller.Breakpoints;
-  this.contentWindow = iframeWindow;
+  this.panelWin = iframeWindow;
 
   let onDebuggerLoaded = function () {
     iframeWindow.removeEventListener("Debugger:Loaded", onDebuggerLoaded, true);
