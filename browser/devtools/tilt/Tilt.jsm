@@ -54,8 +54,7 @@ this.TiltManager = {
   _instances: new WeakMap(),
   getTiltForBrowser: function(aChromeWindow)
   {
-    if (this._instances.has(aChromeWindow))
-    {
+    if (this._instances.has(aChromeWindow)) {
       return this._instances.get(aChromeWindow);
     } else {
       let tilt = new Tilt(aChromeWindow);
@@ -187,19 +186,6 @@ Tilt.prototype = {
       Services.obs.notifyObservers(null, TILT_NOTIFICATIONS.SHOWN, null);
     } else {
       Services.obs.notifyObservers(null, TILT_NOTIFICATIONS.HIDDEN, null);
-    }
-  },
-
-  /**
-   * A node was selected in the Inspector.
-   * FIXME: not called
-   *
-   * @param {Element} aNode
-   *                  the newly selected node
-   */
-  update: function T_update(aNode) {
-    if (this.currentInstance) {
-      this.currentInstance.presenter.highlightNode(aNode, "moveIntoView");
     }
   },
 

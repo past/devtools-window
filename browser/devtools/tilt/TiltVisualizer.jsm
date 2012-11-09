@@ -416,6 +416,7 @@ TiltVisualizer.Presenter.prototype = {
 
   /**
    * Get page zoom factor.
+   * @return {Number}
    */
   _getPageZoom: function TVP__getPageZoom() {
     return this.contentWindow
