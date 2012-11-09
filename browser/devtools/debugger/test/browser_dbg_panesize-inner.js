@@ -40,13 +40,11 @@ function test() {
         stackframes.setAttribute("width", someWidth1);
         variables.setAttribute("width", someWidth2);
 
-        dump(">>>>>>>> Removing tab\n");
         removeTab(tab1);
       }, tab1);
 
-      content.addEventListener("Debugger:Shutdown", function dbgShutdown() {
-        dump(">>>>>>>>> Received Debugger:Shutdown\n")
-        content.removeEventListener("Debugger:Shutdown", dbgShutdown, true);
+      window.addEventListener("Debugger:Shutdown", function dbgShutdown() {
+        window.removeEventListener("Debugger:Shutdown", dbgShutdown, true);
 
         is(content.Prefs.stackframesWidth, stackframes.getAttribute("width"),
           "The stackframes pane width should have been saved by now.");

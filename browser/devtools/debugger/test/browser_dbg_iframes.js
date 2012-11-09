@@ -16,9 +16,6 @@ function test() {
     gPane = aPane;
     let gDebugger = gPane.contentWindow;
 
-    is(gDebugger.document.getElementById("close").getAttribute("hidden"), "false",
-      "The close button should be visible in a normal content debugger.");
-
     is(gDebugger.DebuggerController.activeThread.paused, false,
       "Should be running after debug_tab_pane.");
 
