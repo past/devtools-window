@@ -1097,7 +1097,10 @@ PropertyView.prototype = {
    */
   mdnLinkClick: function PropertyView_mdnLinkClick(aEvent)
   {
-    this.tree.win.openUILinkIn(this.link, "tab");
+    let inspector = this.tree.styleInspector.inspector;
+    let browserWin = inspector.target.tab.ownerDocument.defaultView;
+
+    browserWin.openUILinkIn(this.link, "tab");
     aEvent.preventDefault();
   },
 };
