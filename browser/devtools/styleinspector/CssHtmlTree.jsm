@@ -18,6 +18,9 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource:///modules/devtools/CssLogic.jsm");
 Cu.import("resource:///modules/devtools/Templater.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "gDevTools",
+                                  "resource:///modules/devtools/gDevTools.jsm");
+
 this.EXPORTED_SYMBOLS = ["CssHtmlTree", "PropertyView"];
 
 /**
@@ -1214,8 +1217,9 @@ SelectorView.prototype = {
    */
   openStyleEditor: function(aEvent)
   {
+    let win = this.tree.styleWindow.top;
     let rule = this.selectorInfo.selector._cssRule;
-    let doc = this.tree.win.content.document;
+    let doc = win.content.document;
     let line = this.selectorInfo.ruleLine || 0;
     let cssSheet = rule._cssSheet;
     let contentSheet = false;
@@ -1237,10 +1241,22 @@ SelectorView.prototype = {
     }
 
     if (contentSheet) {
-      this.tree.win.StyleEditor.openChrome(styleSheet, line);
+      let tab = win.gBrowser.selectedTab;
+      let panel = gDevTools.getPanelForTarget("styleeditor", tab);
+
+      if (panel) {
+        gDevTools.openToolboxForTab(tab, "styleeditor");
+        panel.selectStyleSheet(styleSheet, line);
+      } else {
+        gDevTools.once("styleeditor-ready", function() {
+          panel = gDevTools.getPanelForTarget("styleeditor", tab);
+          panel.selectStyleSheet(styleSheet, line);
+        });
+        gDevTools.openToolboxForTab(tab, "styleeditor");
+      }
     } else {
       let href = styleSheet ? styleSheet.href : "";
-      let viewSourceUtils = this.tree.win.gViewSourceUtils;
+      let viewSourceUtils = win.gViewSourceUtils;
 
       if (this.selectorInfo.sourceElement) {
         href = this.selectorInfo.sourceElement.ownerDocument.location.href;

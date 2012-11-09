@@ -12,6 +12,9 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource:///modules/devtools/CssRuleView.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "gDevTools",
+                                  "resource:///modules/devtools/gDevTools.jsm");
+
 // This module doesn't currently export any symbols directly, it only
 // registers inspector tools.
 this.EXPORTED_SYMBOLS = ["RuleViewTool", "ComputedViewTool"];
@@ -25,14 +28,11 @@ this.RuleViewTool = function RVT_RuleViewTool(aInspector, aWindow, aIFrame)
   this.view = new CssRuleView(this.doc);
   this.doc.documentElement.appendChild(this.view.element);
 
-  /* FIXME: issue #44
-  // the styleEditor can be reached via the devtools API.
-  // The viewSourceUtils object might be a little trickier to reach.
-
   this._cssLinkHandler = function(aEvent) {
+    let chromeWindow = aWindow.top;
     let rule = aEvent.detail.rule;
     let styleSheet = rule.sheet;
-    let doc = this.chromeWindow.content.document;
+    let doc = chromeWindow.content.document;
     let styleSheets = doc.styleSheets;
     let contentSheet = false;
     let line = rule.ruleLine || 0;
@@ -47,22 +47,31 @@ this.RuleViewTool = function RVT_RuleViewTool(aInspector, aWindow, aIFrame)
     }
 
     if (contentSheet)  {
-      this.chromeWindow.StyleEditor.openChrome(styleSheet, line);
+      let tab = chromeWindow.gBrowser.selectedTab;
+      let panel = gDevTools.getPanelForTarget("styleeditor", tab);
+
+      if (panel) {
+        gDevTools.openToolboxForTab(tab, "styleeditor");
+        panel.selectStyleSheet(styleSheet, line);
+      } else {
+        gDevTools.once("styleeditor-ready", function() {
+          panel = gDevTools.getPanelForTarget("styleeditor", tab);
+          panel.selectStyleSheet(styleSheet, line);
+        });
+        gDevTools.openToolboxForTab(tab, "styleeditor");
+      }
     } else {
       let href = styleSheet ? styleSheet.href : "";
       if (rule.elementStyle.element) {
         href = rule.elementStyle.element.ownerDocument.location.href;
       }
-      let viewSourceUtils = this.chromeWindow.gViewSourceUtils;
+      let viewSourceUtils = chromeWindow.gViewSourceUtils;
       viewSourceUtils.viewSource(href, null, doc, line);
     }
   }.bind(this);
 
   this.view.element.addEventListener("CssRuleViewCSSLinkClicked",
                                      this._cssLinkHandler);
-  // Hey! Don't forget to remove the listener in destroy():
-  //  this.view.element.removeEventListener("CssRuleViewCSSLinkClicked", this._cssLinkHandler);
-  */
 
   this._onSelect = this.onSelect.bind(this);
   this.inspector.selection.on("new-node", this._onSelect);
@@ -100,6 +109,9 @@ RuleViewTool.prototype = {
     if (this.inspector.highlighter) {
       this.inspector.highlighter.off("locked", this._onSelect);
     }
+
+    this.view.element.removeEventListener("CssRuleViewCSSLinkClicked",
+      this._cssLinkHandler);
 
     this.doc.documentElement.removeChild(this.view.element);
 
