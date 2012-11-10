@@ -224,6 +224,18 @@ pref("general.autoScroll", true);
 #endif
 
 pref("general.useragent.complexOverride.moodle", true); // bug 797703
+pref("general.useragent.override.bank.barclays.co.uk",   "Gecko/[^ ]*#Gecko/20100101"); // bug 804169
+pref("general.useragent.override.bankmillennium.pl",     "Gecko/[^ ]*#Gecko/20100101"); // bug 804103
+pref("general.useragent.override.becu.org",              "Gecko/[^ ]*#Gecko/20100101"); // bug 804170
+pref("general.useragent.override.becuonlinebanking.org", "Gecko/[^ ]*#Gecko/20100101"); // bug 804170
+pref("general.useragent.override.bfsfcu.org",            "Gecko/[^ ]*#Gecko/20100101"); // bug 804171
+pref("general.useragent.override.cenfedcu.org",          "Gecko/[^ ]*#Gecko/20100101"); // bug 804172
+pref("general.useragent.override.coastal24.com",         "Gecko/[^ ]*#Gecko/20100101"); // bug 804175
+pref("general.useragent.override.mtb.com",               "Gecko/[^ ]*#Gecko/20100101"); // bug 795350
+pref("general.useragent.override.mandtbank.com",         "Gecko/[^ ]*#Gecko/20100101"); // bug 795350
+pref("general.useragent.override.natweststockbrokers.co.uk", "Gecko/[^ ]*#Gecko/20100101"); // bug 804179
+pref("general.useragent.override.natweststockbrokers.com", "Gecko/[^ ]*#Gecko/20100101"); // bug 804179
+pref("general.useragent.override.raiffeisen.hu",         "Gecko/[^ ]*#Gecko/20100101"); // bug 795348
 
 // At startup, check if we're the default browser and prompt user if not.
 pref("browser.shell.checkDefaultBrowser", true);
@@ -734,7 +746,7 @@ pref("urlclassifier.alternate_error_page", "blocked");
 pref("urlclassifier.gethashnoise", 4);
 
 // Randomize all UrlClassifier data with a per-client key.
-pref("urlclassifier.randomizeclient", true);
+pref("urlclassifier.randomizeclient", false);
 
 // The list of tables that use the gethash request to confirm partial results.
 pref("urlclassifier.gethashtables", "goog-phish-shavar,goog-malware-shavar");
@@ -1041,11 +1053,14 @@ pref("devtools.debugger.remote-timeout", 20000);
 
 // The default Debugger UI settings
 pref("devtools.debugger.ui.height", 250);
-pref("devtools.debugger.ui.remote-win.width", 900);
-pref("devtools.debugger.ui.remote-win.height", 400);
+pref("devtools.debugger.ui.win-x", 0);
+pref("devtools.debugger.ui.win-y", 0);
+pref("devtools.debugger.ui.win-width", 900);
+pref("devtools.debugger.ui.win-height", 400);
 pref("devtools.debugger.ui.stackframes-width", 200);
 pref("devtools.debugger.ui.variables-width", 300);
 pref("devtools.debugger.ui.panes-visible-on-startup", false);
+pref("devtools.debugger.ui.variables-sorting-enabled", true);
 pref("devtools.debugger.ui.variables-non-enum-visible", true);
 pref("devtools.debugger.ui.variables-searchbox-visible", false);
 

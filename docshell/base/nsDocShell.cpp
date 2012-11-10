@@ -146,7 +146,6 @@
 
 // For reporting errors with the console service.
 // These can go away if error reporting is propagated up past nsDocShell.
-#include "nsIConsoleService.h"
 #include "nsIScriptError.h"
 
 // used to dispatch urls to default protocol handlers
@@ -2015,6 +2014,20 @@ nsDocShell::GetUsePrivateBrowsing(bool* aUsePrivateBrowsing)
 NS_IMETHODIMP
 nsDocShell::SetUsePrivateBrowsing(bool aUsePrivateBrowsing)
 {
+#ifdef MOZ_PER_WINDOW_PRIVATE_BROWSING
+    nsContentUtils::ReportToConsoleNonLocalized(
+        NS_LITERAL_STRING("Only internal code is allowed to set the usePrivateBrowsing attribute"),
+        nsIScriptError::warningFlag,
+        "Internal API Used",
+        mContentViewer ? mContentViewer->GetDocument() : nullptr);
+#endif
+
+    return SetPrivateBrowsing(aUsePrivateBrowsing);
+}
+
+NS_IMETHODIMP
+nsDocShell::SetPrivateBrowsing(bool aUsePrivateBrowsing)
+{
     bool changed = aUsePrivateBrowsing != mInPrivateBrowsing;
     if (changed) {
         mInPrivateBrowsing = aUsePrivateBrowsing;
@@ -2024,12 +2037,12 @@ nsDocShell::SetUsePrivateBrowsing(bool aUsePrivateBrowsing)
             DecreasePrivateDocShellCount();
         }
     }
-    
+
     int32_t count = mChildList.Count();
     for (int32_t i = 0; i < count; ++i) {
         nsCOMPtr<nsILoadContext> shell = do_QueryInterface(ChildAt(i));
         if (shell) {
-            shell->SetUsePrivateBrowsing(aUsePrivateBrowsing);
+            shell->SetPrivateBrowsing(aUsePrivateBrowsing);
         }
     }
 
@@ -2769,7 +2782,7 @@ nsDocShell::SetDocLoaderParent(nsDocLoader * aParent)
     if (parentAsLoadContext &&
         NS_SUCCEEDED(parentAsLoadContext->GetUsePrivateBrowsing(&value)))
     {
-        SetUsePrivateBrowsing(value);
+        SetPrivateBrowsing(value);
 #ifndef MOZ_PER_WINDOW_PRIVATE_BROWSING
         // Belt and suspenders - we want to catch any instances where the flag
         // we're propagating doesn't match the global state.
@@ -10447,11 +10460,13 @@ nsDocShell::AddToSessionHistory(nsIURI * aURI, nsIChannel * aChannel,
             NS_ASSERTION(entry == newEntry, "The new session history should be in the new entry");
         }
 
+        int32_t index = 0;   
+        mSessionHistory->GetIndex(&index);
+
         // This is the root docshell
-        if (LOAD_TYPE_HAS_FLAGS(mLoadType, LOAD_FLAGS_REPLACE_HISTORY)) {            
+        if (-1 != index &&
+            LOAD_TYPE_HAS_FLAGS(mLoadType, LOAD_FLAGS_REPLACE_HISTORY)) {            
             // Replace current entry in session history.
-            int32_t  index = 0;   
-            mSessionHistory->GetIndex(&index);
             nsCOMPtr<nsISHistoryInternal>   shPrivate(do_QueryInterface(mSessionHistory));
             // Replace the current entry with the new entry
             if (shPrivate)
@@ -10462,7 +10477,7 @@ nsDocShell::AddToSessionHistory(nsIURI * aURI, nsIChannel * aChannel,
             nsCOMPtr<nsISHistoryInternal>
                 shPrivate(do_QueryInterface(mSessionHistory));
             NS_ENSURE_TRUE(shPrivate, NS_ERROR_FAILURE);
-            mSessionHistory->GetIndex(&mPreviousTransIndex);
+            mPreviousTransIndex = index;
             rv = shPrivate->AddEntry(entry, shouldPersist);
             mSessionHistory->GetIndex(&mLoadedTransIndex);
 #ifdef DEBUG_PAGE_CACHE

@@ -184,6 +184,7 @@ var BrowserApp = {
     Services.obs.addObserver(this, "Passwords:Init", false);
     Services.obs.addObserver(this, "FormHistory:Init", false);
     Services.obs.addObserver(this, "ToggleProfiling", false);
+    Services.obs.addObserver(this, "gather-telemetry", false);
 
     Services.obs.addObserver(this, "sessionstore-state-purge-complete", false);
 
@@ -235,6 +236,7 @@ var BrowserApp = {
     ExternalApps.init();
     MemoryObserver.init();
     Distribution.init();
+    Tabs.init();
 #ifdef MOZ_TELEMETRY_REPORTING
     Telemetry.init();
 #endif
@@ -306,12 +308,6 @@ var BrowserApp = {
   },
 
   restoreSession: function (restoringOOM, sessionString) {
-    sendMessageToJava({
-      gecko: {
-        type: "Session:RestoreBegin"
-      }
-    });
-
     // Be ready to handle any restore failures by making sure we have a valid tab opened
     let restoreCleanup = {
       observe: function (aSubject, aTopic, aData) {
@@ -324,6 +320,7 @@ var BrowserApp = {
           });
         }
 
+        // Let Java know we're done restoring tabs so tabs added after this can be animated
         sendMessageToJava({
           gecko: {
             type: "Session:RestoreEnd"
@@ -511,6 +508,7 @@ var BrowserApp = {
     ExternalApps.uninit();
     MemoryObserver.uninit();
     Distribution.uninit();
+    Tabs.uninit();
 #ifdef MOZ_TELEMETRY_REPORTING
     Telemetry.uninit();
 #endif
@@ -670,7 +668,7 @@ var BrowserApp = {
     evt.initUIEvent("TabOpen", true, false, window, null);
     newTab.browser.dispatchEvent(evt);
 
-    Tabs.zombifyLru();
+    Tabs.expireLruTab();
 
     return newTab;
   },
@@ -1143,6 +1141,8 @@ var BrowserApp = {
       } else {
         profiler.StartProfiler(100000, 25, ["stackwalk"], 1);
       }
+    } else if (aTopic == "gather-telemetry") {
+      sendMessageToJava({ gecko: { type: "Telemetry:Gather" }});
     } else if (aTopic == "Session:Restore") {
       let data = JSON.parse(aData);
       this.restoreSession(data.restoringOOM, data.sessionString);
@@ -4485,8 +4485,6 @@ var ErrorPageEventHandler = {
             errorDoc.location = "about:home";
           }
         } else if (/^about:blocked/.test(errorDoc.documentURI)) {
-          let secHistogram = Cc["@mozilla.org/base/telemetry;1"].getService(Ci.nsITelemetry).getHistogramById("SECURITY_UI");
-
           // The event came from a button on a malware/phishing block page
           // First check whether it's malware or phishing, so that we can
           // use the right strings/links
@@ -4497,12 +4495,12 @@ var ErrorPageEventHandler = {
           let formatter = Cc["@mozilla.org/toolkit/URLFormatterService;1"].getService(Ci.nsIURLFormatter);
 
           if (target == errorDoc.getElementById("getMeOutButton")) {
-            secHistogram.add(nsISecTel[bucketName + "GET_ME_OUT_OF_HERE"]);
+            Telemetry.addData("SECURITY_UI", nsISecTel[bucketName + "GET_ME_OUT_OF_HERE"]);
             errorDoc.location = "about:home";
           } else if (target == errorDoc.getElementById("reportButton")) {
             // We log even if malware/phishing info URL couldn't be found:
             // the measurement is for how many users clicked the WHY BLOCKED button
-            secHistogram.add(nsISecTel[bucketName + "WHY_BLOCKED"]);
+            Telemetry.addData("SECURITY_UI", nsISecTel[bucketName + "WHY_BLOCKED"]);
 
             // This is the "Why is this site blocked" button.  For malware,
             // we can fetch a site-specific report, for phishing, we redirect
@@ -4526,7 +4524,7 @@ var ErrorPageEventHandler = {
               }
             }
           } else if (target == errorDoc.getElementById("ignoreWarningButton")) {
-            secHistogram.add(nsISecTel[bucketName + "IGNORE_WARNING"]);
+            Telemetry.addData("SECURITY_UI", nsISecTel[bucketName + "IGNORE_WARNING"]);
 
             // Allow users to override and continue through to the site,
             let webNav = BrowserApp.selectedBrowser.docShell.QueryInterface(Ci.nsIWebNavigation);
@@ -7040,6 +7038,12 @@ var Telemetry = {
     Services.obs.removeObserver(this, "Telemetry:Prompt");
   },
 
+  addData: function addData(aHistogramId, aValue) {
+    let telemetry = Cc["@mozilla.org/base/telemetry;1"].getService(Ci.nsITelemetry);
+    let histogram = telemetry.getHistogramById(aHistogramId);
+    histogram.add(aValue);
+  },
+
   observe: function observe(aSubject, aTopic, aData) {
     if (aTopic == "Preferences:Set") {
       // if user changes telemetry pref, treat it like they have been prompted
@@ -7048,9 +7052,7 @@ var Telemetry = {
         Services.prefs.setIntPref(this._PREF_TELEMETRY_PROMPTED, this._TELEMETRY_PROMPT_REV);
     } else if (aTopic == "Telemetry:Add") {
       let json = JSON.parse(aData);
-      var telemetry = Cc["@mozilla.org/base/telemetry;1"].getService(Ci.nsITelemetry);
-      let histogram = telemetry.getHistogramById(json.name);
-      histogram.add(json.value);
+      this.addData(json.name, json.value);
     } else if (aTopic == "Telemetry:Prompt") {
 #ifdef MOZ_TELEMETRY_REPORTING
       this.prompt();
@@ -7602,12 +7604,13 @@ var MemoryObserver = {
     for (let i = 0; i < tabs.length; i++) {
       if (tabs[i] != selected) {
         this.zombify(tabs[i]);
+        Telemetry.addData("FENNEC_TAB_ZOMBIFIED", (Date.now() - tabs[i].lastTouchedAt) / 1000);
       }
     }
+    Telemetry.addData("FENNEC_LOWMEM_TAB_COUNT", tabs.length);
   },
 
   zombify: function(tab) {
-    dump("Zombifying tab at index [" + tab.id + "]");
     let browser = tab.browser;
     let data = browser.__SS_data;
     let extra = browser.__SS_extdata;
@@ -7709,13 +7712,43 @@ var Tabs = {
   // of tabs. Each tab has a timestamp associated with it that indicates when
   // it was last touched.
 
+  _enableTabExpiration: false,
+
+  init: function() {
+    // on low-memory platforms, always allow tab expiration. on high-mem
+    // platforms, allow it to be turned on once we hit a low-mem situation
+    if (Cc["@mozilla.org/xpcom/memory-service;1"].getService(Ci.nsIMemory).isLowMemoryPlatform()) {
+      this._enableTabExpiration = true;
+    } else {
+      Services.obs.addObserver(this, "memory-pressure", false);
+    }
+  },
+
+  uninit: function() {
+    if (!this._enableTabExpiration) {
+      // if _enableTabExpiration is true then we won't have this
+      // observer registered any more.
+      Services.obs.removeObserver(this, "memory-pressure");
+    }
+  },
+
+  observe: function(aSubject, aTopic, aData) {
+    if (aTopic == "memory-pressure" && aData != "heap-minimize") {
+      this._enableTabExpiration = true;
+      Services.obs.removeObserver(this, "memory-pressure");
+    }
+  },
+
   touch: function(aTab) {
     aTab.lastTouchedAt = Date.now();
   },
 
-  zombifyLru: function() {
-    let zombieTimeMs = Services.prefs.getIntPref("browser.tabs.zombieTime") * 1000;
-    if (zombieTimeMs < 0) {
+  expireLruTab: function() {
+    if (!this._enableTabExpiration) {
+      return false;
+    }
+    let expireTimeMs = Services.prefs.getIntPref("browser.tabs.expireTime") * 1000;
+    if (expireTimeMs < 0) {
       // this behaviour is disabled
       return false;
     }
@@ -7732,10 +7765,12 @@ var Tabs = {
         lruTab = tabs[i];
       }
     }
-    // if the tab was last touched more than browser.tabs.zombieTime seconds ago,
+    // if the tab was last touched more than browser.tabs.expireTime seconds ago,
     // zombify it
-    if (lruTab && (Date.now() - lruTab.lastTouchedAt) > zombieTimeMs) {
+    let tabAgeMs = Date.now() - lruTab.lastTouchedAt;
+    if (lruTab && tabAgeMs > expireTimeMs) {
       MemoryObserver.zombify(lruTab);
+      Telemetry.addData("FENNEC_TAB_EXPIRED", tabAgeMs / 1000);
       return true;
     }
     return false;

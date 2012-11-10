@@ -64,6 +64,7 @@
 #include "MediaStreamGraph.h"
 #include "nsDOMMediaStream.h"
 #include "nsIScriptError.h"
+#include "nsHostObjectProtocolHandler.h"
 
 #include "nsCSSParser.h"
 #include "nsIMediaList.h"
@@ -758,7 +759,7 @@ void nsHTMLMediaElement::SelectResource()
   // If we have a 'src' attribute, use that exclusively.
   nsAutoString src;
   if (mSrcAttrStream) {
-    SetupSrcMediaStreamPlayback();
+    SetupSrcMediaStreamPlayback(mSrcAttrStream);
   } else if (GetAttr(kNameSpaceID_None, nsGkAtoms::src, src)) {
     nsCOMPtr<nsIURI> uri;
     nsresult rv = NewURIFromString(src, getter_AddRefs(uri));
@@ -766,6 +767,7 @@ void nsHTMLMediaElement::SelectResource()
       LOG(PR_LOG_DEBUG, ("%p Trying load from src=%s", this, NS_ConvertUTF16toUTF8(src).get()));
       NS_ASSERTION(!mIsLoadingFromSourceChildren,
         "Should think we're not loading from source children by default");
+
       mLoadingSrc = uri;
       if (mPreloadAction == nsHTMLMediaElement::PRELOAD_NONE) {
         // preload:none media, suspend the load here before we make any
@@ -1035,7 +1037,7 @@ nsresult nsHTMLMediaElement::LoadResource()
   mCORSMode = AttrValueToCORSMode(GetParsedAttr(nsGkAtoms::crossorigin));
 
   nsHTMLMediaElement* other = LookupMediaElementURITable(mLoadingSrc);
-  if (other) {
+  if (other && other->mDecoder) {
     // Clone it.
     nsresult rv = InitializeDecoderAsClone(other->mDecoder);
     // Get the mimetype from the element we clone, since we will not get it via
@@ -1060,6 +1062,21 @@ nsresult nsHTMLMediaElement::LoadResource()
   NS_ENSURE_SUCCESS(rv, rv);
   if (NS_CP_REJECTED(shouldLoad)) {
     return NS_ERROR_FAILURE;
+  }
+
+  if (IsMediaStreamURI(mLoadingSrc)) {
+    nsCOMPtr<nsIDOMMediaStream> stream;
+    rv = NS_GetStreamForMediaStreamURI(mLoadingSrc, getter_AddRefs(stream));
+    if (NS_FAILED(rv)) {
+      nsCString specUTF8;
+      mLoadingSrc->GetSpec(specUTF8);
+      NS_ConvertUTF8toUTF16 spec(specUTF8);
+      const PRUnichar* params[] = { spec.get() };
+      ReportLoadError("MediaLoadInvalidURI", params, ArrayLength(params));
+      return rv;
+    }
+    SetupSrcMediaStreamPlayback(static_cast<nsDOMMediaStream*>(stream.get()));
+    return NS_OK;
   }
 
   nsCOMPtr<nsILoadGroup> loadGroup = GetDocumentLoadGroup();
@@ -2134,12 +2151,14 @@ nsHTMLMediaElement::IsWebMType(const nsACString& aType)
 #endif
 
 #if defined(MOZ_GSTREAMER) || defined(MOZ_WIDGET_GONK)
-char const *const nsHTMLMediaElement::gH264Codecs[7] = {
+char const *const nsHTMLMediaElement::gH264Codecs[9] = {
   "avc1.42E01E",  // H.264 Constrained Baseline Profile Level 3.0
   "avc1.42001E",  // H.264 Baseline Profile Level 3.0
   "avc1.58A01E",  // H.264 Extended Profile Level 3.0
   "avc1.4D401E",  // H.264 Main Profile Level 3.0
   "avc1.64001E",  // H.264 High Profile Level 3.0
+  "avc1.64001F",  // H.264 High Profile Level 3.1
+  "mp4v.20.3",    // 3GPP
   "mp4a.40.2",    // AAC-LC
   nullptr
 };
@@ -2763,11 +2782,11 @@ private:
   bool mDidHaveCurrentData;
 };
 
-void nsHTMLMediaElement::SetupSrcMediaStreamPlayback()
+void nsHTMLMediaElement::SetupSrcMediaStreamPlayback(nsDOMMediaStream* aStream)
 {
   NS_ASSERTION(!mSrcStream && !mSrcStreamListener, "Should have been ended already");
 
-  mSrcStream = mSrcAttrStream;
+  mSrcStream = aStream;
   // XXX if we ever support capturing the output of a media element which is
   // playing a stream, we'll need to add a CombineWithPrincipal call here.
   mSrcStreamListener = new StreamListener(this);
