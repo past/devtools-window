@@ -535,14 +535,13 @@ WebConsole.prototype = {
     let styleSheets = this.tab.linkedBrowser.contentWindow.document.styleSheets;
     for each (let style in styleSheets) {
       if (style.href == aSourceURL) {
-        let SEM = this.chromeWindow.StyleEditor.StyleEditorManager;
-        let win = SEM.getEditorForWindow(this.chromeWindow.content.window);
-        if (win) {
-          SEM.selectEditor(win, style, aSourceLine);
-        }
-        else {
-          this.chromeWindow.StyleEditor.openChrome(style, aSourceLine);
-        }
+        let gDevTools = this.chromeWindow.gDevTools;
+        let toolbox = gDevTools.openToolboxForTab(this.tab, "styleeditor");
+        toolbox.once("styleeditor-ready",
+          function _onStyleEditorReady(aEvent, aPanel) {
+            dump("hudservice " + aEvent + " " + aPanel + "\n");
+            aPanel.selectStyleSheet(style, aSourceLine);
+          });
         return;
       }
     }
