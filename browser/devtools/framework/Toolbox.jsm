@@ -249,7 +249,7 @@ Toolbox.prototype = {
    *        Tool definition of the tool to build a tab for.
    */
   _buildTabForTool: function TBOX_buildTabForTool(toolDefinition) {
-    const MAX_ORDINAL = 15032385535;
+    const MAX_ORDINAL = 99;
 
     let tabs = this.doc.getElementById("toolbox-tabs");
     let deck = this.doc.getElementById("toolbox-deck");
