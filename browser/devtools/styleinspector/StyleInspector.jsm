@@ -29,14 +29,19 @@ this.RuleViewTool = function RVT_RuleViewTool(aInspector, aWindow, aIFrame)
   this.doc.documentElement.appendChild(this.view.element);
 
   this._cssLinkHandler = function(aEvent) {
-    let chromeWindow = aWindow.top;
+    let contentDoc = this.inspector.selection.document;
     let rule = aEvent.detail.rule;
-    let styleSheet = rule.sheet;
-    let doc = chromeWindow.content.document;
-    let styleSheets = doc.styleSheets;
-    let contentSheet = false;
     let line = rule.ruleLine || 0;
+    let styleSheet = rule.sheet;
+    let styleSheets = contentDoc.styleSheets;
+    let contentSheet = false;
 
+    // The style editor can only display stylesheets coming from content because
+    // chrome stylesheets are not listed in the editor's stylesheet selector.
+    //
+    // If the stylesheet is a content stylesheet we send it to the style
+    // editor else we display it in the view source window.
+    //
     // Array.prototype.indexOf always returns -1 here so we loop through
     // the styleSheets object instead.
     for each (let sheet in styleSheets) {
@@ -65,8 +70,8 @@ this.RuleViewTool = function RVT_RuleViewTool(aInspector, aWindow, aIFrame)
       if (rule.elementStyle.element) {
         href = rule.elementStyle.element.ownerDocument.location.href;
       }
-      let viewSourceUtils = chromeWindow.gViewSourceUtils;
-      viewSourceUtils.viewSource(href, null, doc, line);
+      let viewSourceUtils = this.inspector.gViewSourceUtils;
+      viewSourceUtils.viewSource(href, null, contentDoc, line);
     }
   }.bind(this);
 
