@@ -536,12 +536,12 @@ WebConsole.prototype = {
     for each (let style in styleSheets) {
       if (style.href == aSourceURL) {
         let gDevTools = this.chromeWindow.gDevTools;
-        let toolbox = gDevTools.openToolboxForTab(this.tab, "styleeditor");
-        toolbox.once("styleeditor-ready",
+        let toolbox = gDevTools.getToolboxForTarget(this.tab);
+        toolbox.once("styleeditor-selected",
           function _onStyleEditorReady(aEvent, aPanel) {
-            dump("hudservice " + aEvent + " " + aPanel + "\n");
             aPanel.selectStyleSheet(style, aSourceLine);
           });
+        toolbox.selectTool("styleeditor");
         return;
       }
     }

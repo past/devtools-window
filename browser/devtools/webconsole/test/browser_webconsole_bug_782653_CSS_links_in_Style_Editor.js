@@ -31,7 +31,8 @@ function testViewSource(aHud)
     {
       nodes = hud.outputNode.querySelectorAll(".webconsole-location");
 
-      gDevTools.once("styleeditor-ready", onStyleEditorReady);
+      let toolbox = gDevTools.getToolboxForTarget(gBrowser.selectedTab);
+      toolbox.once("styleeditor-selected", onStyleEditorReady);
 
       EventUtils.sendMouseEvent({ type: "click" }, nodes[0]);
     },
@@ -39,28 +40,34 @@ function testViewSource(aHud)
   });
 }
 
-function onStyleEditorReady(aEvent, aDevTools, aPanel)
+function onStyleEditorReady(aEvent, aPanel)
 {
-  info("styleeditor-ready event fired");
+  info(aEvent + " event fired");
 
   SEC = aPanel.styleEditorChrome;
-  let win  = aPanel.panelWindow;
+  let win = aPanel.panelWindow;
   ok(win, "Style Editor Window is defined");
   ok(SEC, "Style Editor Chrome is defined");
 
   waitForFocus(function() {
+    info("style editor window focused");
     checkStyleEditorForSheetAndLine(0, 7, function() {
-      let toolbox = gDevTools.openToolboxForTab(gBrowser.selectedTab, "webconsole");
-      toolbox.once("webconsole-ready", function() {
-        EventUtils.sendMouseEvent({ type: "click" }, nodes[1]);
-
-        gDevTools.once("styleeditor-ready", function() {
+      info("first check done");
+      let toolbox = gDevTools.getToolboxForTarget(gBrowser.selectedTab);
+      toolbox.once("webconsole-selected", function(aEvent) {
+        info(aEvent + " event fired");
+        toolbox.once("styleeditor-selected", function() {
+          info(aEvent + " event fired");
           checkStyleEditorForSheetAndLine(1, 6, function() {
+            info("second check done");
             hud = SEC = nodes = null;
             finishTest();
           });
         });
+
+        EventUtils.sendMouseEvent({ type: "click" }, nodes[1]);
       });
+      toolbox.selectTool("webconsole");
     });
   }, win);
 }
