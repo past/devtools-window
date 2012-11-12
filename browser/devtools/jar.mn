@@ -37,3 +37,4 @@ browser.jar:
     content/browser/devtools/inspector/inspector.css         (inspector/inspector.css)
     content/browser/devtools/connection-screen/connection.xhtml  (connection-screen/connection.xhtml)
     content/browser/devtools/connection-screen/connection.css    (connection-screen/connection.css)
+    content/browser/devtools/connection-screen/connection.js     (connection-screen/connection.js)

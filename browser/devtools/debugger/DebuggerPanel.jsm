@@ -36,7 +36,7 @@ this.DebuggerDefinition = {
   label: l10n("ToolboxDebugger.label"),
 
   isTargetSupported: function(target) {
-    return !target.isRemote;
+    return true;
   },
 
   build: function(iframeWindow, toolbox) {
