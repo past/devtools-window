@@ -34,11 +34,11 @@ this.TargetFactory = {
 
   /**
    * Construct a Target for a remote global
-   * @param {FIXME} actor
-   *        The connection to a remote mozilla instance
+   * @param {Actor} actor
    * @return A target object
    */
   forRemote: function TF_forRemote(actor) {
+    // FIXME: must be uniq
     return new RemoteTarget(actor);
   },
 
@@ -213,3 +213,25 @@ RemoteTarget.prototype = {
     return true;
   },
 };
+
+// FIXME:
+
+function RemoteTarget(actor) {
+  this._actor = actor;
+  new EventEmitter(this);
+  // FIXME: fire useful events
+}
+
+RemoteTarget.prototype = {
+  get title() {
+    // FIXME
+  },
+
+  get isRemote() {
+    return true;
+  },
+
+  get actor() {
+    return this._actor;
+  },
+}

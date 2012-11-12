@@ -49,6 +49,7 @@ function submit() {
 }
 
 function getActors(host, port, callback) {
+  // FIXME
   setTimeout(function() {
       callback(null, [
         {id: "a1", title: "tab 1 :D"},
@@ -64,5 +65,5 @@ function getActors(host, port, callback) {
 function connect(actor) {
   let target = TargetFactory.forRemote(actor);
   gDevTools.openToolbox(target, Toolbox.HostType.WINDOW, "webconsole");
-  window.close();
+  // window.close();
 }
