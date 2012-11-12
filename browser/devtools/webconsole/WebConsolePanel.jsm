@@ -43,7 +43,7 @@ this.WebConsoleDefinition = {
   url: "chrome://browser/content/devtools/webconsole.xul",
   label: l10n("ToolboxWebconsole.label"),
   isTargetSupported: function(target) {
-    return !target.isRemote && !target.isChrome;
+    return true;
   },
   build: function(iframeWindow, toolbox) {
     return new WebConsolePanel(iframeWindow, toolbox);
