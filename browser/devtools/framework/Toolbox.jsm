@@ -223,13 +223,13 @@ Toolbox.prototype = {
   },
 
   /**
-   * Add buttons to the UI as specified in the devtools.window.toolbarspec pref
+   * Add buttons to the UI as specified in the devtools.window.toolbarSpec pref
    *
    * @param {iframe} frame
    *        The iframe to contain the buttons
    */
   _buildButtons: function TBOX_buildButtons(frame) {
-    let toolbarSpec = CommandUtils.getCommandbarSpec("devtools.toolbox.toolbarspec");
+    let toolbarSpec = CommandUtils.getCommandbarSpec("devtools.toolbox.toolbarSpec");
     let environment = { chromeDocument: frame.ownerDocument };
     let requisition = new Requisition(environment);
     requisition.commandOutputManager = new CommandOutputManager();
