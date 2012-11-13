@@ -21,6 +21,11 @@ function test()
 function testViewSource(aHud)
 {
   hud = aHud;
+
+  registerCleanupFunction(function() {
+    nodes = hud = SEC = null;
+  });
+
   waitForSuccess({
     name: "find the location node",
     validatorFn: function()
@@ -60,7 +65,6 @@ function onStyleEditorReady(aEvent, aPanel)
           info(aEvent + " event fired");
           checkStyleEditorForSheetAndLine(1, 6, function() {
             info("second check done");
-            hud = SEC = nodes = null;
             finishTest();
           });
         });
