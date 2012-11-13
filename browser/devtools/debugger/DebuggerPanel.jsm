@@ -71,8 +71,7 @@ function DebuggerPanel(iframeWindow, toolbox) {
 
   this._ensureOnlyOneRunningDebugger();
   if (!DebuggerServer.initialized) {
-    // Always allow connections from nsIPipe transports.
-    DebuggerServer.init(function() true);
+    DebuggerServer.init();
     DebuggerServer.addBrowserActors();
   }
 }
