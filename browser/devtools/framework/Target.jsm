@@ -4,14 +4,18 @@
 
 "use strict";
 
+const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
+
 this.EXPORTED_SYMBOLS = [ "TargetFactory" ];
 
-Components.utils.import("resource:///modules/devtools/EventEmitter.jsm");
+Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
 /**
  * Functions for creating Targets
  */
 this.TargetFactory = {
+  remotes: new Map(),
+
   /**
    * Construct a Target
    * @param {XULTab} tab
@@ -37,9 +41,13 @@ this.TargetFactory = {
    * @param {Actor} actor
    * @return A target object
    */
-  forRemote: function TF_forRemote(actor) {
-    // FIXME: must be uniq
-    return new RemoteTarget(actor);
+  forRemote: function TF_forRemote(form, client) {
+    let target = this.remotes.get(form.actor);
+    if (!target) {
+      target = new RemoteTarget(form, client);
+      this.remotes.set(form.actor, target);
+    }
+    return target;
   },
 
   /**
@@ -214,24 +222,21 @@ RemoteTarget.prototype = {
   },
 };
 
-// FIXME:
-
-function RemoteTarget(actor) {
-  this._actor = actor;
+function RemoteTarget(form, client) {
+  this._client = client;
+  this._form = form;
   new EventEmitter(this);
   // FIXME: fire useful events
 }
 
 RemoteTarget.prototype = {
-  get title() {
-    // FIXME
-  },
+  get isRemote() true,
 
-  get isRemote() {
-    return true;
-  },
+  get title() this._form._title,
 
-  get actor() {
-    return this._actor;
-  },
+  get url() this._form._url,
+
+  get client() this._client,
+
+  get form() this._form
 }

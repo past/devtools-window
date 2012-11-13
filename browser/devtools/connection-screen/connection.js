@@ -10,33 +10,53 @@ const Cu = Components.utils;
 Cu.import("resource:///modules/devtools/Target.jsm");
 Cu.import("resource:///modules/devtools/Toolbox.jsm");
 Cu.import("resource:///modules/devtools/gDevTools.jsm");
+Cu.import("resource://gre/modules/devtools/dbg-client.jsm");
+Cu.import("resource://gre/modules/Services.jsm");
+
+let gClient;
 
 function submit() {
-  let host = document.getElementById("host").value;
-  let port = document.getElementById("port").value;
-
   document.body.classList.add("connecting");
 
-  getActors(host, port, function(error, actors) {
+  let host = document.getElementById("host").value;
+  let port = document.getElementById("port").value;
+  if (!host) {
+    host = Services.prefs.getCharPref("devtools.debugger.remote-host");
+  } else {
+    Services.prefs.setCharPref("devtools.debugger.remote-host", host);
+  }
+  if (!port) {
+    port = Services.prefs.getIntPref("devtools.debugger.remote-port");
+  } else {
+    Services.prefs.setIntPref("devtools.debugger.remote-port", port);
+  }
+
+  let transport = debuggerSocketConnect(host, port);
+  let client = gClient = new DebuggerClient(transport);
+
+  client.connect(function(aType, aTraits) {
+    client.listTabs(function(aResponse) {
       document.body.classList.remove("connecting");
-      if (error) {
-        alert(error);
-        return;
-      }
       document.body.classList.add("actors-mode");
 
       let parent = document.getElementById("actors");
-
       let focusSet = false;
-      for (let actor of actors) {
+      for (let i = 0; i < aResponse.tabs.length; i++) {
+        let tab = aResponse.tabs[i];
+
         let a = document.createElement("a");
         a.onclick = function() {
-          connect(actor);
+          connect(tab);
         }
 
-        a.textContent = actor.title;
-        a.title = actor.title;
+        a.textContent = tab.title;
+        a.title = tab.title;
         a.href = "#";
+
+        if (i == aResponse.selected) {
+          a.title += " (current)";
+          a.textContent += " (current)";
+        }
 
         parent.appendChild(a);
 
@@ -45,25 +65,21 @@ function submit() {
           focusSet = true;
         }
       }
+
+      // TODO
+      // if (window._isChromeDebugger) {
+      //   let dbg = aResponse.chromeDebugger;
+      //   this._startChromeDebugging(client, dbg, callback);
+      // } else {
+      //   let tab = aResponse.tabs[aResponse.selected];
+      //   this._startDebuggingTab(client, tab, callback);
+      // }
+    });
   });
 }
 
-function getActors(host, port, callback) {
-  // FIXME
-  setTimeout(function() {
-      callback(null, [
-        {id: "a1", title: "tab 1 :D"},
-        {id: "a2", title: "tab 2, yes!"},
-        {id: "a3", title: "tab 3, booooring"},
-        {id: "a4", title: "tab 4, I don't know what to write"},
-        {id: "a5", title: "tab 5, BOON BBOOM"},
-        {id: "a6", title: "tab 5, the last one"},
-      ]);
-  }, 3000);
-}
-
-function connect(actor) {
-  let target = TargetFactory.forRemote(actor);
-  gDevTools.openToolbox(target, Toolbox.HostType.WINDOW, "webconsole");
+function connect(tab) {
+  let target = TargetFactory.forRemote(tab, gClient);
+  gDevTools.openToolbox(target, Toolbox.HostType.WINDOW, "jsdebugger");
   // window.close();
 }
