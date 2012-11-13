@@ -145,23 +145,29 @@ let DebuggerController = {
    * wiring event handlers as necessary.
    */
   _connect: function DC__connect() {
-    if (window._isRemoteDebugger && !this._prepareConnection()) {
+    function callback() {
+      window.dispatchEvent("Debugger:Connected");
+    }
+
+    let client;
+    if (this._target.isRemote) {
+      client = this.client = this._target.client;
+
+      client.addListener("tabNavigated", this._onTabNavigated);
+      client.addListener("tabDetached", this._onTabDetached);
+
+      this._startDebuggingTab(client, this._target.form, callback);
       return;
     }
-    let transport = (window._isChromeDebugger || window._isRemoteDebugger)
-      ? debuggerSocketConnect(Prefs.remoteHost, Prefs.remotePort)
-      : DebuggerServer.connectPipe();
 
-    let client = this.client = new DebuggerClient(transport);
+    let transport = DebuggerServer.connectPipe();
+    client = this.client = new DebuggerClient(transport);
+
     client.addListener("tabNavigated", this._onTabNavigated);
     client.addListener("tabDetached", this._onTabDetached);
 
     client.connect(function(aType, aTraits) {
       client.listTabs(function(aResponse) {
-        function callback() {
-          window.dispatchEvent("Debugger:Connected");
-        }
-
         if (window._isChromeDebugger) {
           let dbg = aResponse.chromeDebugger;
           this._startChromeDebugging(client, dbg, callback);
