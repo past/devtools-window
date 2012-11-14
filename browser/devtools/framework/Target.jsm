@@ -6,7 +6,11 @@
 
 this.EXPORTED_SYMBOLS = [ "TargetFactory" ];
 
-Components.utils.import("resource:///modules/devtools/EventEmitter.jsm");
+const Cu = Components.utils;
+const Ci = Components.interfaces;
+Cu.import("resource:///modules/devtools/EventEmitter.jsm");
+Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+
 
 /**
  * Functions for creating Targets
@@ -131,6 +135,7 @@ Object.defineProperty(Target.prototype, "version", {
 function TabTarget(tab) {
   new EventEmitter(this);
   this._tab = tab;
+  this._setupListeners();
 }
 
 TabTarget.prototype = {
@@ -151,6 +156,77 @@ TabTarget.prototype = {
 
   get remote() {
     return false;
+  },
+
+  /**
+   * Listen to the different tabs events.
+   */
+  _setupListeners: function TabTarget__setupListeners() {
+    this._webProgressListener.target = this;
+    this.tab.linkedBrowser.addProgressListener(this._webProgressListener);
+    this.tab.addEventListener("TabClose", this);
+    this.tab.parentNode.addEventListener("TabSelect", this);
+  },
+
+  /**
+   * Handle tabs events.
+   */
+  handleEvent: function (event) {
+    switch (event.type) {
+      case "TabClose":
+        this.destroy();
+        break;
+      case "TabSelect":
+        if (this.tab.selected) {
+          this.emit("visible", event);
+        } else {
+          this.emit("hidden", event);
+        }
+        break;
+    }
+  },
+
+  /**
+   * Handle webProgress events.
+   */
+  _webProgressListener: {
+    QueryInterface: XPCOMUtils.generateQI([Ci.nsIWebProgressListener, Ci.nsISupportsWeakReference]),
+    onProgressChange: function() {},
+    onStateChange: function(aProgress, aRequest, aFlag, aStatus) {
+      let isStart = aFlag & Ci.nsIWebProgressListener.STATE_START;
+      let isDocument = aFlag & Ci.nsIWebProgressListener.STATE_IS_DOCUMENT;
+      let isNetwork = aFlag & Ci.nsIWebProgressListener.STATE_IS_NETWORK;
+      let isRequest = aFlag & Ci.nsIWebProgressListener.STATE_IS_REQUEST;
+
+      // Skip non-interesting states.
+      if (!isStart || !isDocument || !isRequest || !isNetwork) {
+        return;
+      }
+
+      this.target.emit("will-navigate", aRequest);
+    },
+    onSecurityChange: function() {},
+    onStatusChange: function() {},
+    onLocationChange: function(webProgress){
+      let window = webProgress.DOMWindow;
+      this.target.emit("navigate", window);
+    },
+  },
+
+  /**
+   * Target is not alive anymore.
+   */
+  destroy: function() {
+    if (this._destroyed) {
+      return;
+    }
+    this._webProgressListener.target = null;
+    this.tab.linkedBrowser.removeProgressListener(this._webProgressListener)
+    this.tab.removeEventListener("TabClose", this);
+    this.tab.parentNode.removeEventListener("TabSelect", this);
+    this._tab = null;
+    this._destroyed = true;
+    this.emit("close");
   },
 };
 
