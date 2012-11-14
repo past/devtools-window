@@ -125,19 +125,26 @@ ToolSidebar.prototype = {
   },
 
   /**
+   * Return the id of the selected tab.
+   */
+  getCurrentTabID: function ToolSidebar_getCurrentTabID() {
+    let currentID = null;
+    for (let [id, tab] of this._tabs) {
+      if (tab === this._tabbox.selectedTab) {
+        currentID = id;
+        break;
+      }
+    }
+    return currentID;
+  },
+
+  /**
    * Event handler.
    */
   handleEvent: function ToolSidebar_eventHandler(event) {
     if (event.type == "select") {
-      let newTool;
       let previousTool = this._currentTool;
-      for (let [id, tab] of this._tabs) {
-        if (tab === this._tabbox.selectedTab) {
-          newTool = id;
-          break;
-        }
-      }
-      this._currentTool = newTool;
+      this._currentTool = this.getCurrentTabID();
       if (previousTool) {
         this.emit(previousTool + "-unselected");
       }

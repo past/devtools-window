@@ -100,6 +100,7 @@ function test() {
     }
     is(label, 4, "Found the right amount of tabs.");
     ok(tabs[0].selected, "First tab is selected");
+    ok(panel.sidebar.getCurrentTabID(), "tab1", "getCurrentTabID() is correct");
 
     panel.sidebar.once("tab1-unselected", function() {
       ok(true, "received 'unselected' event");
