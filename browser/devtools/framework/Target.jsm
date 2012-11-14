@@ -104,9 +104,9 @@ function supports(feature) {
  * Target extends EventEmitter and provides support for the following events:
  * - close: The target window has been closed. All tools attached to this
  *     target should close. This event is not currently cancelable.
+ * - will-navigate: The target window will navigate to a different URL
  * - navigate: The target window has navigated to a different URL
- * - reload: The target window has been refreshed via F5 or a similar mechanism
- * - change: One of the read-only
+ * - FIXME: more things
  *
  * Target also supports 2 functions to help allow 2 different versions of
  * Firefox debug each other. The 'version' property is the equivalent of
@@ -203,13 +203,17 @@ TabTarget.prototype = {
         return;
       }
 
-      this.target.emit("will-navigate", aRequest);
+      if (this.target) {
+        this.target.emit("will-navigate", aRequest);
+      }
     },
     onSecurityChange: function() {},
     onStatusChange: function() {},
     onLocationChange: function(webProgress){
       let window = webProgress.DOMWindow;
-      this.target.emit("navigate", window);
+      if (this.target) {
+        this.target.emit("navigate", window);
+      }
     },
   },
 
@@ -220,8 +224,8 @@ TabTarget.prototype = {
     if (this._destroyed) {
       return;
     }
-    this._webProgressListener.target = null;
     this.tab.linkedBrowser.removeProgressListener(this._webProgressListener)
+    this._webProgressListener.target = null;
     this.tab.removeEventListener("TabClose", this);
     this.tab.parentNode.removeEventListener("TabSelect", this);
     this._tab = null;
