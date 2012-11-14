@@ -102,14 +102,7 @@ this.InspectorPanel = function InspectorPanel(iframeWindow, toolbox) {
     this.emit("ready");
   }.bind(this));
 
-  let tabbox = this.panelDoc.querySelector("#inspector-sidebar");
-  this.sidebar = new ToolSidebar(tabbox, this);
-
-  this.sidebar.addTab("ruleview", "chrome://browser/content/devtools/cssruleview.xul");
-  this.sidebar.addTab("propertyview", "chrome://browser/content/devtools/csshtmltree.xul");
-  this.sidebar.addTab("layoutview", "chrome://browser/content/devtools/layoutview/view.xhtml");
-
-  this.sidebar.show();
+  this.setupSidebar();
 }
 
 InspectorPanel.prototype = {
@@ -148,6 +141,36 @@ InspectorPanel.prototype = {
    */
   markDirty: function InspectorPanel_markDirty() {
     this.isDirty = true;
+  },
+
+  /**
+   * Build the sidebar.
+   */
+  setupSidebar: function InspectorPanel_setupSidebar() {
+    let tabbox = this.panelDoc.querySelector("#inspector-sidebar");
+    this.sidebar = new ToolSidebar(tabbox, this);
+
+    let defaultTab = Services.prefs.getCharPref("devtools.inspector.activeSidebar");
+
+    this._setDefaultSidebar = function(event, toolId) {
+      Services.prefs.setCharPref("devtools.inspector.activeSidebar", toolId);
+    }.bind(this);
+
+    this.sidebar.on("select", this._setDefaultSidebar);
+
+    this.sidebar.addTab("ruleview",
+                        "chrome://browser/content/devtools/cssruleview.xul",
+                        "ruleview" == defaultTab);
+
+    this.sidebar.addTab("computedview",
+                        "chrome://browser/content/devtools/csshtmltree.xul",
+                        "computedview" == defaultTab);
+
+    this.sidebar.addTab("layoutview",
+                        "chrome://browser/content/devtools/layoutview/view.xhtml",
+                        "layoutview" == defaultTab);
+
+    this.sidebar.show();
   },
 
   /**
@@ -259,6 +282,7 @@ InspectorPanel.prototype = {
       this.highlighter.destroy();
     }
 
+    this.sidebar.off("select", this._setDefaultSidebar);
     this.sidebar.destroy();
     this.sidebar = null;
 
