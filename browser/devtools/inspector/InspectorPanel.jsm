@@ -407,7 +407,7 @@ InspectorPanel.prototype = {
   /**
    * Toggle a pseudo class.
    */
-  togglePseudoClass: function togglePseudoClass(aPseudo) {
+  togglePseudoClass: function InspectorPanel_togglePseudoClass(aPseudo) {
     if (this.selection.isElementNode()) {
       if (DOMUtils.hasPseudoClassLock(this.selection.node, aPseudo)) {
         this.breadcrumbs.nodeHierarchy.forEach(function(crumb) {

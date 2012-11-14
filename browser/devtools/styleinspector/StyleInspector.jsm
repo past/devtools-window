@@ -84,6 +84,8 @@ this.RuleViewTool = function RVT_RuleViewTool(aInspector, aWindow, aIFrame)
 
   this._onSelect = this.onSelect.bind(this);
   this.inspector.selection.on("new-node", this._onSelect);
+  this.refresh = this.refresh.bind(this);
+  this.inspector.selection.on("pseudoclass", this.refresh);
   if (this.inspector.highlighter) {
     this.inspector.highlighter.on("locked", this._onSelect);
   }
@@ -112,8 +114,12 @@ RuleViewTool.prototype = {
     }
   },
 
+  refresh: function RVT_refresh() {
+    this.view.nodeChanged();
+  },
 
   destroy: function RVT_destroy() {
+    this.inspector.off("classlock", this.refresh);
     this.inspector.selection.off("new-node", this._onSelect);
     if (this.inspector.highlighter) {
       this.inspector.highlighter.off("locked", this._onSelect);
@@ -150,6 +156,8 @@ this.ComputedViewTool = function CVT_ComputedViewTool(aInspector, aWindow, aIFra
   if (this.inspector.highlighter) {
     this.inspector.highlighter.on("locked", this._onSelect);
   }
+  this.refresh = this.refresh.bind(this);
+  this.inspector.selection.on("pseudoclass", this.refresh);
 
   this.cssLogic.highlight(null);
   this.view.highlight(null);
@@ -181,8 +189,14 @@ ComputedViewTool.prototype = {
     }
   },
 
+  refresh: function CVT_refresh() {
+    this.cssLogic.highlight(this.inspector.selection.node);
+    this.view.refreshPanel();
+  },
+
   destroy: function CVT_destroy(aContext)
   {
+    this.inspector.off("classlock", this.refresh);
     this.inspector.selection.off("new-node", this._onSelect);
     if (this.inspector.highlighter) {
       this.inspector.highlighter.off("locked", this._onSelect);
