@@ -104,9 +104,12 @@ function supports(feature) {
  * Target extends EventEmitter and provides support for the following events:
  * - close: The target window has been closed. All tools attached to this
  *     target should close. This event is not currently cancelable.
- * - will-navigate: The target window will navigate to a different URL
  * - navigate: The target window has navigated to a different URL
- * - FIXME: more things
+ *
+ * Optional events:
+ * - will-navigate: The target window will navigate to a different URL
+ * - hidden: The target is not visible anymore (for TargetTab, another tab is selected)
+ * - visible: The target is visible (for TargetTab, tab is selected)
  *
  * Target also supports 2 functions to help allow 2 different versions of
  * Firefox debug each other. The 'version' property is the equivalent of
