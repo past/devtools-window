@@ -131,7 +131,7 @@ InspectorPanel.prototype = {
   /**
    * Expose gViewSourceUtils so that other tools can make use of them.
    */
-  get gViewSourceUtils() {
+  get viewSourceUtils() {
     return this.panelWin.gViewSourceUtils;
   },
 

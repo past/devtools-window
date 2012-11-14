@@ -11,6 +11,7 @@ const Ci = Components.interfaces;
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource:///modules/devtools/CssRuleView.jsm");
+Cu.import("resource:///modules/devtools/StyleEditorDefinition.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "gDevTools",
                                   "resource:///modules/devtools/gDevTools.jsm");
@@ -52,25 +53,22 @@ this.RuleViewTool = function RVT_RuleViewTool(aInspector, aWindow, aIFrame)
     }
 
     if (contentSheet)  {
-      let tab = chromeWindow.gBrowser.selectedTab;
-      let panel = gDevTools.getPanelForTarget("styleeditor", tab);
+      let target = this.inspector.target;
 
-      if (panel) {
-        gDevTools.openToolboxForTab(tab, "styleeditor");
-        panel.selectStyleSheet(styleSheet, line);
-      } else {
-        gDevTools.once("styleeditor-ready", function() {
-          panel = gDevTools.getPanelForTarget("styleeditor", tab);
-          panel.selectStyleSheet(styleSheet, line);
+      if (StyleEditorDefinition.isTargetSupported(target)) {
+        let toolbox = gDevTools.getToolboxForTarget(target.tab);
+
+        toolbox.once("styleeditor-selected", function SE_selected(id, styleEditor) {
+          styleEditor.selectStyleSheet(styleSheet, line);
         });
-        gDevTools.openToolboxForTab(tab, "styleeditor");
+        toolbox.selectTool("styleeditor");
       }
     } else {
       let href = styleSheet ? styleSheet.href : "";
       if (rule.elementStyle.element) {
         href = rule.elementStyle.element.ownerDocument.location.href;
       }
-      let viewSourceUtils = this.inspector.gViewSourceUtils;
+      let viewSourceUtils = this.inspector.viewSourceUtils;
       viewSourceUtils.viewSource(href, null, contentDoc, line);
     }
   }.bind(this);
