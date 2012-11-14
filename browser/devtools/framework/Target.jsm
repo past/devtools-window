@@ -173,11 +173,11 @@ WindowTarget.prototype = {
   },
 
   get name() {
-    return this._window.content.ownerDocument.title;
+    return this._window.document.title;
   },
 
   get url() {
-    return this._window.content.ownerDocument.location.href;
+    return this._window.document.location.href;
   },
 
   get remote() {
