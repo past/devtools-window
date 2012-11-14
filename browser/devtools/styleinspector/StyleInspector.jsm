@@ -29,6 +29,12 @@ this.RuleViewTool = function RVT_RuleViewTool(aInspector, aWindow, aIFrame)
   this.view = new CssRuleView(this.doc);
   this.doc.documentElement.appendChild(this.view.element);
 
+  this._changeHandler = function() {
+    this.inspector.markDirty();
+  }.bind(this);
+
+  this.view.element.addEventListener("CssRuleViewChanged", this._changeHandler)
+
   this._cssLinkHandler = function(aEvent) {
     let contentDoc = this.inspector.selection.document;
     let rule = aEvent.detail.rule;
@@ -115,6 +121,9 @@ RuleViewTool.prototype = {
 
     this.view.element.removeEventListener("CssRuleViewCSSLinkClicked",
       this._cssLinkHandler);
+
+    this.view.element.removeEventListener("CssRuleViewChanged",
+      this._changeHandler);
 
     this.doc.documentElement.removeChild(this.view.element);
 

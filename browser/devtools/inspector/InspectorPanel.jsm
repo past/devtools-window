@@ -28,6 +28,7 @@ Cu.import("resource:///modules/devtools/Sidebar.jsm");
  * and layout view).
  */
 this.InspectorPanel = function InspectorPanel(iframeWindow, toolbox) {
+  this._toolbox = toolbox;
   this._target = toolbox._target;
 
   if (this.target.isRemote) {
@@ -35,9 +36,14 @@ this.InspectorPanel = function InspectorPanel(iframeWindow, toolbox) {
   }
 
   this.tabTarget = (this.target.tab != null);
-  this.chromeTarget = (this.target.window != null);
+  this.winTarget = (this.target.window != null);
 
   new EventEmitter(this);
+
+  this.preventNavigateAway = this.preventNavigateAway.bind(this);
+  this.onNavigatedAway = this.onNavigatedAway.bind(this);
+  this.target.on("will-navigate", this.preventNavigateAway);
+  this.target.on("navigate", this.onNavigatedAway);
 
   this.panelDoc = iframeWindow.document;
   this.panelWin = iframeWindow;
@@ -84,7 +90,7 @@ this.InspectorPanel = function InspectorPanel(iframeWindow, toolbox) {
       let root = browser.contentDocument.documentElement;
       this._selection.setNode(root);
     }
-    if (this.chromeTarget) {
+    if (this.winTarget) {
       let root = this.target.window.document.documentElement;
       this._selection.setNode(root);
     }
@@ -145,6 +151,88 @@ InspectorPanel.prototype = {
   },
 
   /**
+   * Reset the inspector on navigate away.
+   */
+  onNavigatedAway: function InspectorPanel_onNavigatedAway(event, newWindow) {
+    this.selection.setNode(null);
+    this._destroyMarkup();
+    let self = this;
+    newWindow.addEventListener("DOMContentLoaded", function onDOMReady() {
+      newWindow.removeEventListener("DOMContentLoaded", onDOMReady, true);;
+      if (!self.selection.node) {
+        self.selection.setNode(newWindow.document.documentElement);
+      }
+      self._initMarkup();
+    }, true);
+  },
+
+  /**
+   * Show a message if the inspector is dirty.
+   */
+  preventNavigateAway: function InspectorPanel_preventNavigateAway(event, request) {
+    if (!this.isDirty) {
+      this.
+      return;
+    }
+
+    request.suspend();
+
+    let notificationBox = this._toolbox.getNotificationBox();
+    let notification = notificationBox.
+      getNotificationWithValue("inspector-page-navigation");
+
+    if (notification) {
+      notificationBox.removeNotification(notification, true);
+    }
+
+    let cancelRequest = function onCancelRequest() {
+      if (request) {
+        request.cancel(Cr.NS_BINDING_ABORTED);
+        request.resume(); // needed to allow the connection to be cancelled.
+        request = null;
+      }
+    };
+
+    let eventCallback = function onNotificationCallback(event) {
+      if (event == "removed") {
+        cancelRequest();
+      }
+    };
+
+    let buttons = [
+      {
+        id: "inspector.confirmNavigationAway.buttonLeave",
+        label: this.strings.GetStringFromName("confirmNavigationAway.buttonLeave"),
+        accessKey: this.strings.GetStringFromName("confirmNavigationAway.buttonLeaveAccesskey"),
+        callback: function onButtonLeave() {
+          if (request) {
+            request.resume();
+            request = null;
+            return true;
+          }
+          return false;
+        }.bind(this),
+      },
+      {
+        id: "inspector.confirmNavigationAway.buttonStay",
+        label: this.strings.GetStringFromName("confirmNavigationAway.buttonStay"),
+        accessKey: this.strings.GetStringFromName("confirmNavigationAway.buttonStayAccesskey"),
+        callback: cancelRequest
+      },
+    ];
+
+    let message = this.strings.GetStringFromName("confirmNavigationAway.message2");
+
+    notification = notificationBox.appendNotification(message,
+      "inspector-page-navigation", "chrome://browser/skin/Info.png",
+      notificationBox.PRIORITY_WARNING_HIGH, buttons, eventCallback);
+
+    // Make sure this not a transient notification, to avoid the automatic
+    // transient notification removal.
+    notification.persistence = -1;
+  },
+
+  /**
    * When a new node is selected.
    */
   onNewSelection: function InspectorPanel_onNewSelection() {
@@ -159,6 +247,11 @@ InspectorPanel.prototype = {
       return;
     }
     this._destroyed = true;
+
+    this._toolbox = null;
+
+    this.target.off("will-navigate", this.preventNavigateAway);
+    this.target.off("navigate", this.onNavigatedAway);
 
     if (this.highlighter) {
       this.highlighter.off("locked", this.updateInspectorButton);
@@ -262,7 +355,7 @@ InspectorPanel.prototype = {
     let controllerWindow;
     if (this.tabTarget) {
       controllerWindow = this.target.tab.ownerDocument.defaultView;
-    } else if (this.chromeTarget) {
+    } else if (this.winTarget) {
       controllerWindow = this.target.window;
     }
     this.markup = new MarkupView(this, this._markupFrame, controllerWindow);
@@ -282,6 +375,7 @@ InspectorPanel.prototype = {
     }
 
     if (this._markupFrame) {
+      this._markupFrame.parentNode.removeChild(this._markupFrame);
       delete this._markupFrame;
     }
   },
