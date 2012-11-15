@@ -184,6 +184,7 @@ InspectorPanel.prototype = {
   onNavigatedAway: function InspectorPanel_onNavigatedAway(event, newWindow) {
     this.selection.setNode(null);
     this._destroyMarkup();
+    this.isDirty = false;
     let self = this;
     newWindow.addEventListener("DOMContentLoaded", function onDOMReady() {
       newWindow.removeEventListener("DOMContentLoaded", onDOMReady, true);;
@@ -199,7 +200,6 @@ InspectorPanel.prototype = {
    */
   preventNavigateAway: function InspectorPanel_preventNavigateAway(event, request) {
     if (!this.isDirty) {
-      this.
       return;
     }
 
