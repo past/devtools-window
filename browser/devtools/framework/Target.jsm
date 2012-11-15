@@ -12,6 +12,10 @@ Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 
+const tabTargets = new Map();
+const windowTargets = new Map();
+const remoteTargets = new Map();
+
 /**
  * Functions for creating Targets
  */
@@ -23,7 +27,12 @@ this.TargetFactory = {
    * @return A target object
    */
   forTab: function TF_forTab(tab) {
-    return new TabTarget(tab);
+    let target = tabTargets.get(tab);
+    if (target == null) {
+      target = new TabTarget(tab);
+      tabTargets.set(tab, target);
+    }
+    return target;
   },
 
   /**
@@ -33,7 +42,12 @@ this.TargetFactory = {
    * @return A target object
    */
   forWindow: function TF_forWindow(window) {
-    return new WindowTarget(window);
+    let target = windowTargets.get(window);
+    if (target == null) {
+      target =  new WindowTarget(window);
+      windowTargets.set(window, target);
+    }
+    return target;
   },
 
   /**
@@ -43,7 +57,12 @@ this.TargetFactory = {
    * @return A target object
    */
   forRemote: function TF_forRemote(actor) {
-    return new RemoteTarget(actor);
+    let target = windowTargets.get(actor);
+    if (target == null) {
+      target =  new RemoteTarget(actor);
+      windowTargets.set(actor, target);
+    }
+    return target;
   },
 
   /**
@@ -237,6 +256,8 @@ TabTarget.prototype = {
     this._tab = null;
     this._destroyed = true;
     this.emit("close");
+
+    tabTargets.delete(this.tab);
   },
 
   toString: function() {
