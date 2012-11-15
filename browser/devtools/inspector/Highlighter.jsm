@@ -728,6 +728,8 @@ Highlighter.prototype = {
     if (aEvent.button == 0) {
       let win = aEvent.target.ownerDocument.defaultView;
       this.lock();
+      let node = this.selection.node;
+      this.selection.setNode(node, "highlighter-lock");
       win.focus();
       aEvent.preventDefault();
       aEvent.stopPropagation();
