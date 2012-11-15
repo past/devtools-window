@@ -34,7 +34,6 @@ _BROWSER_FILES = \
 		browser_inspector_cmd_inspect.html \
 		browser_inspector_highlighter_autohide.js \
 		browser_inspector_changes.js \
-		browser_inspector_keybindings.js \
 		browser_inspector_bug_674871.js \
 		head.js \
 		helpers.js \
