@@ -194,12 +194,12 @@ TabTarget.prototype = {
    */
   _webProgressListener: {
     QueryInterface: XPCOMUtils.generateQI([Ci.nsIWebProgressListener, Ci.nsISupportsWeakReference]),
-    onProgressChange: function() {},
-    onStateChange: function(aProgress, aRequest, aFlag, aStatus) {
-      let isStart = aFlag & Ci.nsIWebProgressListener.STATE_START;
-      let isDocument = aFlag & Ci.nsIWebProgressListener.STATE_IS_DOCUMENT;
-      let isNetwork = aFlag & Ci.nsIWebProgressListener.STATE_IS_NETWORK;
-      let isRequest = aFlag & Ci.nsIWebProgressListener.STATE_IS_REQUEST;
+
+    onStateChange: function(progress, request, flag, status) {
+      let isStart = flag & Ci.nsIWebProgressListener.STATE_START;
+      let isDocument = flag & Ci.nsIWebProgressListener.STATE_IS_DOCUMENT;
+      let isNetwork = flag & Ci.nsIWebProgressListener.STATE_IS_NETWORK;
+      let isRequest = flag & Ci.nsIWebProgressListener.STATE_IS_REQUEST;
 
       // Skip non-interesting states.
       if (!isStart || !isDocument || !isRequest || !isNetwork) {
@@ -207,12 +207,15 @@ TabTarget.prototype = {
       }
 
       if (this.target) {
-        this.target.emit("will-navigate", aRequest);
+        this.target.emit("will-navigate", request);
       }
     },
+
+    onProgressChange: function() {},
     onSecurityChange: function() {},
     onStatusChange: function() {},
-    onLocationChange: function(webProgress){
+
+    onLocationChange: function(webProgress) {
       let window = webProgress.DOMWindow;
       if (this.target) {
         this.target.emit("navigate", window);
