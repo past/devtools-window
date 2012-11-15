@@ -235,7 +235,12 @@ function test() {
       step.before();
       step.execute();
       step.after();
-      undoRedo(step);
+      ok(markup.undo.canUndo(), "Should be able to undo.");
+      markup.undo.undo();
+      step.before();
+      ok(markup.undo.canRedo(), "Should be able to redo.");
+      markup.undo.redo();
+      step.after();
       info("END " + step.desc);
     }
     addAttributes();
@@ -252,9 +257,8 @@ function test() {
           id: "node18",
         });
 
-        // FIXME: TEST FAILURE ... FAILS AFTER markup.undo.undo(); test.before();
-        //is(inspector.highlighter.nodeInfo.classesBox.textContent, "",
-        //  "No classes in the infobar before edit.");
+        is(inspector.highlighter.nodeInfo.classesBox.textContent, "",
+          "No classes in the infobar before edit.");
       },
       execute: function() {
         let editor = markup.getContainer(doc.querySelector("#node18")).editor;
@@ -335,10 +339,7 @@ function test() {
     inspector.selection.once("new-node", function BIMET_testAsyncExecNewNode() {
       test.executeCont();
       test.after();
-      undoRedo(test);
-
-      info("END " + test.desc);
-      callback();
+      undoRedo(test, callback);
     });
     executeSoon(function BIMET_setNode1() {
       test.execute();
@@ -352,23 +353,26 @@ function test() {
       test.before();
       test.execute();
       test.after();
-      undoRedo(test);
-
-      info("END " + test.desc);
-      callback();
+      undoRedo(test, callback);
     });
     executeSoon(function BIMET_setNode2() {
       test.setup();
     });
   }
 
-  function undoRedo(test) {
+  function undoRedo(test, callback) {
     ok(markup.undo.canUndo(), "Should be able to undo.");
     markup.undo.undo();
-    test.before();
-    ok(markup.undo.canRedo(), "Should be able to redo.");
-    markup.undo.redo();
-    test.after();
+    executeSoon(function() {
+      test.before();
+      ok(markup.undo.canRedo(), "Should be able to redo.");
+      markup.undo.redo();
+      executeSoon(function() {
+        test.after();
+        info("END " + test.desc);
+        callback();
+      });
+    });
   }
 
   function finishUp() {
