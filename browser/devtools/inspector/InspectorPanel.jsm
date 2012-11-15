@@ -21,6 +21,8 @@ Cu.import("resource:///modules/devtools/Breadcrumbs.jsm");
 Cu.import("resource:///modules/devtools/Highlighter.jsm");
 Cu.import("resource:///modules/devtools/Sidebar.jsm");
 
+const LAYOUT_CHANGE_TIMER = 250;
+
 /**
  * Represents an open instance of the Inspector for a tab.
  * The inspector controls the highlighter, the breadcrumbs,
@@ -64,6 +66,10 @@ this.InspectorPanel = function InspectorPanel(iframeWindow, toolbox) {
   this.breadcrumbs = new HTMLBreadcrumbs(this);
 
   if (this.tabTarget) {
+    this.browser = this.target.tab.linkedBrowser;
+    this.scheduleLayoutChange = this.scheduleLayoutChange.bind(this);
+    this.browser.addEventListener("resize", this.scheduleLayoutChange, true);
+
     this.highlighter = new Highlighter(this.target, this);
     let button = this.panelDoc.getElementById("inspector-inspect-toolbutton");
     button.hidden = false;
@@ -86,8 +92,7 @@ this.InspectorPanel = function InspectorPanel(iframeWindow, toolbox) {
 
     // All the components are initialized. Let's select a node.
     if (this.tabTarget) {
-      let browser = this.target.tab.linkedBrowser;
-      let root = browser.contentDocument.documentElement;
+      let root = this.browser.contentDocument.documentElement;
       this._selection.setNode(root);
     }
     if (this.winTarget) {
@@ -259,7 +264,7 @@ InspectorPanel.prototype = {
    * When a new node is selected.
    */
   onNewSelection: function InspectorPanel_onNewSelection() {
-    // Nothing yet.
+    this.cancelLayoutChange();
   },
 
   /**
@@ -269,9 +274,15 @@ InspectorPanel.prototype = {
     if (this._destroyed) {
       return;
     }
+    this.cancelLayoutChange();
     this._destroyed = true;
 
     this._toolbox = null;
+
+    if (this.browser) {
+      this.browser.removeEventListener("resize", this.scheduleLayoutChange, true);
+      this.browser = null;
+    }
 
     this.target.off("will-navigate", this.preventNavigateAway);
     this.target.off("navigate", this.onNavigatedAway);
@@ -475,6 +486,34 @@ InspectorPanel.prototype = {
       parent.removeChild(toDelete);
     }
   },
+
+  /**
+   * Schedule a low-priority change event for things like paint
+   * and resize.
+   */
+  scheduleLayoutChange: function Inspector_scheduleLayoutChange()
+  {
+    if (this._timer) {
+      return null;
+    }
+    this._timer = this.panelWin.setTimeout(function() {
+      this.emit("layout-change");
+      this._timer = null;
+    }.bind(this), LAYOUT_CHANGE_TIMER);
+  },
+
+  /**
+   * Cancel a pending low-priority change event if any is
+   * scheduled.
+   */
+  cancelLayoutChange: function Inspector_cancelLayoutChange()
+  {
+    if (this._timer) {
+      this.panelWin.clearTimeout(this._timer);
+      delete this._timer;
+    }
+  },
+
 }
 
 /////////////////////////////////////////////////////////////////////////
