@@ -20,13 +20,8 @@ function test() {
   let inspector;
   let tempScope = {}
   Cu.import("resource:///modules/devtools/CssRuleView.jsm", tempScope);
-  Cu.import('resource://gre/modules/XPCOMUtils.jsm', tempScope);
 
   let inplaceEditor = tempScope._getInplaceEditorForSpan;
-  let XPCOMUtils = tempScope.XPCOMUtils;
-
-  XPCOMUtils.defineLazyModuleGetter(this, "gDevTools",
-                                    "resource:///modules/devtools/gDevTools.jsm");
 
   waitForExplicitFinish();
 
