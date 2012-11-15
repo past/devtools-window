@@ -206,7 +206,7 @@ DevTools.prototype = {
    */
   toggleToolboxCommand: function(gBrowser, toolId=null) {
     let target = TargetFactory.forTab(gBrowser.selectedTab);
-    this.toggleToolboxForTab(target, toolId);
+    this.toggleToolboxForTarget(target, toolId);
   },
 
   /**
@@ -217,13 +217,13 @@ DevTools.prototype = {
    * @param  {string} toolId
    *         The id of the tool to show in the toolbox, if it's to be opened.
    */
-  toggleToolboxForTab: function DT_toggleToolboxForTab(tab, toolId) {
-    let tb = this.getToolboxForTarget(tab);
+  toggleToolboxForTarget: function DT_toggleToolboxForTarget(target, toolId) {
+    let tb = this.getToolboxForTarget(target);
 
     if (tb /* FIXME: && tool is showing */ ) {
       tb.destroy();
     } else {
-      this.openToolboxForTab(tab, toolId);
+      this.openToolboxForTab(target, toolId);
     }
   },
 

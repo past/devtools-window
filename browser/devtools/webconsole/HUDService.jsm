@@ -602,8 +602,8 @@ var HeadsUpDisplayUICommands = {
   toggleHUD: function UIC_toggleHUD(aOptions)
   {
     var window = HUDService.currentContext();
-    var tab = window.gBrowser.selectedTab;
-    gDevTools.toggleToolboxForTab(tab, "webconsole");
+    let target = TargetFactory.forTab(window.gBrowser.selectedTab);
+    gDevTools.toggleToolboxForTarget(target, "webconsole");
   },
 
   toggleRemoteHUD: function UIC_toggleRemoteHUD()

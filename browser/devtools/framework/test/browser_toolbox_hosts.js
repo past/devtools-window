@@ -26,8 +26,8 @@ function test()
 
 function openToolbox(callback)
 {
-  let tab = gBrowser.selectedTab;
-  gDevTools.toggleToolboxForTab(tab);
+  let target = TargetFactory.forTab(gBrowser.selectedTab);
+  gDevTools.toggleToolboxForTarget(target);
 
   toolbox = gDevTools.getToolboxForTarget(tab);
   toolbox.once("ready", callback);
