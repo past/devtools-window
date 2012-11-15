@@ -210,10 +210,10 @@ DevTools.prototype = {
   },
 
   /**
-   * Toggle a toolbox for the given browser tab.
+   * Toggle a toolbox for the given target.
    *
-   * @param  {XULTab} tab
-   *         The tab the toolbox is debugging
+   * @param  {Target} target
+   *         The target the toolbox is debugging
    * @param  {string} toolId
    *         The id of the tool to show in the toolbox, if it's to be opened.
    */
@@ -247,7 +247,7 @@ DevTools.prototype = {
    * Return the toolbox for a given target.
    *
    * @param  {object} target
-   *         Target value e.g. the tab that owns this toolbox
+   *         Target value e.g. the target that owns this toolbox
    *
    * @return {Toolbox} toolbox
    *         The toobox that is debugging the given target
