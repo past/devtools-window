@@ -114,7 +114,8 @@ function test() {
 
     oneTimeObserve("web-console-created", _onWebConsoleOpen);
 
-    gDevTools.openToolboxForTab(tab, "webconsole");
+    let target = TargetFactory.forTab(tab);
+    gDevTools.openToolboxForTab(target, "webconsole");
   }
 
   function onWebConsoleOpen(hud) {

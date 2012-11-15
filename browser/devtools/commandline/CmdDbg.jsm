@@ -31,10 +31,9 @@ gcli.addCommand({
   description: gcli.lookup("dbgOpen"),
   params: [],
   exec: function (args, context) {
-    let win = context.environment.chromeDocument.defaultView;
-    let tab = win.gBrowser.selectedTab;
-
-    gDevTools.openToolboxForTab(tab, "jsdebugger");
+    let gBrowser = context.environment.chromeDocument.defaultView.gBrowser;
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    gDevTools.openToolboxForTab(target, "jsdebugger");
   }
 });
 

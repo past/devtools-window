@@ -61,7 +61,8 @@ gcli.addCommand({
   name: "console open",
   description: gcli.lookup("consoleopenDesc"),
   exec: function Command_consoleOpen(args, context) {
-    let tab = context.environment.chromeDocument.defaultView.gBrowser.selectedTab
-    gDevTools.openToolboxForTab(tab, "webconsole");
+    let gBrowser = context.environment.chromeDocument.defaultView.gBrowser;
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    gDevTools.openToolboxForTab(target, "webconsole");
   }
 });

@@ -141,19 +141,18 @@ DevTools.prototype = {
    *        The toolbox that was opened
    */
   openToolbox: function DT_openToolbox(target, hostType, defaultToolId) {
-    if (this._toolboxes.has(target.tab)) {
+    if (this._toolboxes.has(target)) {
       // only allow one toolbox per target
-      return this._toolboxes.get(target.tab);
+      return this._toolboxes.get(target);
     }
 
     let tb = new Toolbox(target, hostType, defaultToolId);
-    let tab = target.tab;
 
-    this._toolboxes.set(tab, tb);
+    this._toolboxes.set(target, tb);
     tb.once("destroyed", function() {
-      this._toolboxes.delete(tab);
+      this._toolboxes.delete(target);
       this._updateMenuCheckbox();
-      this.emit("toolbox-destroyed", tab);
+      this.emit("toolbox-destroyed", target);
     }.bind(this));
 
     tb.once("ready", function() {
@@ -178,23 +177,23 @@ DevTools.prototype = {
   },
 
   /**
-   * Open the toolbox for a specific tab.
+   * Open the toolbox for a specific target (not tab).
+   * FIXME: We should probably merge this function and openToolbox
    *
-   * @param  {XULTab} tab
-   *         The tab that the toolbox should be debugging
+   * @param  {Target} target
+   *         The target that the toolbox should be debugging
    * @param  {String} toolId
    *         The id of the tool to open
    *
    * @return {Toolbox} toolbox
    *         The toolbox that has been opened
    */
-  openToolboxForTab: function DT_openToolboxForTab(tab, toolId) {
-    let tb = this.getToolboxForTarget(tab);
+  openToolboxForTab: function DT_openToolboxForTab(target, toolId) {
+    let tb = this.getToolboxForTarget(target);
 
     if (tb) {
       tb.selectTool(toolId);
     } else {
-      let target = TargetFactory.forTab(tab);
       tb = this.openToolbox(target, null, toolId);
     }
     return tb;
@@ -228,8 +227,8 @@ DevTools.prototype = {
   getToolboxes: function DT_getToolboxes() {
     let toolboxes = new Map();
 
-    for (let [key, value] of this._toolboxes) {
-      toolboxes.set(key, value);
+    for (let [target, toolbox] of this._toolboxes) {
+      toolboxes.set(target, toolbox);
     }
     return toolboxes;
   },

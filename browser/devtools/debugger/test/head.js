@@ -167,7 +167,8 @@ function debug_tab_pane(aURL, aOnDebugging) {
     gBrowser.selectedTab = gTab;
     let debuggee = tab.linkedBrowser.contentWindow.wrappedJSObject;
 
-    let toolbox = gDevTools.openToolboxForTab(tab, "jsdebugger");
+    let target = TargetFactory.forTab(tab);
+    let toolbox = gDevTools.openToolboxForTab(target, "jsdebugger");
     toolbox.once("jsdebugger-ready", function dbgReady() {
       let dbg = gDevTools.getPanelForTarget("jsdebugger", tab);
       dbg.once("connected", function() {

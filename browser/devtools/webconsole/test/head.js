@@ -150,7 +150,8 @@ function openConsole(aTab, aCallback = function() { })
     toolbox.selectTool("webconsole");
   }
   else {
-    toolbox = gDevTools.openToolboxForTab(aTab || tab, "webconsole");
+    let target = TargetFactory.forTab(aTab || tab);
+    toolbox = gDevTools.openToolboxForTab(target, "webconsole");
     toolbox.once("webconsole-selected", onWebConsoleOpen);
   }
 }
@@ -321,7 +322,8 @@ function openInspector(aCallback, aTab = gBrowser.selectedTab)
   if (inspector && inspector.isReady) {
     aCallback(inspector);
   } else {
-    let toolbox = gDevTools.openToolboxForTab(aTab, "inspector");
+    let target = TargetFactory.forTab(aTab);
+    let toolbox = gDevTools.openToolboxForTab(target, "inspector");
     toolbox.once("inspector-ready", function _onSelect(aEvent, aPanel) {
       aCallback(aPanel);
     });

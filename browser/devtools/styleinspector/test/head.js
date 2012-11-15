@@ -137,7 +137,8 @@ function addStyle(aDocument, aString)
 
 function openConsole()
 {
-  gDevTools.openToolboxForTab(tab, "webconsole");
+  let target = TargetFactory.forTab(tab);
+  gDevTools.openToolboxForTab(target, "webconsole");
 }
 
 function closeConsole()
