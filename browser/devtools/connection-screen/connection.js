@@ -41,6 +41,31 @@ function submit() {
 
       let parent = document.getElementById("actors");
       let focusSet = false;
+
+      // Add Global Process debugging...
+      let globals = JSON.parse(JSON.stringify(aResponse));
+      delete globals.tabs;
+      delete globals.selected;
+      // ...only if there are appropriate actors (a 'from' property will always
+      // be there).
+      if (Object.keys(globals).length > 1) {
+        let a = document.createElement("a");
+        a.onclick = function() {
+          connect(globals, true);
+        }
+
+        a.title = a.textContent = "Remote process";
+        a.href = "#";
+
+        parent.appendChild(a);
+      }
+
+      // Add one entry for each open tab.
+      if (aResponse.tabs.length > 0) {
+        let header = document.createElement("div");
+        header.innerHTML = "Tabs:";
+        parent.appendChild(header);
+      }
       for (let i = 0; i < aResponse.tabs.length; i++) {
         let tab = aResponse.tabs[i];
 
@@ -49,13 +74,12 @@ function submit() {
           connect(tab);
         }
 
-        a.textContent = tab.title;
-        a.title = tab.title;
+        a.title = a.textContent = tab.title;
         a.href = "#";
 
         if (i == aResponse.selected) {
-          a.title += " (current)";
-          a.textContent += " (current)";
+          a.title += " [*]";
+          a.textContent = a.title;
         }
 
         parent.appendChild(a);
@@ -65,21 +89,12 @@ function submit() {
           focusSet = true;
         }
       }
-
-      // TODO
-      // if (window._isChromeDebugger) {
-      //   let dbg = aResponse.chromeDebugger;
-      //   this._startChromeDebugging(client, dbg, callback);
-      // } else {
-      //   let tab = aResponse.tabs[aResponse.selected];
-      //   this._startDebuggingTab(client, tab, callback);
-      // }
     });
   });
 }
 
-function connect(tab) {
-  let target = TargetFactory.forRemote(tab, gClient);
+function connect(form, chrome=false) {
+  let target = TargetFactory.forRemote(form, gClient, chrome);
   gDevTools.openToolbox(target, Toolbox.HostType.WINDOW, "jsdebugger");
   // window.close();
 }

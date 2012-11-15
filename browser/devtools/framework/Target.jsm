@@ -40,13 +40,19 @@ this.TargetFactory = {
 
   /**
    * Construct a Target for a remote global
-   * @param {Actor} actor
+   * @param {Object} form
+   *        The serialized form of a debugging protocol actor.
+   * @param {DebuggerClient} client
+   *        The debuger client instance to communicate with the server.
+   * @param {boolean} chrome
+   *        A flag denoting that the debugging target is the remote process as a
+   *        whole and not a single tab.
    * @return A target object
    */
-  forRemote: function TF_forRemote(form, client) {
+  forRemote: function TF_forRemote(form, client, chrome) {
     let target = this.remotes.get(form.actor);
     if (!target) {
-      target = new RemoteTarget(form, client);
+      target = new RemoteTarget(form, client, chrome);
       this.remotes.set(form.actor, target);
     }
     return target;
@@ -277,47 +283,41 @@ WindowTarget.prototype = {
 /**
  * A RemoteTarget represents a page living in a remote Firefox instance.
  */
-function RemoteTarget(actor) {
+function RemoteTarget(form, client, chrome) {
   new EventEmitter(this);
-  this._actor = actor;
-}
-
-RemoteTarget.prototype = {
-  supports: supports,
-  get version() { return getVersion(); },
-
-  get actor() {
-    return this._actor;
-  },
-
-  get name() {
-    throw new Error("FIXME: implement");
-  },
-
-  get url() {
-    throw new Error("FIXME: implement");
-  },
-
-  get remote() {
-    return true;
-  },
-};
-
-function RemoteTarget(form, client) {
   this._client = client;
   this._form = form;
-  new EventEmitter(this);
+  this._chrome = chrome;
   // FIXME: fire useful events
 }
 
 RemoteTarget.prototype = {
-  get isRemote() true,
+  supports: supports,
+  get version() getVersion(),
 
-  get title() this._form._title,
+  get remote() true,
+
+  get chrome() this._chrome,
+
+  get name() this._form._title,
 
   get url() this._form._url,
 
   get client() this._client,
 
-  get form() this._form
+  get form() this._form,
+
+    /**
+   * Target is not alive anymore.
+   */
+  destroy: function() {
+    if (this._destroyed) {
+      return;
+    }
+    this._client.close();
+    this._client = null;
+    this._destroyed = true;
+    this.emit("close");
+  },
+
 }
