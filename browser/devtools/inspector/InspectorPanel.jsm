@@ -97,11 +97,11 @@ this.InspectorPanel = function InspectorPanel(iframeWindow, toolbox) {
   }.bind(this));
 
   let tabbox = this.panelDoc.querySelector("#inspector-sidebar");
-  this.sidebar = new InspectorSidebar(tabbox, this);
+  this.sidebar = new ToolSidebar(tabbox, this);
 
-  this.sidebar.addView("ruleview", "chrome://browser/content/devtools/cssruleview.xul");
-  this.sidebar.addView("propertyview", "chrome://browser/content/devtools/csshtmltree.xul");
-  this.sidebar.addView("layoutview", "chrome://browser/content/devtools/layoutview/view.xhtml");
+  this.sidebar.addTab("ruleview", "chrome://browser/content/devtools/cssruleview.xul");
+  this.sidebar.addTab("propertyview", "chrome://browser/content/devtools/csshtmltree.xul");
+  this.sidebar.addTab("layoutview", "chrome://browser/content/devtools/layoutview/view.xhtml");
 
   this.sidebar.show();
 }
@@ -129,6 +129,13 @@ InspectorPanel.prototype = {
   },
 
   /**
+   * Expose gViewSourceUtils so that other tools can make use of them.
+   */
+  get viewSourceUtils() {
+    return this.panelWin.gViewSourceUtils;
+  },
+
+  /**
    * Indicate that a tool has modified the state of the page.  Used to
    * decide whether to show the "are you sure you want to navigate"
    * notification.
@@ -148,6 +155,11 @@ InspectorPanel.prototype = {
    * Destroy the inspector.
    */
   destroy: function InspectorPanel__destroy() {
+    if (this._destroyed) {
+      return;
+    }
+    this._destroyed = true;
+
     if (this.highlighter) {
       this.highlighter.off("locked", this.updateInspectorButton);
       this.highlighter.off("unlocked", this.updateInspectorButton);
