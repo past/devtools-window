@@ -349,6 +349,7 @@ function WebConsole(aTab, aIframe, aOptions = {})
 
   this.remoteHost = aOptions.host;
   this.remotePort = aOptions.port;
+  this.target = aOptions.target;
 
   this._onIframeLoad = this._onIframeLoad.bind(this);
 

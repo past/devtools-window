@@ -151,7 +151,7 @@ let DebuggerController = {
 
     let client;
     // Remote debugging gets the debuggee from a RemoteTarget object.
-    if (this._target.remote) {
+    if (this._target.isRemote) {
       client = this.client = this._target.client;
 
       // TODO: move event handling to the Target and make sure the debugger

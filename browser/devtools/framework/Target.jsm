@@ -169,7 +169,7 @@ TabTarget.prototype = {
     return this._tab.linkedBrowser.contentDocument.location.href;
   },
 
-  get remote() {
+  get isRemote() {
     return false;
   },
 
@@ -275,7 +275,7 @@ WindowTarget.prototype = {
     return this._window.document.location.href;
   },
 
-  get remote() {
+  get isRemote() {
     return false;
   },
 };
@@ -295,7 +295,7 @@ RemoteTarget.prototype = {
   supports: supports,
   get version() getVersion(),
 
-  get remote() true,
+  get isRemote() true,
 
   get chrome() this._chrome,
 
