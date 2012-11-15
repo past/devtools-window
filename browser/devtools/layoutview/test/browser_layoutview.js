@@ -3,7 +3,7 @@
 
 function test() {
   // FIXME: commented out for failing test
-  return;
+  //return;
   waitForExplicitFinish();
 
   Services.prefs.setBoolPref("devtools.layoutview.enabled", true);
