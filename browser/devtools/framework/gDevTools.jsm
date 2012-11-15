@@ -167,13 +167,10 @@ DevTools.prototype = {
   },
 
   /**
-   * Close the toolbox for a given tab
-   *
-   * @param  {XULTab} tab
-   *         The tab the toolbox to close is debugging
+   * Close the toolbox for a given target
    */
-  closeToolbox: function DT_closeToolbox(tab) {
-    let toolbox = this._toolboxes.get(tab);
+  closeToolbox: function DT_closeToolbox(target) {
+    let toolbox = this._toolboxes.get(target);
     if (toolbox == null) {
       return;
     }

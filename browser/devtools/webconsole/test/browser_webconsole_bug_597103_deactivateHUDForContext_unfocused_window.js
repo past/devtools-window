@@ -74,18 +74,20 @@ function tab2Loaded(aEvent) {
     Services.obs.addObserver(onWebConsoleClose, "web-console-destroyed", false);
 
     try {
-      gDevTools.closeToolbox(tab1);
+      let target1 = TargetFactory.forTab(tab1);
+      gDevTools.closeToolbox(target1);
     }
     catch (ex) {
-      ok(false, "gDevTools.closeToolbox(tab1) exception: " + ex);
+      ok(false, "gDevTools.closeToolbox(target1) exception: " + ex);
       noErrors = false;
     }
 
     try {
-      gDevTools.closeToolbox(tab2);
+      let target2 = TargetFactory.forTab(tab2);
+      gDevTools.closeToolbox(target2);
     }
     catch (ex) {
-      ok(false, "gDevTools.closeToolbox(tab2) exception: " + ex);
+      ok(false, "gDevTools.closeToolbox(target2) exception: " + ex);
       noErrors = false;
     }
   }

@@ -14,6 +14,8 @@ let DebuggerServer = tempScope.DebuggerServer;
 let DebuggerTransport = tempScope.DebuggerTransport;
 let DebuggerClient = tempScope.DebuggerClient;
 let Services = tempScope.Services;
+Cu.import("resource:///modules/devtools/Target.jsm", tempScope);
+let TargetFactory = tempScope.TargetFactory;
 
 const EXAMPLE_URL = "http://example.com/browser/browser/devtools/debugger/test/";
 const TAB1_URL = EXAMPLE_URL + "browser_dbg_tab1.html";
@@ -90,7 +92,8 @@ function closeDebuggerAndFinish(aRemoteFlag, aCallback, aWindow) {
   // let dbg = gDevTools.getPanelForTarget("jsdebugger", targetWindow);
   let debuggerClosed = true;
   let debuggerDisconnected = true;
-  gDevTools.closeToolbox(gTab);
+  let target = TargetFactory.forTab(gTab);
+  gDevTools.closeToolbox(target);
   debuggerDisconnected = true;
   _maybeFinish();
 

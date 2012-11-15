@@ -7,8 +7,12 @@ const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 this.EXPORTED_SYMBOLS = [ ];
 
 Cu.import("resource:///modules/devtools/gcli.jsm");
-Cu.import("resource:///modules/devtools/gDevTools.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+
+XPCOMUtils.defineLazyModuleGetter(this, "gDevTools",
+                                  "resource:///modules/devtools/gDevTools.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "TargetFactory",
+                                  "resource:///modules/devtools/Target.jsm");
 
 /**
  * 'dbg' command
@@ -44,10 +48,11 @@ gcli.addCommand({
   exec: function (args, context) {
     let win = context.environment.chromeDocument.defaultView;
     let tab = win.gBrowser.selectedTab;
+    let target = TargetFactory.forTab(tab);
     let dbg = gDevTools.getPanelForTarget("jsdebugger", tab);
 
     if (dbg /* FIXME: and debugger panel is currently active */) {
-      gDevTools.closeToolbox(tab);
+      gDevTools.closeToolbox(target);
     }
   }
 });
