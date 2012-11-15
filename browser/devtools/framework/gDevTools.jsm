@@ -200,6 +200,16 @@ DevTools.prototype = {
   },
 
   /**
+   * This function is for the benefit of command#Tools:DevToolbox in
+   * browser/base/content/browser-sets.inc and should not be used outside
+   * of there
+   */
+  toggleToolboxCommand: function(gBrowser, toolId=null) {
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    this.toggleToolboxForTab(target, toolId);
+  },
+
+  /**
    * Toggle a toolbox for the given browser tab.
    *
    * @param  {XULTab} tab
@@ -364,7 +374,7 @@ DevTools.prototype = {
     let cmd = doc.createElement("command");
     cmd.id = "Tools:" + id;
     cmd.setAttribute("oncommand",
-      'gDevTools.openToolboxForTab(gBrowser.selectedTab, "' + id + '");');
+        'gDevTools.toggleToolboxCommand(gBrowser, "' + id + '");');
 
     let key = null;
     if (toolDefinition.key) {
@@ -378,7 +388,7 @@ DevTools.prototype = {
       }
 
       key.setAttribute("oncommand",
-        'gDevTools.openToolboxForTab(gBrowser.selectedTab, "' + id + '");');
+          'gDevTools.toggleToolboxCommand(gBrowser, "' + id + '");');
       key.setAttribute("modifiers", toolDefinition.modifiers);
     }
 
