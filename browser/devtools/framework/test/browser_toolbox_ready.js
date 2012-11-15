@@ -26,7 +26,7 @@ function openToolbox()
   let target = TargetFactory.forTab(gBrowser.selectedTab);
   gDevTools.toggleToolboxForTarget(target);
 
-  toolbox = gDevTools.getToolboxForTarget(tab);
+  toolbox = gDevTools.getToolboxForTarget(target);
 
   ok(!toolbox.isReady, "toolbox isReady isn't set yet");
 

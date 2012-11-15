@@ -535,8 +535,9 @@ WebConsole.prototype = {
     let styleSheets = this.tab.linkedBrowser.contentWindow.document.styleSheets;
     for each (let style in styleSheets) {
       if (style.href == aSourceURL) {
+        let target = TargetFactory.forTab(this.tab);
         let gDevTools = this.chromeWindow.gDevTools;
-        let toolbox = gDevTools.getToolboxForTarget(this.tab);
+        let toolbox = gDevTools.getToolboxForTarget(target);
         toolbox.once("styleeditor-selected",
           function _onStyleEditorReady(aEvent, aPanel) {
             aPanel.selectStyleSheet(style, aSourceLine);

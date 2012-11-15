@@ -144,7 +144,8 @@ function openConsole(aTab, aCallback = function() { })
     executeSoon(aCallback.bind(null, aPanel.hud));
   }
 
-  let toolbox = gDevTools.getToolboxForTarget(aTab || tab);
+  let target = TargetFactory.forTab(aTab || tab);
+  let toolbox = gDevTools.getToolboxForTarget(target);
   if (toolbox) {
     toolbox.once("webconsole-selected", onWebConsoleOpen);
     toolbox.selectTool("webconsole");
@@ -168,7 +169,8 @@ function openConsole(aTab, aCallback = function() { })
  */
 function closeConsole(aTab, aCallback = function() { })
 {
-  let toolbox = gDevTools.getToolboxForTarget(aTab || tab);
+  let target = TargetFactory.forTab(aTab || tab);
+  let toolbox = gDevTools.getToolboxForTarget(target);
   if (toolbox) {
     let panel = gDevTools.getPanelForTarget("webconsole", aTab || tab);
     if (panel) {
