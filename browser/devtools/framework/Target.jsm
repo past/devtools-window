@@ -238,6 +238,10 @@ TabTarget.prototype = {
     this._destroyed = true;
     this.emit("close");
   },
+
+  toString: function() {
+    return 'TabTarget:' + this.tab;
+  },
 };
 
 
@@ -269,6 +273,10 @@ WindowTarget.prototype = {
   get remote() {
     return false;
   },
+
+  toString: function() {
+    return 'WindowTarget:' + this.window;
+  },
 };
 
 /**
@@ -297,5 +305,9 @@ RemoteTarget.prototype = {
 
   get remote() {
     return true;
+  },
+
+  toString: function() {
+    return 'RemoteTarget:' + this.actor;
   },
 };
