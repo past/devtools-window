@@ -246,14 +246,14 @@ DevTools.prototype = {
   /**
    * Return the toolbox for a given target.
    *
-   * @param  {object} targetValue
+   * @param  {object} target
    *         Target value e.g. the tab that owns this toolbox
    *
    * @return {Toolbox} toolbox
    *         The toobox that is debugging the given target
    */
-  getToolboxForTarget: function DT_getToolboxForTarget(targetValue) {
-    return this._toolboxes.get(targetValue);
+  getToolboxForTarget: function DT_getToolboxForTarget(target) {
+    return this._toolboxes.get(target);
   },
 
   /**
@@ -261,14 +261,14 @@ DevTools.prototype = {
    *
    * @param  {String} toolId
    *         The id of the tool to open.
-   * @param  {object} targetValue
+   * @param  {object} target
    *         The toolbox's target.
    *
    * @return {ToolPanel} panel
    *         Panel for the tool with the toolid
    */
-  getPanelForTarget: function DT_getPanelForTarget(toolId, targetValue) {
-    let toolbox = this.getToolboxForTarget(targetValue);
+  getPanelForTarget: function DT_getPanelForTarget(toolId, target) {
+    let toolbox = this.getToolboxForTarget(target);
     if (!toolbox) {
       return undefined;
     }
