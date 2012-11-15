@@ -12,9 +12,7 @@ Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 
-const tabTargets = new Map();
-const windowTargets = new Map();
-const remoteTargets = new Map();
+const targets = new WeakMap();
 
 /**
  * Functions for creating Targets
@@ -27,10 +25,10 @@ this.TargetFactory = {
    * @return A target object
    */
   forTab: function TF_forTab(tab) {
-    let target = tabTargets.get(tab);
+    let target = targets.get(tab);
     if (target == null) {
       target = new TabTarget(tab);
-      tabTargets.set(tab, target);
+      targets.set(tab, target);
     }
     return target;
   },
@@ -42,10 +40,10 @@ this.TargetFactory = {
    * @return A target object
    */
   forWindow: function TF_forWindow(window) {
-    let target = windowTargets.get(window);
+    let target = targets.get(window);
     if (target == null) {
-      target =  new WindowTarget(window);
-      windowTargets.set(window, target);
+      target = new WindowTarget(window);
+      targets.set(window, target);
     }
     return target;
   },
@@ -57,10 +55,10 @@ this.TargetFactory = {
    * @return A target object
    */
   forRemote: function TF_forRemote(actor) {
-    let target = windowTargets.get(actor);
+    let target = targets.get(actor);
     if (target == null) {
-      target =  new RemoteTarget(actor);
-      windowTargets.set(actor, target);
+      target = new RemoteTarget(actor);
+      targets.set(actor, target);
     }
     return target;
   },
@@ -253,11 +251,11 @@ TabTarget.prototype = {
     this._webProgressListener.target = null;
     this.tab.removeEventListener("TabClose", this);
     this.tab.parentNode.removeEventListener("TabSelect", this);
-    this._tab = null;
     this._destroyed = true;
     this.emit("close");
 
-    tabTargets.delete(this.tab);
+    targets.delete(this._tab);
+    this._tab = null;
   },
 
   toString: function() {
