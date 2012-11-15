@@ -228,22 +228,6 @@ DevTools.prototype = {
   },
 
   /**
-   * Return a map(DevToolsTarget, DevToolbox) of all the Toolboxes
-   * map is a copy, not reference (can't be altered).
-   *
-   * @return {Map} toolboxes
-   *         A map of open toolboxes
-   */
-  getToolboxes: function DT_getToolboxes() {
-    let toolboxes = new Map();
-
-    for (let [target, toolbox] of this._toolboxes) {
-      toolboxes.set(target, toolbox);
-    }
-    return toolboxes;
-  },
-
-  /**
    * Return the toolbox for a given target.
    *
    * @param  {object} target
