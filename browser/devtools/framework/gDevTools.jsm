@@ -430,9 +430,17 @@ DevTools.prototype = {
    */
   _updateMenuCheckbox: function DT_updateMenuCheckbox() {
     for (let win of this._trackedBrowserWindows) {
+
+      let hasToolbox = false;
+      if (TargetFactory.isKnownTab(win.gBrowser.selectedTab)) {
+        let target = TargetFactory.forTab(win.gBrowser.selectedTab);
+        if (this._toolboxes.has(target)) {
+          hasToolbox = true;
+        }
+      }
+
       let broadcaster = win.document.getElementById("devtoolsMenuBroadcaster_DevToolbox");
-      let target = TargetFactory.forTab(win.gBrowser.selectedTab);
-      if (this._toolboxes.has(target)) {
+      if (hasToolbox) {
         broadcaster.setAttribute("checked", "true");
       } else {
         broadcaster.removeAttribute("checked");
