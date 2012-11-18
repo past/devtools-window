@@ -548,7 +548,9 @@
                     label="&webDeveloperMenu.label;"
                     accesskey="&webDeveloperMenu.accesskey;">
                 <menupopup id="menuWebDeveloperPopup">
-                  <menuitem id="menu_devToolbox" observes="devtoolsMenuBroadcaster_DevToolbox"/>
+                  <menuitem id="menu_devToolbox"
+                            observes="devtoolsMenuBroadcaster_DevToolbox"
+                            accesskey="&devToolbox.accesskey;"/>
                   <menuseparator id="menu_devtools_separator"/>
                   <menuitem id="menu_devToolbar" observes="devtoolsMenuBroadcaster_DevToolbar" accesskey="&devToolbarMenu.accesskey;"/>
                   <menuitem id="menu_remoteWebConsole" observes="devtoolsMenuBroadcaster_RemoteWebConsole"/>
