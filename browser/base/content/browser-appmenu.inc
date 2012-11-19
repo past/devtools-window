@@ -158,6 +158,8 @@
           <menuitem id="appmenu_scratchpad" observes="devtoolsMenuBroadcaster_Scratchpad"/>
           <menuitem id="appmenu_pageSource" observes="devtoolsMenuBroadcaster_PageSource"/>
           <menuitem id="appmenu_errorConsole" observes="devtoolsMenuBroadcaster_ErrorConsole"/>
+          <menuseparator id="appmenu_devToolsConnectSeparator"/>
+          <menuitem id="appmenu_devtools_connect" observes="devtoolsMenuBroadcaster_connect"/>
           <menuseparator id="appmenu_devToolsEndSeparator"/>
           <menuitem id="appmenu_getMoreDevtools" observes="devtoolsMenuBroadcaster_GetMoreTools"/>
           <menuseparator/>

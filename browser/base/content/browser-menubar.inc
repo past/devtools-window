@@ -556,6 +556,8 @@
                   <menuitem id="menu_scratchpad" observes="devtoolsMenuBroadcaster_Scratchpad" accesskey="&scratchpad.accesskey;"/>
                   <menuitem id="menu_pageSource" observes="devtoolsMenuBroadcaster_PageSource" accesskey="&pageSourceCmd.accesskey;"/>
                   <menuitem id="javascriptConsole" observes="devtoolsMenuBroadcaster_ErrorConsole" accesskey="&errorConsoleCmd.accesskey;"/>
+                  <menuseparator id="devToolsConnectSeparator"/>
+                  <menuitem id="menu_devtools_connect" observes="devtoolsMenuBroadcaster_connect" accesskey="&devtoolsConnect.accesskey;"/>
                   <menuseparator id="devToolsEndSeparator"/>
                   <menuitem id="getMoreDevtools" observes="devtoolsMenuBroadcaster_GetMoreTools" accesskey="&getMoreDevtoolsCmd.accesskey;"/>
                 </menupopup>

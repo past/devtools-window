@@ -4,7 +4,7 @@
 
 "use strict";
 
-this.EXPORTED_SYMBOLS = [ "gDevTools", "DevTools" ];
+this.EXPORTED_SYMBOLS = [ "gDevTools", "DevTools", "DevToolsXULCommands" ];
 
 const Cu = Components.utils;
 const Ci = Components.interfaces;
@@ -536,3 +536,12 @@ DevTools.prototype = {
  * same lifetime as the browser.
  */
 this.gDevTools = new DevTools();
+
+/**
+ * FIXME
+ */
+this.DevToolsXULCommands = {
+  openConnectScreen: function(gBrowser) {
+    gBrowser.selectedTab = gBrowser.addTab("chrome://browser/content/devtools/connect.xhtml");
+  },
+}
