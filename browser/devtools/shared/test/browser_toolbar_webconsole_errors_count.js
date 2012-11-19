@@ -4,7 +4,8 @@
 // Tests that the developer toolbar errors count works properly.
 
 function test() {
-  const TEST_URI = "http://example.com/browser/browser/devtools/shared/test/browser_toolbar_webconsole_errors_count.html";
+  const TEST_URI = "http://example.com/browser/browser/devtools/shared/test/" +
+                   "browser_toolbar_webconsole_errors_count.html";
 
   let imported = {};
   Components.utils.import("resource:///modules/HUDService.jsm", imported);
