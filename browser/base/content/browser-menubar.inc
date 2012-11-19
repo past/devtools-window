@@ -552,14 +552,27 @@
                             observes="devtoolsMenuBroadcaster_DevToolbox"
                             accesskey="&devToolbox.accesskey;"/>
                   <menuseparator id="menu_devtools_separator"/>
-                  <menuitem id="menu_devToolbar" observes="devtoolsMenuBroadcaster_DevToolbar" accesskey="&devToolbarMenu.accesskey;"/>
-                  <menuitem id="menu_remoteWebConsole" observes="devtoolsMenuBroadcaster_RemoteWebConsole"/>
-                  <menuitem id="menu_responsiveUI" observes="devtoolsMenuBroadcaster_ResponsiveUI" accesskey="&responsiveDesignTool.accesskey;"/>
-                  <menuitem id="menu_scratchpad" observes="devtoolsMenuBroadcaster_Scratchpad" accesskey="&scratchpad.accesskey;"/>
-                  <menuitem id="menu_pageSource" observes="devtoolsMenuBroadcaster_PageSource" accesskey="&pageSourceCmd.accesskey;"/>
-                  <menuitem id="javascriptConsole" observes="devtoolsMenuBroadcaster_ErrorConsole" accesskey="&errorConsoleCmd.accesskey;"/>
-                  <menuseparator id="devToolsEndSeparator"/>
-                  <menuitem id="getMoreDevtools" observes="devtoolsMenuBroadcaster_GetMoreTools" accesskey="&getMoreDevtoolsCmd.accesskey;"/>
+                  <menuitem id="menu_devToolbar"
+                            observes="devtoolsMenuBroadcaster_DevToolbar"
+                            accesskey="&devToolbarMenu.accesskey;"/>
+                  <menuitem id="menu_remoteWebConsole"
+                            observes="devtoolsMenuBroadcaster_RemoteWebConsole"/>
+                  <menuitem id="menu_responsiveUI"
+                            observes="devtoolsMenuBroadcaster_ResponsiveUI"
+                            accesskey="&responsiveDesignTool.accesskey;"/>
+                  <menuitem id="menu_scratchpad"
+                            observes="devtoolsMenuBroadcaster_Scratchpad"
+                            accesskey="&scratchpad.accesskey;"/>
+                  <menuitem id="menu_pageSource"
+                            observes="devtoolsMenuBroadcaster_PageSource"
+                            accesskey="&pageSourceCmd.accesskey;"/>
+                  <menuitem id="javascriptConsole"
+                            observes="devtoolsMenuBroadcaster_ErrorConsole"
+                            accesskey="&errorConsoleCmd.accesskey;"/>
+                  <menuseparator id="devhToolsEndSeparator"/>
+                  <menuitem id="getMoreDevtools"
+                            observes="devtoolsMenuBroadcaster_GetMoreTools"
+                            accesskey="&getMoreDevtoolsCmd.accesskey;"/>
                 </menupopup>
               </menu>
               <menuitem id="menu_pageInfo"
