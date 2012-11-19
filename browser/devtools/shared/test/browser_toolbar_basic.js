@@ -40,6 +40,8 @@ function checkOpen() {
 
   let toolbox = gDevTools.openToolboxForTab(gBrowser.selectedTab, "webconsole");
   toolbox.once("webconsole-selected", function BTBT_selected(id, aInspector) {
+    ok(isChecked(toggleToolbox), "toggle toolbox button is checked");
+
     addTab("about:blank", function(browser, tab) {
       info("Opened a new tab");
 
