@@ -497,28 +497,22 @@ DevTools.prototype = {
    *         The window containing the menu entry
    */
   forgetBrowserWindow: function DT_forgetBrowserWindow(win) {
-    try {
-      this._trackedBrowserWindows.delete(win);
+    this._trackedBrowserWindows.delete(win);
 
-      if (!this._tools) {
-        return;
-      }
-
-      // Destroy toolboxes for closed window
-      for (let [target, toolbox] of this._toolboxes) {
-        if (target.ownerDocument.defaultView == win) {
-          toolbox.destroy();
-        }
-      }
-
-      let tabContainer = win.document.getElementById("tabbrowser-tabs")
-      tabContainer.removeEventListener("TabSelect",
-                                       this._updateMenuCheckbox, false);
-    } catch(e) {
-      dump("An error occured in gDevTools.forgetBrowserWindow(). This means " +
-           "that gDevTools was never fully initialized, probably due to a " +
-           "JavaScript error. Error: " + e + "\n");
+    if (!this._tools) {
+      return;
     }
+
+    // Destroy toolboxes for closed window
+    for (let [target, toolbox] of this._toolboxes) {
+      if (target.ownerDocument.defaultView == win) {
+        toolbox.destroy();
+      }
+    }
+
+    let tabContainer = win.document.getElementById("tabbrowser-tabs")
+    tabContainer.removeEventListener("TabSelect",
+                                     this._updateMenuCheckbox, false);
   },
 
   /**
