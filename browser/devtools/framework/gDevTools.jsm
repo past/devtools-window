@@ -497,9 +497,7 @@ DevTools.prototype = {
    *         The window containing the menu entry
    */
   forgetBrowserWindow: function DT_forgetBrowserWindow(win) {
-    if (this._trackedBrowserWindows) {
       this._trackedBrowserWindows.delete(win);
-    }
 
     if (!this._tools) {
       return;
