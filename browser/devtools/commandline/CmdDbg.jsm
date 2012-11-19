@@ -45,10 +45,9 @@ gcli.addCommand({
   description: gcli.lookup("dbgClose"),
   params: [],
   exec: function (args, context) {
-    let win = context.environment.chromeDocument.defaultView;
-    let tab = win.gBrowser.selectedTab;
-    let target = TargetFactory.forTab(tab);
-    let dbg = gDevTools.getPanelForTarget("jsdebugger", tab);
+    let gBrowser = context.environment.chromeDocument.defaultView.gBrowser;
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", target);
 
     if (dbg /* FIXME: and debugger panel is currently active */) {
       gDevTools.closeToolbox(target);
@@ -64,8 +63,9 @@ gcli.addCommand({
   description: gcli.lookup("dbgInterrupt"),
   params: [],
   exec: function(args, context) {
-    let win = context.environment.chromeDocument.defaultView;
-    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
+    let gBrowser = context.environment.chromeDocument.defaultView.gBrowser;
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", target);
 
     if (dbg) {
       let controller = dbg._controller;
@@ -85,8 +85,9 @@ gcli.addCommand({
   description: gcli.lookup("dbgContinue"),
   params: [],
   exec: function(args, context) {
-    let win = context.environment.chromeDocument.defaultView;
-    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
+    let gBrowser = context.environment.chromeDocument.defaultView.gBrowser;
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", target);
 
     if (dbg) {
       let controller = dbg._controller;
@@ -117,8 +118,9 @@ gcli.addCommand({
   description: gcli.lookup("dbgStepOverDesc"),
   params: [],
   exec: function(args, context) {
-    let win = context.environment.chromeDocument.defaultView;
-    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
+    let gBrowser = context.environment.chromeDocument.defaultView.gBrowser;
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", target);
 
     if (dbg) {
       let controller = dbg._controller;
@@ -138,8 +140,9 @@ gcli.addCommand({
   description: gcli.lookup("dbgStepInDesc"),
   params: [],
   exec: function(args, context) {
-    let win = context.environment.chromeDocument.defaultView;
-    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
+    let gBrowser = context.environment.chromeDocument.defaultView.gBrowser;
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", target);
 
     if (dbg) {
       let controller = dbg._controller;
@@ -159,8 +162,9 @@ gcli.addCommand({
   description: gcli.lookup("dbgStepOutDesc"),
   params: [],
   exec: function(args, context) {
-    let win = context.environment.chromeDocument.defaultView;
-    let dbg = gDevTools.getPanelForTarget("jsdebugger", win.gBrowser.selectedTab);
+    let gBrowser = context.environment.chromeDocument.defaultView.gBrowser;
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    let dbg = gDevTools.getPanelForTarget("jsdebugger", target);
 
     if (dbg) {
       let controller = dbg._controller;

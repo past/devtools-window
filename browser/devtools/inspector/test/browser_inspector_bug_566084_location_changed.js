@@ -58,7 +58,8 @@ function test() {
     ok(para, "found the paragraph element, second time");
     is(para.textContent, "init", "paragraph content is correct");
 
-    let inspector = gDevTools.getPanelForTarget("inspector", gBrowser.selectedTab);
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
+    let inspector = gDevTools.getPanelForTarget("inspector", target);
     ok(inspector, "Inspector still alive");
 
     notificationBox.addEventListener("AlertActive", alertActive2, false);

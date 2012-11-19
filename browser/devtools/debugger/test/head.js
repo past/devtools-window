@@ -153,7 +153,8 @@ function attach_thread_actor_for_url(aClient, aURL, aCallback) {
 }
 
 function wait_for_connect_and_resume(aOnDebugging, aTab) {
-  let dbg = gDevTools.getPanelForTarget("jsdebugger", aTab);
+  let target = TargetFactory.forTab(aTab);
+  let dbg = gDevTools.getPanelForTarget("jsdebugger", target);
   dbg.once("connected", function dbgConnected() {
     // Wait for the initial resume...
     dbg.panelWin.gClient.addOneTimeListener("resumed", function() {
@@ -165,12 +166,12 @@ function wait_for_connect_and_resume(aOnDebugging, aTab) {
 function debug_tab_pane(aURL, aOnDebugging) {
   let tab = addTab(aURL, function() {
     gBrowser.selectedTab = gTab;
-    let debuggee = tab.linkedBrowser.contentWindow.wrappedJSObject;
+    let debuggee = gBrowser.selectedTab.linkedBrowser.contentWindow.wrappedJSObject;
 
-    let target = TargetFactory.forTab(tab);
+    let target = TargetFactory.forTab(gBrowser.selectedTab);
     let toolbox = gDevTools.openToolboxForTab(target, "jsdebugger");
     toolbox.once("jsdebugger-ready", function dbgReady() {
-      let dbg = gDevTools.getPanelForTarget("jsdebugger", tab);
+      let dbg = gDevTools.getPanelForTarget("jsdebugger", target);
       dbg.once("connected", function() {
         // Wait for the initial resume...
         dbg.panelWin.gClient.addOneTimeListener("resumed", function() {

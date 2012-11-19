@@ -69,7 +69,7 @@ function test() {
     let target = TargetFactory.forTab(gBrowser.selectedTab);
     let toolbox = gDevTools.openToolboxForTab(target, "inspector");
     toolbox.once("inspector-ready", function(event, panel) {
-      let inspector = gDevTools.getPanelForTarget("inspector", gBrowser.selectedTab);
+      let inspector = gDevTools.getPanelForTarget("inspector", target);
       openLayoutView(inspector);
     });
   }

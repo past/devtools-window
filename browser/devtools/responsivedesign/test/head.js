@@ -13,16 +13,15 @@ Services.scriptloader.loadSubScript(testDir + "/helpers.js", this);
 
 function openInspector(callback)
 {
-  let tab = gBrowser.selectedTab;
-  let target = TargetFactory.forTab(tab);
+  let target = TargetFactory.forTab(gBrowser.selectedTab);
 
-  let inspector = gDevTools.getPanelForTarget("inspector", tab);
+  let inspector = gDevTools.getPanelForTarget("inspector", target);
   if (inspector && inspector.isReady) {
     callback(inspector);
   } else {
     let toolbox = gDevTools.openToolboxForTab(target, "inspector");
     toolbox.once("inspector-ready", function(event, panel) {
-      let inspector = gDevTools.getPanelForTarget("inspector", tab);
+      let inspector = gDevTools.getPanelForTarget("inspector", target);
       callback(inspector);
     });
   }

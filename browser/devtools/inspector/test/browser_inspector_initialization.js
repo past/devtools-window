@@ -32,8 +32,9 @@ function startInspectorTests()
 {
   ok(true, "Inspector started, and notification received.");
 
-  let tab = gBrowser.selectedTab;
-  let inspector = gDevTools.getPanelForTarget("inspector", tab);
+  let target = TargetFactory.forTab(gBrowser.selectedTab);
+
+  let inspector = gDevTools.getPanelForTarget("inspector", target);
 
   ok(inspector, "Inspector instance is accessible");
   ok(inspector.isReady, "Inspector instance is ready");
@@ -56,7 +57,6 @@ function startInspectorTests()
   testMarkupView(span);
   testBreadcrumbs(span);
 
-  let target = TargetFactory.forTab(gBrowser.selectedTab);
   let toolbox = gDevTools.getToolboxForTarget(target);
   toolbox.once("destroyed", function() {
     ok("true", "'destroyed' notification received.");

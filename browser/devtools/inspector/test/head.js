@@ -15,15 +15,15 @@ Services.scriptloader.loadSubScript(testDir + "/helpers.js", this);
 
 function openInspector(callback)
 {
-  let tab = gBrowser.selectedTab;
-  let inspector = gDevTools.getPanelForTarget("inspector", tab);
+  let target = TargetFactory.forTab(gBrowser.selectedTab);
+
+  let inspector = gDevTools.getPanelForTarget("inspector", target);
   if (inspector && inspector.isReady) {
     callback(inspector);
   } else {
-    let target = TargetFactory.forTab(tab);
     let toolbox = gDevTools.openToolboxForTab(target, "inspector");
     toolbox.once("inspector-ready", function(event, panel) {
-      let inspector = gDevTools.getPanelForTarget("inspector", tab);
+      let inspector = gDevTools.getPanelForTarget("inspector", target);
       callback(inspector);
     });
   }
@@ -31,8 +31,8 @@ function openInspector(callback)
 
 function getActiveInspector()
 {
-  let tab = gBrowser.selectedTab;
-  return gDevTools.getPanelForTarget("inspector", tab);
+  let target = TargetFactory.forTab(gBrowser.selectedTab);
+  return gDevTools.getPanelForTarget("inspector", target);
 }
 
 function isHighlighting()

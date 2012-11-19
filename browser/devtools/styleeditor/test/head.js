@@ -29,10 +29,9 @@ function cleanup()
 
 function launchStyleEditorChrome(aCallback, aSheet, aLine, aCol)
 {
-  let tab = gBrowser.selectedTab;
-  let target = TargetFactory.forTab(tab);
+  let target = TargetFactory.forTab(gBrowser.selectedTab);
 
-  let panel = gDevTools.getPanelForTarget("styleeditor", tab);
+  let panel = gDevTools.getPanelForTarget("styleeditor", target);
   if (panel && panel.isReady) {
     gChromeWindow = panel._panelWin;
     gChromeWindow.styleEditorChrome._alwaysDisableAnimations = true;

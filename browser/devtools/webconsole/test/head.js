@@ -172,7 +172,7 @@ function closeConsole(aTab, aCallback = function() { })
   let target = TargetFactory.forTab(aTab || tab);
   let toolbox = gDevTools.getToolboxForTarget(target);
   if (toolbox) {
-    let panel = gDevTools.getPanelForTarget("webconsole", aTab || tab);
+    let panel = gDevTools.getPanelForTarget("webconsole", target);
     if (panel) {
       let hudId = panel.hud.hudId;
       panel.once("destroyed", function() {
@@ -320,11 +320,11 @@ function waitForSuccess(aOptions)
 
 function openInspector(aCallback, aTab = gBrowser.selectedTab)
 {
-  let inspector = gDevTools.getPanelForTarget("inspector", aTab);
+  let target = TargetFactory.forTab(aTab);
+  let inspector = gDevTools.getPanelForTarget("inspector", target);
   if (inspector && inspector.isReady) {
     aCallback(inspector);
   } else {
-    let target = TargetFactory.forTab(aTab);
     let toolbox = gDevTools.openToolboxForTab(target, "inspector");
     toolbox.once("inspector-ready", function _onSelect(aEvent, aPanel) {
       aCallback(aPanel);
