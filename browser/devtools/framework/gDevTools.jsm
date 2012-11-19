@@ -494,7 +494,7 @@ DevTools.prototype = {
    * listeners from the closed browser window.
    *
    * @param  {XULWindow} win
-   *         The window containing the menu entr
+   *         The window containing the menu entry
    */
   forgetBrowserWindow: function DT_forgetBrowserWindow(win) {
     if (this._trackedBrowserWindows) {
