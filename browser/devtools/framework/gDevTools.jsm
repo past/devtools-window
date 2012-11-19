@@ -495,11 +495,11 @@ DevTools.prototype = {
    *         The window containing the menu entry
    */
   forgetBrowserWindow: function DT_forgetBrowserWindow(win) {
-    this._trackedBrowserWindows.delete(win);
-
     if (!this._tools) {
       return;
     }
+
+    this._trackedBrowserWindows.delete(win);
 
     // Destroy toolboxes for closed window
     for (let [target, toolbox] of this._toolboxes) {
