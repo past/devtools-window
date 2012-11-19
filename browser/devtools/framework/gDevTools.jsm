@@ -35,7 +35,7 @@ this.DevTools = function DevTools() {
 
   new EventEmitter(this);
 
-  Services.obs.addObserver(this.destroy, "quit-application-granted", false);
+  Services.obs.addObserver(this.destroy, "quit-application", false);
 
   /**
    * Register the set of default tools
@@ -492,14 +492,14 @@ DevTools.prototype = {
    * listeners from the closed browser window.
    *
    * @param  {XULWindow} win
-   *         The window containing the menu entr
+   *         The window containing the menu entry
    */
   forgetBrowserWindow: function DT_forgetBrowserWindow(win) {
+    this._trackedBrowserWindows.delete(win);
+
     if (!this._tools) {
       return;
     }
-
-    this._trackedBrowserWindows.delete(win);
 
     // Destroy toolboxes for closed window
     for (let [target, toolbox] of this._toolboxes) {
@@ -517,7 +517,7 @@ DevTools.prototype = {
    * All browser windows have been closed, tidy up remaining objects.
    */
   destroy: function() {
-    Services.obs.removeObserver(this.destroy, "quit-application-granted");
+    Services.obs.removeObserver(this.destroy, "quit-application");
 
     delete this._trackedBrowserWindows;
     delete this._tools;
