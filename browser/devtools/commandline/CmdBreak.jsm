@@ -85,7 +85,7 @@ gcli.addCommand({
       type: {
         name: "selection",
         data: function() {
-          let gBrowser = context.environment.chromeDocument.defaultView.gBrowser;
+          let gBrowser = HUDService.currentContext().gBrowser;
           let target = TargetFactory.forTab(gBrowser.selectedTab);
           let dbg = gDevTools.getPanelForTarget("jsdebugger", target);
 
