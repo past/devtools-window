@@ -330,12 +330,7 @@ protected:
   /**
    * Marks this document as loaded or loading.
    */
-  void NotifyOfLoad(uint32_t aLoadEventType)
-  {
-    mLoadState |= eDOMLoaded;
-    mLoadEventType = aLoadEventType;
-  }
-
+  void NotifyOfLoad(uint32_t aLoadEventType);
   void NotifyOfLoading(bool aIsReloading);
 
   friend class nsAccDocManager;
@@ -428,12 +423,6 @@ protected:
   void ARIAActiveDescendantChanged(nsIContent* aElm);
 
   /**
-   * Process the event when the queue of pending events is untwisted. Fire
-   * accessible events as result of the processing.
-   */
-  void ProcessPendingEvent(AccEvent* aEvent);
-
-  /**
    * Update the accessible tree for inserted content.
    */
   void ProcessContentInserted(Accessible* aContainer,
@@ -464,7 +453,8 @@ protected:
     eAlertAccessible = 2
   };
 
-  uint32_t UpdateTreeInternal(Accessible* aChild, bool aIsInsert);
+  uint32_t UpdateTreeInternal(Accessible* aChild, bool aIsInsert,
+                              AccReorderEvent* aReorderEvent);
 
   /**
    * Create accessible tree.

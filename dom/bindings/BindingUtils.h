@@ -245,7 +245,7 @@ IsArrayLike(JSContext* cx, JSObject* obj)
 
   // XXXbz need to detect platform objects (including listbinding
   // ones) with indexGetters here!
-  return JS_IsArrayObject(cx, obj) || JS_IsTypedArrayObject(obj, cx);
+  return JS_IsArrayObject(cx, obj) || JS_IsTypedArrayObject(obj);
 }
 
 inline bool
@@ -272,7 +272,7 @@ IsPlatformObject(JSContext* cx, JSObject* obj)
     clasp = js::GetObjectJSClass(obj);
   }
   return IS_WRAPPER_CLASS(js::Valueify(clasp)) || IsDOMClass(clasp) ||
-    JS_IsArrayBufferObject(obj, cx);
+    JS_IsArrayBufferObject(obj);
 }
 
 // U must be something that a T* can be assigned to (e.g. T* or an nsRefPtr<T>).
@@ -508,10 +508,10 @@ WrapNewBindingObject(JSContext* cx, JSObject* scope, T* value, JS::Value* vp)
   MOZ_ASSERT(slot != eNonDOMObject, "Totally unexpected object here");
   MOZ_ASSERT(clasp, "What happened here?");
   MOZ_ASSERT_IF(clasp->mDOMObjectIsISupports, IsISupports<T>::Value);
-  MOZ_ASSERT_IF(!clasp->mDOMObjectIsISupports,
-                reinterpret_cast<uintptr_t>(
-                  static_cast<nsWrapperCache*>(
-                    reinterpret_cast<T*>(1))) == 1);
+//  MOZ_ASSERT_IF(!clasp->mDOMObjectIsISupports,
+//                reinterpret_cast<uintptr_t>(
+//                  static_cast<nsWrapperCache*>(
+//                    reinterpret_cast<T*>(1))) == 1);
 #endif
 
   // When called via XrayWrapper, we end up here while running in the
@@ -1312,6 +1312,11 @@ public:
 
   void Construct() {
     mImpl.construct();
+  }
+
+  template <class T1>
+  void Construct(const T1 &t1) {
+    mImpl.construct(t1);
   }
 
   template <class T1, class T2>

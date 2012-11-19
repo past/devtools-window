@@ -394,7 +394,6 @@ DevTools.prototype = {
     menuitem.setAttribute("observes", "devtoolsMenuBroadcaster_" + id);
 
     if (toolDefinition.accesskey) {
-      appmenuitem.setAttribute("accesskey", toolDefinition.accesskey);
       menuitem.setAttribute("accesskey", toolDefinition.accesskey);
     }
 

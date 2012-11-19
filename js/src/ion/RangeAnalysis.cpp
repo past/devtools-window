@@ -375,11 +375,31 @@ Range::subTruncate(const Range *lhs, const Range *rhs)
 Range
 Range::and_(const Range *lhs, const Range *rhs)
 {
-    int64_t lower = 0;
-    // If both numbers can be negative, issues can be had.
-    if (lhs->lower_ < 0 && rhs->lower_ < 0)
+    int64_t lower;
+    int64_t upper;
+
+    // If both numbers can be negative, result can be negative in the whole range
+    if (lhs->lower_ < 0 && rhs->lower_ < 0) {
         lower = INT_MIN;
-    int64_t upper = Max(lhs->upper_, rhs->upper_);
+        upper = Max(lhs->upper_, rhs->upper_);
+        Range ret(lower, upper);
+        return ret;
+    }
+
+    // Only one of both numbers can be negative.
+    // - result can't be negative
+    // - Upper bound is minimum of both upper range,
+    lower = 0;
+    upper = Min(lhs->upper_, rhs->upper_);
+
+    // EXCEPT when upper bound of non negative number is max value,
+    // because negative value can return the whole max value.
+    // -1 & 5 = 5
+    if (lhs->lower_ < 0)
+       upper = rhs->upper_;
+    if (rhs->lower_ < 0)
+        upper = lhs->upper_;
+
     Range ret(lower, upper);
     return ret;
 
@@ -475,7 +495,9 @@ PopFromWorklist(MDefinitionVector &worklist)
 bool
 RangeAnalysis::analyze()
 {
+    int numBlocks = 0;
     for (PostorderIterator i(graph_.poBegin()); i != graph_.poEnd(); i++) {
+        numBlocks++;
         MBasicBlock *curBlock = *i;
         if (!curBlock->isLoopHeader())
             continue;
@@ -511,6 +533,8 @@ RangeAnalysis::analyze()
             }
         }
         iters++;
+        if (iters >= numBlocks * 100)
+            return false;
     }
     // Cleanup (in case we stopped due to MAX_ITERS)
     for(size_t i = 0; i < worklist.length(); i++)

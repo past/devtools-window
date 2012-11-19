@@ -10,6 +10,7 @@
 #include "DocAccessible.h"
 #include "nsAccessibilityService.h"
 #include "NotificationController.h"
+#include "States.h"
 
 inline void
 DocAccessible::BindChildDocument(DocAccessible* aDocument)
@@ -40,6 +41,21 @@ DocAccessible::UpdateText(nsIContent* aTextNode)
 }
 
 inline void
+DocAccessible::NotifyOfLoad(uint32_t aLoadEventType)
+{
+  mLoadState |= eDOMLoaded;
+  mLoadEventType = aLoadEventType;
+
+  // If the document is loaded completely then network activity was presumingly
+  // caused by file loading. Fire busy state change event.
+  if (HasLoadState(eCompletelyLoaded) && IsLoadEventTarget()) {
+    nsRefPtr<AccEvent> stateEvent =
+      new AccStateChangeEvent(this, mozilla::a11y::states::BUSY, false);
+    FireDelayedAccessibleEvent(stateEvent);
+  }
+}
+
+inline void
 DocAccessible::MaybeNotifyOfValueChange(Accessible* aAccessible)
 {
   mozilla::a11y::role role = aAccessible->Role();
@@ -49,7 +65,7 @@ DocAccessible::MaybeNotifyOfValueChange(Accessible* aAccessible)
       new AccEvent(nsIAccessibleEvent::EVENT_VALUE_CHANGE, aAccessible,
                    eAutoDetect, AccEvent::eRemoveDupes);
     FireDelayedAccessibleEvent(valueChangeEvent);
-    }
   }
+}
 
 #endif

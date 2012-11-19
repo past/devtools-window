@@ -17,8 +17,23 @@ function test() {
       let dbg = gDevTools.getPanelForTarget("jsdebugger", tab1);
       ok(dbg, "We should have a debugger panel.");
 
+      let preferredSfw = Services.prefs.getIntPref("devtools.debugger.ui.stackframes-width");
+      let preferredBpw = Services.prefs.getIntPref("devtools.debugger.ui.variables-width");
+      let someWidth1, someWidth2;
+
+      do {
+        someWidth1 = parseInt(Math.random() * 200) + 100;
+        someWidth2 = parseInt(Math.random() * 200) + 100;
+      } while (someWidth1 == preferredSfw ||
+               someWidth2 == preferredBpw)
+
       let someWidth1 = parseInt(Math.random() * 200) + 100;
       let someWidth2 = parseInt(Math.random() * 200) + 100;
+
+      info("Preferred stackframes width: " + preferredSfw);
+      info("Preferred variables width: " + preferredBpw);
+      info("Generated stackframes width: " + someWidth1);
+      info("Generated variables width: " + someWidth2);
 
       let content = dbg.panelWin;
       let stackframes;
@@ -31,7 +46,7 @@ function test() {
           "The debugger preferences should have a saved variablesWidth value.");
 
         stackframes = content.document.getElementById("stackframes+breakpoints");
-        variables = content.document.getElementById("variables");
+        variables = content.document.getElementById("variables+expressions");
 
         is(content.Prefs.stackframesWidth, stackframes.getAttribute("width"),
           "The stackframes pane width should be the same as the preferred value.");

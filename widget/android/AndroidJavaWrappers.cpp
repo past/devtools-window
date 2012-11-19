@@ -861,18 +861,19 @@ AndroidGeckoLayerClient::ProgressiveUpdateCallback(bool aHasPendingNewThebesCont
     if (!env)
         return false;
 
-    AutoLocalJNIFrame jniFrame(env);
-
-    jobject progressiveUpdateDataJObj = env->CallObjectMethod(wrapped_obj,
-                                                              jProgressiveUpdateCallbackMethod,
-                                                              aHasPendingNewThebesContent,
-                                                              (float)aDisplayPort.x,
-                                                              (float)aDisplayPort.y,
-                                                              (float)aDisplayPort.width,
-                                                              (float)aDisplayPort.height,
-                                                              aDisplayResolution);
-    if (jniFrame.CheckForException())
+    AutoJObject progressiveUpdateDataJObj(env, env->CallObjectMethod(wrapped_obj,
+                                                                     jProgressiveUpdateCallbackMethod,
+                                                                     aHasPendingNewThebesContent,
+                                                                     (float)aDisplayPort.x,
+                                                                     (float)aDisplayPort.y,
+                                                                     (float)aDisplayPort.width,
+                                                                     (float)aDisplayPort.height,
+                                                                     aDisplayResolution));
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
         return false;
+    }
 
     NS_ABORT_IF_FALSE(progressiveUpdateDataJObj, "No progressive update data!");
 
@@ -907,9 +908,10 @@ jobject ConvertToJavaViewportMetrics(JNIEnv* env, nsIAndroidViewport* metrics) {
     metrics->GetZoom(&zoom);
 
     jobject jobj = env->NewObject(AndroidGeckoLayerClient::jViewportClass, AndroidGeckoLayerClient::jViewportCtor,
-                                  x, y, width, height,
                                   pageLeft, pageTop, pageRight, pageBottom,
-                                  cssPageLeft, cssPageTop, cssPageRight, cssPageBottom, zoom);
+                                  cssPageLeft, cssPageTop, cssPageRight, cssPageBottom,
+                                  x, y, x + width, y + height,
+                                  zoom);
     return jobj;
 }
 
