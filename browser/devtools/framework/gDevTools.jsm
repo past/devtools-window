@@ -35,7 +35,7 @@ this.DevTools = function DevTools() {
 
   new EventEmitter(this);
 
-  Services.obs.addObserver(this.destroy, "quit-application-granted", false);
+  Services.obs.addObserver(this.destroy, "quit-application", false);
 
   /**
    * Register the set of default tools
@@ -521,7 +521,7 @@ DevTools.prototype = {
    * All browser windows have been closed, tidy up remaining objects.
    */
   destroy: function() {
-    Services.obs.removeObserver(this.destroy, "quit-application-granted");
+    Services.obs.removeObserver(this.destroy, "quit-application");
 
     delete this._trackedBrowserWindows;
     delete this._tools;
