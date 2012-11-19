@@ -252,6 +252,9 @@ Toolbox.prototype = {
    */
   _buildTabForTool: function TBOX_buildTabForTool(toolDefinition) {
     const MAX_ORDINAL = 99;
+    if (!toolDefinition.isTargetSupported(this._target)) {
+      return;
+    }
 
     let tabs = this.doc.getElementById("toolbox-tabs");
     let deck = this.doc.getElementById("toolbox-deck");
@@ -291,6 +294,11 @@ Toolbox.prototype = {
       throw new Error("Can't select tool, wait for toolbox 'ready' event");
     }
     let tab = this.doc.getElementById("toolbox-tab-" + id);
+
+    if (!tab) {
+      throw new Error("No tool found");
+    }
+
     let tabstrip = this.doc.getElementById("toolbox-tabs");
 
     // select the right tab

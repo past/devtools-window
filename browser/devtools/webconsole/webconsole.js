@@ -363,6 +363,7 @@ WebConsoleFrame.prototype = {
     this.proxy = new WebConsoleConnectionProxy(this, {
       host: this.owner.remoteHost,
       port: this.owner.remotePort,
+      target: this.owner.target
     });
 
     this.proxy.connect(function() {
@@ -3924,6 +3925,7 @@ function WebConsoleConnectionProxy(aWebConsole, aOptions = {})
   this.owner = aWebConsole;
   this.remoteHost = aOptions.host;
   this.remotePort = aOptions.port;
+  this.target = aOptions.target;
 
   this._onPageError = this._onPageError.bind(this);
   this._onConsoleAPICall = this._onConsoleAPICall.bind(this);
@@ -3999,16 +4001,17 @@ WebConsoleConnectionProxy.prototype = {
    */
   connect: function WCCP_connect(aCallback)
   {
-    let transport;
-    if (this.remoteHost) {
-      transport = debuggerSocketConnect(this.remoteHost, this.remotePort);
+    // TODO: convert the non-remote path to use the target API as well.
+    let transport, client;
+    if (this.target.isRemote) {
+      client = this.client = this.target.client;
     }
     else {
       this.initServer();
       transport = DebuggerServer.connectPipe();
-    }
 
-    let client = this.client = new DebuggerClient(transport);
+      client = this.client = new DebuggerClient(transport);
+    }
 
     client.addListener("pageError", this._onPageError);
     client.addListener("consoleAPICall", this._onConsoleAPICall);
@@ -4017,6 +4020,18 @@ WebConsoleConnectionProxy.prototype = {
     client.addListener("fileActivity", this._onFileActivity);
     client.addListener("locationChange", this._onLocationChange);
 
+    if (this.target.isRemote) {
+      this._consoleActor = this.target.form.consoleActor;
+      if (!this.target.chrome) {
+        this.owner.onLocationChange(this.target.url, this.target.name);
+      }
+
+      let listeners = ["PageError", "ConsoleAPI", "NetworkActivity",
+                       "FileActivity", "LocationChange"];
+      this.client.attachConsole(this._consoleActor, listeners,
+                                this._onAttachConsole.bind(this, aCallback));
+      return;
+    }
     client.connect(function(aType, aTraits) {
       client.listTabs(this._onListTabs.bind(this, aCallback));
     }.bind(this));
