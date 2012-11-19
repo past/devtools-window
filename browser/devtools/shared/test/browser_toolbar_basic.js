@@ -38,17 +38,18 @@ function checkOpen() {
     document.getElementById("devtoolsMenuBroadcaster_DevToolbox");
   ok(!isChecked(toggleToolbox), "toggle toolbox button is not checked");
 
-  // TODO: Open toolbox and test checked state.
+  let toolbox = gDevTools.openToolboxForTab(gBrowser.selectedTab, "webconsole");
+  toolbox.once("webconsole-selected", function BTBT_selected(id, aInspector) {
+    addTab("about:blank", function(browser, tab) {
+      info("Opened a new tab");
 
-  addTab("about:blank", function(browser, tab) {
-    info("Opening a new tab");
+      ok(!isChecked(toggleToolbox), "toggle toolbox button is not checked");
 
-    ok(!isChecked(toggleToolbox), "toggle toolbox button is not checked");
+      gBrowser.removeCurrentTab();
 
-    gBrowser.removeCurrentTab();
-
-    oneTimeObserve(DeveloperToolbar.NOTIFICATIONS.HIDE, catchFail(checkClosed));
-    document.getElementById("Tools:DevToolbar").doCommand();
+      oneTimeObserve(DeveloperToolbar.NOTIFICATIONS.HIDE, catchFail(checkClosed));
+      document.getElementById("Tools:DevToolbar").doCommand();
+    });
   });
 }
 
