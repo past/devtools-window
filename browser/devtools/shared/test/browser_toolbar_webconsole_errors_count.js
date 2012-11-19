@@ -14,7 +14,7 @@ function test() {
   Components.utils.import("resource:///modules/devtools/gDevTools.jsm", imported);
   let gDevTools = imported.gDevTools;
 
-  let webconsole = document.getElementById("developer-toolbar-webconsole");
+  let webconsole = document.getElementById("developer-toolbar-toolbox-button");
   let toolbar = document.getElementById("Tools:DevToolbar");
   let tab1, tab2;
 
