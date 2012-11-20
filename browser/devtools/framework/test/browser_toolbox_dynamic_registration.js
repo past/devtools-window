@@ -37,6 +37,7 @@ function testRegister()
   gDevTools.registerTool({
     id: "test-tool",
     label: "Test Tool",
+    isTargetSupported: function() true,
     build: function() {}
   });
 }

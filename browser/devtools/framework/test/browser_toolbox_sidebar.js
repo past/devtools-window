@@ -29,6 +29,7 @@ function test() {
     killswitch: "devtools.fakeTool4242.enabled",
     url: toolURL,
     label: "FAKE TOOL!!!",
+    isTargetSupported: function() true,
     build: function(iframeWindow, toolbox) {
       let panel = {
         target: toolbox.target,

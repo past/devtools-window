@@ -21,6 +21,7 @@ function test() {
 function runTests(aTab) {
   let toolDefinition = {
     id: toolId,
+    isTargetSupported: function() true,
     killswitch: "devtools.test-tool.enabled",
     url: "about:blank",
     label: "someLabel",
