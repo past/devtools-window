@@ -119,14 +119,13 @@ function checkCopyPropertyValue()
 function checkCopySelection()
 {
   let contentDocument = computedView.styleDocument;
-  let contentWindow = computedView.styleWindow;
   let props = contentDocument.querySelectorAll(".property-view");
   ok(props, "captain, we have the property-view nodes");
 
   let range = document.createRange();
   range.setStart(props[0], 0);
   range.setEnd(props[3], 4);
-  contentWindow.getSelection().addRange(range);
+  win.getSelection().addRange(range);
 
   info("Checking that cssHtmlTree.siBoundCopy() " +
        " returns the correct clipboard value");
