@@ -23,19 +23,25 @@ function test() {
     gBrowser.selectedBrowser.removeEventListener("load", onLoad, true);
     cache.evictEntries(Ci.nsICache.STORE_ANYWHERE);
     launchStyleEditorChrome(function(aChrome) {
-      aChrome.addChromeListener({
-        onEditorAdded: function(aChrome, aEditor) {
-          if (aEditor.isLoaded) {
-            checkCache();
-          } else {
-            aEditor.addActionListener({
-              onLoad: checkCache
-            });
-          }
-        }
-      });
+      if (aChrome.isContentAttached) {
+        onEditorAdded(aChrome, aChrome.editors[0]);
+      } else {
+        aChrome.addChromeListener({
+          onEditorAdded: onEditorAdded
+        });
+      }
     });
   }, true);
+
+  function onEditorAdded(aChrome, aEditor) {
+    if (aEditor.isLoaded) {
+      checkCache();
+    } else {
+      aEditor.addActionListener({
+        onLoad: checkCache
+      });
+    }
+  }
 
   content.location = 'http://' + TEST_HOST + '/browser/browser/devtools/styleeditor/test/test_private.html';
 }
