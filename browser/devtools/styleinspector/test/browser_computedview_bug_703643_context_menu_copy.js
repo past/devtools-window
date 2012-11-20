@@ -46,14 +46,16 @@ function selectNode(aInspector)
 
     computedView = getComputedView(aInspector);
 
-    Services.obs.addObserver(runStyleInspectorTests, "StyleInspector-populated", false);
+    Services.obs.addObserver(runStyleInspectorTests,
+      "StyleInspector-populated", false);
   });
 }
 
 
 function runStyleInspectorTests()
 {
-  Services.obs.removeObserver(runStyleInspectorTests, "StyleInspector-populated", false);
+  Services.obs.removeObserver(runStyleInspectorTests,
+    "StyleInspector-populated", false);
 
   let contentDocument = computedView.styleDocument;
   let prop = contentDocument.querySelector(".property-view");
