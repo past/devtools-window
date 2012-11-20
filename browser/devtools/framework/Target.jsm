@@ -357,10 +357,11 @@ RemoteTarget.prototype = {
     }
     this.client.removeListener("tabNavigated", this._onTabNavigated);
     this.client.removeListener("tabDetached", this.destroy);
-    this._client.close();
-    this._client = null;
-    this._destroyed = true;
-    this.emit("close");
+    this._client.close(function onClosed() {
+      this._client = null;
+      this._destroyed = true;
+      this.emit("close");
+    }.bind(this));
   },
 
   toString: function() {

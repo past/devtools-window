@@ -198,9 +198,12 @@ let DebuggerController = {
     }
     this.client.removeListener("tabNavigated", this._onTabNavigated);
     this.client.removeListener("tabDetached", this._onTabDetached);
-    this.client.close();
 
-    this.client = null;
+    if (!this._target.isRemote) {
+      this.client.close();
+      this.client = null;
+    }
+
     this.tabClient = null;
     this.activeThread = null;
   },

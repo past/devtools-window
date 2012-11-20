@@ -94,17 +94,13 @@ HUD_SERVICE.prototype =
    *        The xul:tab element.
    * @param nsIDOMElement aIframe
    *        The iframe element into which to place the web console.
-   * @param object aOptions
-   *        Options for the Web Console:
-   *        - host
-   *          Server to connect to.
-   *        - port
-   *          Port to connect to.
+   * @param RemoteTarget aTarget
+   *        The target that the web console will connect to.
    * @return object
    *         The new HeadsUpDisplay instance.
    */
   activateHUDForContext: function HS_activateHUDForContext(aTab, aIframe,
-                                                           aOptions)
+                                                           aTarget)
   {
     let hudId = "hud_" + aTab.linkedPanel;
     if (hudId in this.hudReferences) {
@@ -118,7 +114,7 @@ HUD_SERVICE.prototype =
 
     window.addEventListener("unload", this.onWindowUnload, false);
 
-    let hud = new WebConsole(aTab, aIframe, aOptions);
+    let hud = new WebConsole(aTab, aIframe, aTarget);
     this.hudReferences[hudId] = hud;
 
     return hud;
@@ -330,10 +326,10 @@ HUD_SERVICE.prototype =
  *        The xul:tab for which you want the WebConsole object.
  * @param nsIDOMElement aIframe
  *        iframe into which we should create the WebConsole UI.
- * @param object aOptions
- *        Web Console options: host and port, for the remote Web console.
+ * @param RemoteTarget aTarget
+ *        The target that the web console will connect to.
  */
-function WebConsole(aTab, aIframe, aOptions = {})
+function WebConsole(aTab, aIframe, aTarget)
 {
   this.tab = aTab;
   if (this.tab == null) {
@@ -350,9 +346,7 @@ function WebConsole(aTab, aIframe, aOptions = {})
   this.chromeWindow = this.chromeDocument.defaultView;
   this.hudId = "hud_" + this.tab.linkedPanel;
 
-  this.remoteHost = aOptions.host;
-  this.remotePort = aOptions.port;
-  this.target = aOptions.target;
+  this.target = aTarget;
 
   this._onIframeLoad = this._onIframeLoad.bind(this);
 
