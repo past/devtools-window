@@ -370,11 +370,7 @@ WebConsoleFrame.prototype = {
    */
   _initConnection: function WCF__initConnection()
   {
-    this.proxy = new WebConsoleConnectionProxy(this, {
-      host: this.owner.remoteHost,
-      port: this.owner.remotePort,
-      target: this.owner.target
-    });
+    this.proxy = new WebConsoleConnectionProxy(this, this.owner.target);
 
     let timeout = Services.prefs.getIntPref(PREF_CONNECTION_TIMEOUT);
     this._connectTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
@@ -3974,15 +3970,13 @@ CommandController.prototype = {
  * @constructor
  * @param object aWebConsole
  *        The Web Console instance that owns this connection proxy.
- * @param object aOptions
- *        Connection options: host and port.
+ * @param RemoteTarget aTarget
+ *        The target that the console will connect to.
  */
-function WebConsoleConnectionProxy(aWebConsole, aOptions = {})
+function WebConsoleConnectionProxy(aWebConsole, aTarget)
 {
   this.owner = aWebConsole;
-  this.remoteHost = aOptions.host;
-  this.remotePort = aOptions.port;
-  this.target = aOptions.target;
+  this.target = aTarget;
 
   this._onPageError = this._onPageError.bind(this);
   this._onConsoleAPICall = this._onConsoleAPICall.bind(this);
@@ -4105,32 +4099,7 @@ WebConsoleConnectionProxy.prototype = {
    */
   _onListTabs: function WCCP__onListTabs(aCallback, aResponse)
   {
-    let selectedTab;
-
-    if (this.remoteHost) {
-      this.owner._connectTimer.cancel();
-
-      let tabs = [];
-      for (let tab of aResponse.tabs) {
-        tabs.push(tab.title);
-      }
-
-      tabs.push(l10n.getStr("listTabs.globalConsoleActor"));
-
-      let selected = {};
-      let result = Services.prompt.select(null,
-        l10n.getStr("remoteWebConsoleSelectTabTitle"),
-        l10n.getStr("remoteWebConsoleSelectTabMessage"),
-        tabs.length, tabs, selected);
-
-      if (result && selected.value < aResponse.tabs.length) {
-        selectedTab = aResponse.tabs[selected.value];
-      }
-    }
-    else {
-      selectedTab = aResponse.tabs[aResponse.selected];
-    }
-
+    let selectedTab = aResponse.tabs[aResponse.selected];
     if (selectedTab) {
       this._consoleActor = selectedTab.consoleActor;
       this.owner.onLocationChange(selectedTab.url, selectedTab.title);
@@ -4363,7 +4332,9 @@ WebConsoleConnectionProxy.prototype = {
     this.client.removeListener("locationChange", this._onLocationChange);
 
     try {
-      this.client.close(onDisconnect);
+      if (!this.target.isRemote) {
+        this.client.close(onDisconnect);
+      }
     }
     catch (ex) {
       Cu.reportError("Web Console disconnect exception: " + ex);

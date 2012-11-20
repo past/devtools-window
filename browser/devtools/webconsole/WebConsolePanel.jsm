@@ -56,8 +56,7 @@ function WebConsolePanel(iframeWindow, toolbox) {
   let tab = this._toolbox._getHostTab();
   let parentDoc = iframeWindow.document.defaultView.parent.document;
   let iframe = parentDoc.getElementById("toolbox-panel-iframe-webconsole");
-  let options = { target: toolbox.target };
-  this.hud = HUDService.activateHUDForContext(tab, iframe, options);
+  this.hud = HUDService.activateHUDForContext(tab, iframe, toolbox.target);
 
   let hudId = this.hud.hudId;
   let onOpen = function _onWebConsoleOpen(aSubject)
