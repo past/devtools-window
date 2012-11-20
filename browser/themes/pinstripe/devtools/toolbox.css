@@ -18,6 +18,19 @@
   list-style-image: url("chrome://browser/skin/devtools/dock-window.png");
 }
 
+#command-button-scratchpad {
+  background-image: -moz-image-rect(url(chrome://browser/skin/devtools/command-scratchpad.png), 0, 16, 16, 0);
+}
+
+#command-button-scratchpad:hover {
+  background-image: -moz-image-rect(url(chrome://browser/skin/devtools/command-scratchpad.png), 0, 32, 16, 16);
+}
+
+#command-button-scratchpad:hover:active {
+  background-image: -moz-image-rect(url(chrome://browser/skin/devtools/command-scratchpad.png), 0, 48, 16, 32);
+}
+
+
 /* Tabs */
 
 .devtools-tabbar {
