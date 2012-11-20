@@ -18,8 +18,6 @@ const targets = new WeakMap();
  * Functions for creating Targets
  */
 this.TargetFactory = {
-  remotes: new Map(),
-
   /**
    * Construct a Target
    * @param {XULTab} tab
@@ -73,10 +71,10 @@ this.TargetFactory = {
    * @return A target object
    */
   forRemote: function TF_forRemote(form, client, chrome) {
-    let target = targets.get(form.actor);
+    let target = targets.get(form);
     if (target == null) {
       target = new RemoteTarget(form, client, chrome);
-      targets.set(form.actor, target);
+      targets.set(form, target);
     }
     return target;
   },
@@ -134,7 +132,7 @@ function supports(feature) {
  * abstract some common events and read-only properties common to many Tools.
  *
  * Supported read-only properties:
- * - name, isRemote, url
+ * - name, remote, url
  *
  * Target extends EventEmitter and provides support for the following events:
  * - close: The target window has been closed. All tools attached to this
@@ -343,7 +341,7 @@ RemoteTarget.prototype = {
 
   get form() this._form,
 
-    /**
+  /**
    * Target is not alive anymore.
    */
   destroy: function() {
@@ -357,6 +355,6 @@ RemoteTarget.prototype = {
   },
 
   toString: function() {
-    return 'RemoteTarget:' + this.actor;
+    return 'RemoteTarget:' + this.form.actor;
   },
 };

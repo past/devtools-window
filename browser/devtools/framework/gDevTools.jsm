@@ -534,7 +534,7 @@ DevTools.prototype = {
 this.gDevTools = new DevTools();
 
 /**
- * FIXME
+ * DevToolsXULCommands exposes methods used by browser's <command>s.
  */
 this.DevToolsXULCommands = {
   openConnectScreen: function(gBrowser) {
