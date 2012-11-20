@@ -100,6 +100,18 @@ function waitForEditorBlur(aEditor, aCallback)
   }, false);
 }
 
+function contextMenuClick(element) {
+  var evt = element.ownerDocument.createEvent('MouseEvents');
+
+  var button = 2;  // right click
+
+  evt.initMouseEvent('contextmenu', true, true,
+       element.ownerDocument.defaultView, 1, 0, 0, 0, 0, false,
+       false, false, false, button, null);
+
+  element.dispatchEvent(evt);
+}
+
 registerCleanupFunction(tearDown);
 
 waitForExplicitFinish();
