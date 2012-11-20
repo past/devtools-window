@@ -132,7 +132,7 @@ function supports(feature) {
  * abstract some common events and read-only properties common to many Tools.
  *
  * Supported read-only properties:
- * - name, remote, url
+ * - name, isRemote, url
  *
  * Target extends EventEmitter and provides support for the following events:
  * - close: The target window has been closed. All tools attached to this
