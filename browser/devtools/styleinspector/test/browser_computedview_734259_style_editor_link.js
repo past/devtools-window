@@ -81,8 +81,8 @@ function testInlineStyleSheet()
 {
   info("clicking an inline stylesheet");
 
-  let tab = gBrowser.selectedTab;
-  let toolbox = gDevTools.openToolboxForTab(tab, "styleeditor");
+  let target = TargetFactory.forTab(gBrowser.selectedTab);
+  let toolbox = gDevTools.openToolboxForTab(target, "styleeditor");
 
   toolbox.once("styleeditor-ready", function(event, panel) {
     let win = panel._panelWin;
