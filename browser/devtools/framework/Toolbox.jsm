@@ -351,8 +351,11 @@ Toolbox.prototype = {
       iframe.setAttribute("src", definition.url);
     } else {
       let panel = this._toolPanels.get(id);
-      this.emit("select", id);
-      this.emit(id + "-selected", panel);
+      // only emit 'select' event if the iframe has been loaded
+      if (panel) {
+        this.emit("select", id);
+        this.emit(id + "-selected", panel);
+      }
     }
 
     Services.prefs.setCharPref(this._prefs.LAST_TOOL, id);
@@ -495,7 +498,6 @@ Toolbox.prototype = {
    * Remove all UI elements, detach from target and clear up
    */
   destroy: function TBOX_destroy() {
-    this._target.destroy();
     this._target = null;
 
     for (let [id, panel] of this._toolPanels) {
