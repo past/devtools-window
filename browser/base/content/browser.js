@@ -1499,9 +1499,8 @@ var gBrowserInit = {
     // In certain scenarios it's possible for unload to be fired before onload,
     // (e.g. if the window is being closed after browser.js loads but before the
     // load completes). In that case, there's nothing to do here.
-    if (!gStartupRan) {
+    if (!gStartupRan)
       return;
-    }
 
     gDevTools.forgetBrowserWindow(window);
 
