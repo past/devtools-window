@@ -5,6 +5,7 @@
 // Tests that the style inspector works properly
 
 let doc;
+let win;
 let computedView;
 
 XPCOMUtils.defineLazyGetter(this, "osString", function() {
@@ -45,6 +46,7 @@ function selectNode(aInspector)
     aInspector.sidebar.select("computedview");
 
     computedView = getComputedView(aInspector);
+    win = aInspector.sidebar.getWindowForTab("computedview");
 
     Services.obs.addObserver(runStyleInspectorTests,
       "StyleInspector-populated", false);
@@ -178,7 +180,7 @@ function closeStyleInspector()
 
 function finishUp()
 {
-  doc = computedView = null;
+  computedView = doc = win = null;
   gBrowser.removeCurrentTab();
   finish();
 }
