@@ -32,6 +32,7 @@ function test()
 
   function checkSourceEditor(aChrome, aEditor)
   {
+    aChrome.removeChromeListener(this);
     if (!aEditor.sourceEditor) {
       aEditor.addActionListener({
         onAttach: function (aEditor) {

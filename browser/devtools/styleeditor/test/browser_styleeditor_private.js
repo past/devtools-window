@@ -19,6 +19,8 @@ function test() {
     finish();
   }
 
+  gBrowser.selectedTab = gBrowser.addTab();
+
   gBrowser.selectedBrowser.addEventListener("load", function onLoad() {
     gBrowser.selectedBrowser.removeEventListener("load", onLoad, true);
     cache.evictEntries(Ci.nsICache.STORE_ANYWHERE);
@@ -34,6 +36,8 @@ function test() {
   }, true);
 
   function onEditorAdded(aChrome, aEditor) {
+    aChrome.removeChromeListener(this);
+
     if (aEditor.isLoaded) {
       checkCache();
     } else {

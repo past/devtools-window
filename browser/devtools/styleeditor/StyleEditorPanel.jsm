@@ -65,7 +65,7 @@ StyleEditorPanel.prototype = {
       let chrome = new StyleEditorChrome(chromeRoot, contentWindow);
       this._panelWin.styleEditorChrome = chrome;
     }
-    //this.selectStyleSheet(null, null, null);
+    this.selectStyleSheet(null, null, null);
   },
 
   /**
