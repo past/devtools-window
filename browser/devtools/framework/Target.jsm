@@ -322,7 +322,14 @@ function RemoteTarget(form, client, chrome) {
   this._client = client;
   this._form = form;
   this._chrome = chrome;
-  // FIXME: fire useful events
+
+  this.destroy = this.destroy.bind(this);
+  this.client.addListener("tabDetached", this.destroy);
+
+  this._onTabNavigated = function onRemoteTabNavigated() {
+    this.emit("navigate");
+  }.bind(this);
+  this.client.addListener("tabNavigated", this._onTabNavigated);
 }
 
 RemoteTarget.prototype = {
@@ -348,6 +355,8 @@ RemoteTarget.prototype = {
     if (this._destroyed) {
       return;
     }
+    this.client.removeListener("tabNavigated", this._onTabNavigated);
+    this.client.removeListener("tabDetached", this.destroy);
     this._client.close();
     this._client = null;
     this._destroyed = true;

@@ -155,12 +155,8 @@ let DebuggerController = {
     if (this._target.isRemote) {
       client = this.client = this._target.client;
 
-      // TODO: move event handling to the Target and make sure the debugger
-      // frontend does not close the connection on its own, because other tools
-      // may be using it.
-      // this._target.on("close", this._onTabDetached);
-      client.addListener("tabNavigated", this._onTabNavigated);
-      client.addListener("tabDetached", this._onTabDetached);
+      this._target.on("close", this._onTabDetached);
+      this._target.on("navigate", this._onTabNavigated);
 
       if (this._target.chrome) {
         let dbg = this._target.form.chromeDebugger;
