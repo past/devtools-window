@@ -502,7 +502,8 @@ Toolbox.prototype = {
       return;
     }
 
-    if (this._target && typeof this._target.destroy == "function") {
+    // Remote targets need to be notified that the toolbox is being torn down.
+    if (this._target && this._target.isRemote) {
       this._target.destroy();
     }
     this._target = null;
