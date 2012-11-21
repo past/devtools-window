@@ -96,6 +96,7 @@
     <command id="Tools:ResponsiveUI" oncommand="ResponsiveUI.toggle();" disabled="true" hidden="true"/>
     <command id="Tools:Addons" oncommand="BrowserOpenAddonsMgr();"/>
     <command id="Tools:ErrorConsole" oncommand="toJavaScriptConsole()" disabled="true" hidden="true"/>
+    <command id="Tools:DevToolsConnect" oncommand="DevToolsXULCommands.openConnectScreen(gBrowser)"/>
     <command id="Tools:Sanitize"
      oncommand="Cc['@mozilla.org/browser/browserglue;1'].getService(Ci.nsIBrowserGlue).sanitize(window);"/>
     <command id="Tools:PrivateBrowsing"
@@ -202,6 +203,9 @@
     <broadcaster id="devtoolsMenuBroadcaster_GetMoreTools"
                  label="&getMoreDevtoolsCmd.label;"
                  oncommand="openUILinkIn('https://addons.mozilla.org/firefox/collections/mozilla/webdeveloper/', 'tab');"/>
+    <broadcaster id="devtoolsMenuBroadcaster_connect"
+                 label="&devtoolsConnect.label;"
+                 command="Tools:DevToolsConnect"/>
 
     <!-- SocialAPI broadcasters -->
     <broadcaster id="socialBroadcaster_userPortrait"/>

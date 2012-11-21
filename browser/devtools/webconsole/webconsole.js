@@ -370,10 +370,7 @@ WebConsoleFrame.prototype = {
    */
   _initConnection: function WCF__initConnection()
   {
-    this.proxy = new WebConsoleConnectionProxy(this, {
-      host: this.owner.remoteHost,
-      port: this.owner.remotePort,
-    });
+    this.proxy = new WebConsoleConnectionProxy(this, this.owner.target);
 
     let timeout = Services.prefs.getIntPref(PREF_CONNECTION_TIMEOUT);
     this._connectTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
@@ -3973,14 +3970,13 @@ CommandController.prototype = {
  * @constructor
  * @param object aWebConsole
  *        The Web Console instance that owns this connection proxy.
- * @param object aOptions
- *        Connection options: host and port.
+ * @param RemoteTarget aTarget
+ *        The target that the console will connect to.
  */
-function WebConsoleConnectionProxy(aWebConsole, aOptions = {})
+function WebConsoleConnectionProxy(aWebConsole, aTarget)
 {
   this.owner = aWebConsole;
-  this.remoteHost = aOptions.host;
-  this.remotePort = aOptions.port;
+  this.target = aTarget;
 
   this._onPageError = this._onPageError.bind(this);
   this._onConsoleAPICall = this._onConsoleAPICall.bind(this);
@@ -4056,16 +4052,17 @@ WebConsoleConnectionProxy.prototype = {
    */
   connect: function WCCP_connect(aCallback)
   {
-    let transport;
-    if (this.remoteHost) {
-      transport = debuggerSocketConnect(this.remoteHost, this.remotePort);
+    // TODO: convert the non-remote path to use the target API as well.
+    let transport, client;
+    if (this.target.isRemote) {
+      client = this.client = this.target.client;
     }
     else {
       this.initServer();
       transport = DebuggerServer.connectPipe();
-    }
 
-    let client = this.client = new DebuggerClient(transport);
+      client = this.client = new DebuggerClient(transport);
+    }
 
     client.addListener("pageError", this._onPageError);
     client.addListener("consoleAPICall", this._onConsoleAPICall);
@@ -4074,6 +4071,18 @@ WebConsoleConnectionProxy.prototype = {
     client.addListener("fileActivity", this._onFileActivity);
     client.addListener("locationChange", this._onLocationChange);
 
+    if (this.target.isRemote) {
+      this._consoleActor = this.target.form.consoleActor;
+      if (!this.target.chrome) {
+        this.owner.onLocationChange(this.target.url, this.target.name);
+      }
+
+      let listeners = ["PageError", "ConsoleAPI", "NetworkActivity",
+                       "FileActivity", "LocationChange"];
+      this.client.attachConsole(this._consoleActor, listeners,
+                                this._onAttachConsole.bind(this, aCallback));
+      return;
+    }
     client.connect(function(aType, aTraits) {
       client.listTabs(this._onListTabs.bind(this, aCallback));
     }.bind(this));
@@ -4090,32 +4099,7 @@ WebConsoleConnectionProxy.prototype = {
    */
   _onListTabs: function WCCP__onListTabs(aCallback, aResponse)
   {
-    let selectedTab;
-
-    if (this.remoteHost) {
-      this.owner._connectTimer.cancel();
-
-      let tabs = [];
-      for (let tab of aResponse.tabs) {
-        tabs.push(tab.title);
-      }
-
-      tabs.push(l10n.getStr("listTabs.globalConsoleActor"));
-
-      let selected = {};
-      let result = Services.prompt.select(null,
-        l10n.getStr("remoteWebConsoleSelectTabTitle"),
-        l10n.getStr("remoteWebConsoleSelectTabMessage"),
-        tabs.length, tabs, selected);
-
-      if (result && selected.value < aResponse.tabs.length) {
-        selectedTab = aResponse.tabs[selected.value];
-      }
-    }
-    else {
-      selectedTab = aResponse.tabs[aResponse.selected];
-    }
-
+    let selectedTab = aResponse.tabs[aResponse.selected];
     if (selectedTab) {
       this._consoleActor = selectedTab.consoleActor;
       this.owner.onLocationChange(selectedTab.url, selectedTab.title);
@@ -4348,7 +4332,9 @@ WebConsoleConnectionProxy.prototype = {
     this.client.removeListener("locationChange", this._onLocationChange);
 
     try {
-      this.client.close(onDisconnect);
+      if (!this.target.isRemote) {
+        this.client.close(onDisconnect);
+      }
     }
     catch (ex) {
       Cu.reportError("Web Console disconnect exception: " + ex);

@@ -61,15 +61,20 @@ this.TargetFactory = {
 
   /**
    * Construct a Target for a remote global
-   * @param {FIXME} actor
-   *        The connection to a remote mozilla instance
+   * @param {Object} form
+   *        The serialized form of a debugging protocol actor.
+   * @param {DebuggerClient} client
+   *        The debuger client instance to communicate with the server.
+   * @param {boolean} chrome
+   *        A flag denoting that the debugging target is the remote process as a
+   *        whole and not a single tab.
    * @return A target object
    */
-  forRemote: function TF_forRemote(actor) {
-    let target = targets.get(actor);
+  forRemote: function TF_forRemote(form, client, chrome) {
+    let target = targets.get(form);
     if (target == null) {
-      target = new RemoteTarget(actor);
-      targets.set(actor, target);
+      target = new RemoteTarget(form, client, chrome);
+      targets.set(form, target);
     }
     return target;
   },
@@ -187,7 +192,7 @@ TabTarget.prototype = {
     return this._tab.linkedBrowser.contentDocument.location.href;
   },
 
-  get remote() {
+  get isRemote() {
     return false;
   },
 
@@ -314,7 +319,7 @@ WindowTarget.prototype = {
     return this._window.document.location.href;
   },
 
-  get remote() {
+  get isRemote() {
     return false;
   },
 
@@ -326,32 +331,54 @@ WindowTarget.prototype = {
 /**
  * A RemoteTarget represents a page living in a remote Firefox instance.
  */
-function RemoteTarget(actor) {
+function RemoteTarget(form, client, chrome) {
   new EventEmitter(this);
-  this._actor = actor;
+  this._client = client;
+  this._form = form;
+  this._chrome = chrome;
+
+  this.destroy = this.destroy.bind(this);
+  this.client.addListener("tabDetached", this.destroy);
+
+  this._onTabNavigated = function onRemoteTabNavigated() {
+    this.emit("navigate");
+  }.bind(this);
+  this.client.addListener("tabNavigated", this._onTabNavigated);
 }
 
 RemoteTarget.prototype = {
   supports: supports,
-  get version() { return getVersion(); },
+  get version() getVersion(),
 
-  get actor() {
-    return this._actor;
-  },
+  get isRemote() true,
 
-  get name() {
-    throw new Error("FIXME: implement");
-  },
+  get chrome() this._chrome,
 
-  get url() {
-    throw new Error("FIXME: implement");
-  },
+  get name() this._form._title,
 
-  get remote() {
-    return true;
+  get url() this._form._url,
+
+  get client() this._client,
+
+  get form() this._form,
+
+  /**
+   * Target is not alive anymore.
+   */
+  destroy: function() {
+    if (this._destroyed) {
+      return;
+    }
+    this.client.removeListener("tabNavigated", this._onTabNavigated);
+    this.client.removeListener("tabDetached", this.destroy);
+    this._client.close(function onClosed() {
+      this._client = null;
+      this._destroyed = true;
+      this.emit("close");
+    }.bind(this));
   },
 
   toString: function() {
-    return 'RemoteTarget:' + this.actor;
+    return 'RemoteTarget:' + this.form.actor;
   },
 };

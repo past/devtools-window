@@ -83,7 +83,7 @@ function test()
     is(gScripts.selectedValue, gScripts.values[0],
           "The correct script is selected");
 
-    gBreakpoints = gPane.breakpoints;
+    gBreakpoints = gPane.getAllBreakpoints();
     is(Object.keys(gBreakpoints), 0, "no breakpoints");
     ok(!gPane.getBreakpoint("foo", 3), "getBreakpoint('foo', 3) returns falsey");
 

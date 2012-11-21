@@ -146,23 +146,37 @@ let DebuggerController = {
    * wiring event handlers as necessary.
    */
   _connect: function DC__connect() {
-    if (window._isRemoteDebugger && !this._prepareConnection()) {
+    function callback() {
+      window.dispatchEvent("Debugger:Connected");
+    }
+
+    let client;
+    // Remote debugging gets the debuggee from a RemoteTarget object.
+    if (this._target.isRemote) {
+      client = this.client = this._target.client;
+
+      this._target.on("close", this._onTabDetached);
+      this._target.on("navigate", this._onTabNavigated);
+
+      if (this._target.chrome) {
+        let dbg = this._target.form.chromeDebugger;
+        this._startChromeDebugging(client, dbg, callback);
+      } else {
+        this._startDebuggingTab(client, this._target.form, callback);
+      }
       return;
     }
-    let transport = (window._isChromeDebugger || window._isRemoteDebugger)
-      ? debuggerSocketConnect(Prefs.remoteHost, Prefs.remotePort)
-      : DebuggerServer.connectPipe();
 
-    let client = this.client = new DebuggerClient(transport);
+    // Content debugging can connect directly to the page.
+    // TODO: convert this to use a TabTarget.
+    let transport = DebuggerServer.connectPipe();
+    client = this.client = new DebuggerClient(transport);
+
     client.addListener("tabNavigated", this._onTabNavigated);
     client.addListener("tabDetached", this._onTabDetached);
 
     client.connect(function(aType, aTraits) {
       client.listTabs(function(aResponse) {
-        function callback() {
-          window.dispatchEvent("Debugger:Connected");
-        }
-
         if (window._isChromeDebugger) {
           let dbg = aResponse.chromeDebugger;
           this._startChromeDebugging(client, dbg, callback);
@@ -184,9 +198,12 @@ let DebuggerController = {
     }
     this.client.removeListener("tabNavigated", this._onTabNavigated);
     this.client.removeListener("tabDetached", this._onTabDetached);
-    this.client.close();
 
-    this.client = null;
+    if (!this._target.isRemote) {
+      this.client.close();
+      this.client = null;
+    }
+
     this.tabClient = null;
     this.activeThread = null;
   },

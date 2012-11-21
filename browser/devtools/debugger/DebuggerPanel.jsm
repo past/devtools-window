@@ -36,7 +36,7 @@ this.DebuggerDefinition = {
   label: l10n("ToolboxDebugger.label"),
 
   isTargetSupported: function(target) {
-    return !target.isRemote;
+    return true;
   },
 
   build: function(iframeWindow, toolbox) {
@@ -49,8 +49,17 @@ function DebuggerPanel(iframeWindow, toolbox) {
   this._toolbox = toolbox;
   this._controller = iframeWindow.DebuggerController;
   this._view = iframeWindow.DebuggerView;
+  this._controller._target = this.target;
   this._bkp = this._controller.Breakpoints;
   this.panelWin = iframeWindow;
+
+  this._ensureOnlyOneRunningDebugger();
+  if (!this.target.isRemote) {
+    if (!DebuggerServer.initialized) {
+      DebuggerServer.init();
+      DebuggerServer.addBrowserActors();
+    }
+  }
 
   let onDebuggerLoaded = function () {
     iframeWindow.removeEventListener("Debugger:Loaded", onDebuggerLoaded, true);
@@ -68,20 +77,11 @@ function DebuggerPanel(iframeWindow, toolbox) {
     onDebuggerConnected, true);
 
   new EventEmitter(this);
-
-  this._ensureOnlyOneRunningDebugger();
-  if (!DebuggerServer.initialized) {
-    // Always allow connections from nsIPipe transports.
-    DebuggerServer.init(function() true);
-    DebuggerServer.addBrowserActors();
-  }
 }
 
 DebuggerPanel.prototype = {
   // DevToolPanel API
-  get target() {
-    return this._toolbox.target;
-  },
+  get target() this._toolbox.target,
 
   get isReady() this._isReady,
 
