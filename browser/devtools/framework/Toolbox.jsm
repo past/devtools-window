@@ -44,7 +44,6 @@ this.Toolbox = function Toolbox(target, hostType, selectedTool) {
   this._toolRegistered = this._toolRegistered.bind(this);
   this._toolUnregistered = this._toolUnregistered.bind(this);
   this.destroy = this.destroy.bind(this);
-  this._destroyed = false;
 
   this._target.once("close", this.destroy);
 
