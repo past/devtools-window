@@ -44,6 +44,7 @@ this.Toolbox = function Toolbox(target, hostType, selectedTool) {
   this._toolRegistered = this._toolRegistered.bind(this);
   this._toolUnregistered = this._toolUnregistered.bind(this);
   this.destroy = this.destroy.bind(this);
+  this._destroyed = false;
 
   this._target.once("close", this.destroy);
 
@@ -498,6 +499,13 @@ Toolbox.prototype = {
    * Remove all UI elements, detach from target and clear up
    */
   destroy: function TBOX_destroy() {
+    if (this._destroyed) {
+      return;
+    }
+
+    if (this._target && typeof this._target.destroy == "function") {
+      this._target.destroy();
+    }
     this._target = null;
 
     for (let [id, panel] of this._toolPanels) {
@@ -509,6 +517,7 @@ Toolbox.prototype = {
     gDevTools.off("tool-registered", this._toolRegistered);
     gDevTools.off("tool-unregistered", this._toolUnregistered);
 
+    this._destroyed = true;
     this.emit("destroyed");
   }
 };

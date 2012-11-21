@@ -171,6 +171,7 @@ Object.defineProperty(Target.prototype, "version", {
 function TabTarget(tab) {
   new EventEmitter(this);
   this._tab = tab;
+  this._destroyed = false;
   this._setupListeners();
 }
 
@@ -336,6 +337,7 @@ function RemoteTarget(form, client, chrome) {
   this._client = client;
   this._form = form;
   this._chrome = chrome;
+  this._destroyed = false;
 
   this.destroy = this.destroy.bind(this);
   this.client.addListener("tabDetached", this.destroy);
@@ -365,12 +367,13 @@ RemoteTarget.prototype = {
   /**
    * Target is not alive anymore.
    */
-  destroy: function() {
+  destroy: function RT_destroy() {
     if (this._destroyed) {
       return;
     }
     this.client.removeListener("tabNavigated", this._onTabNavigated);
     this.client.removeListener("tabDetached", this.destroy);
+
     this._client.close(function onClosed() {
       this._client = null;
       this._destroyed = true;
