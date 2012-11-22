@@ -208,8 +208,7 @@
                  command="Tools:DevToolsConnect"/>
 
     <!-- SocialAPI broadcasters -->
-    <broadcaster id="socialBroadcaster_userPortrait"/>
-    <broadcaster id="socialBroadcaster_loggedInStatus"
+    <broadcaster id="socialBroadcaster_userDetails"
                  notLoggedInLabel="&social.notLoggedIn.label;"/>
   </broadcasterset>
 
