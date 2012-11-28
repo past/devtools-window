@@ -4,7 +4,13 @@
 
 "use strict";
 
-this.EXPORTED_SYMBOLS = [ "defaultTools" ];
+this.EXPORTED_SYMBOLS = [
+                          "defaultTools",
+                          "webConsoleDefinition",
+                          "debuggerDefinition",
+                          "inspectorDefinition",
+                          "styleEditorDefinition"
+                        ];
 
 const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
