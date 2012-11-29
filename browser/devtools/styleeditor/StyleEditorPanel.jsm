@@ -9,9 +9,8 @@ const Cu = Components.utils;
 this.EXPORTED_SYMBOLS = ["StyleEditorPanel"];
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(this, "EventEmitter",
-  "resource:///modules/devtools/EventEmitter.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "StyleEditorChrome",
   "resource:///modules/devtools/StyleEditorChrome.jsm");
 

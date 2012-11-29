@@ -9,13 +9,11 @@ const { classes: Cc, interfaces: Ci, utils: Cu, results: Cr } = Components;
 this.EXPORTED_SYMBOLS = ["InspectorPanel"];
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(this, "Services",
-  "resource://gre/modules/Services.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "MarkupView",
   "resource://gre/modules/devtools/MarkupView.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "EventEmitter",
-  "resource:///modules/devtools/EventEmitter.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Selection",
   "resource:///modules/devtools/Selection.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "HTMLBreadcrumbs",

@@ -20,12 +20,8 @@ const styleEditorProps = "chrome://browser/locale/devtools/styleeditor.propertie
 const webConsoleProps = "chrome://browser/locale/devtools/webconsole.properties";
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-
-XPCOMUtils.defineLazyModuleGetter(this, "Services",
-  "resource://gre/modules/Services.jsm");
-
-XPCOMUtils.defineLazyModuleGetter(this, "EventEmitter",
-  "resource:///modules/devtools/EventEmitter.jsm");
+Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "osString",
   function() Cc["@mozilla.org/xre/app-info;1"].getService(Ci.nsIXULRuntime).OS);

@@ -10,11 +10,9 @@ const Cu = Components.utils;
 const Ci = Components.interfaces;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(this, "EventEmitter",
-  "resource:///modules/devtools/EventEmitter.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "Services",
-  "resource://gre/modules/Services.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "HUDService",
   "resource:///modules/HUDService.jsm");
 
