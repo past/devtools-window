@@ -208,6 +208,7 @@ let DebuggerController = {
       this.client.close();
     }
 
+    this.client = null;
     this.tabClient = null;
     this.activeThread = null;
   },
