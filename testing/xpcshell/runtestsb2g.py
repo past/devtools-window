@@ -10,8 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.realpath(os.path.dirname(sys.argv[0])
 
 import traceback
 from remotexpcshelltests import XPCShellRemote, RemoteXPCShellOptions
-from automationutils import *
-from mozdevice import devicemanagerADB
+from mozdevice import devicemanagerADB, DMError
 
 DEVICE_TEST_ROOT = '/data/local/tests'
 
@@ -25,32 +24,25 @@ class B2GXPCShellRemote(XPCShellRemote):
         if self.options.clean:
             # Ensure a fresh directory structure for our tests
             self.clean()
-            self.device.mkDir(DEVICE_TEST_ROOT)
+            self.device.mkDir(self.options.remoteTestRoot)
 
         XPCShellRemote.setupUtilities(self)
 
     def clean(self):
         print >>sys.stderr, "\nCleaning files from previous run.."
-        self.device.removeDir(DEVICE_TEST_ROOT)
+        self.device.removeDir(self.options.remoteTestRoot)
 
     # Overriden
     def setupTestDir(self):
         if self.device._useZip:
             return XPCShellRemote.setupTestDir(self)
 
-        push_attempts = 10
         for root, dirs, files in os.walk(self.xpcDir):
             for filename in files:
                 rel_path = os.path.relpath(os.path.join(root, filename), self.xpcDir)
                 test_file = os.path.join(self.remoteScriptsDir, rel_path)
-                for retry in range(1, push_attempts+1):
-                    print 'pushing', test_file, '(attempt %s of %s)' % (retry, push_attempts)
-                    try:
-                        self.device.pushFile(os.path.join(root, filename), test_file)
-                        break
-                    except DMError:
-                        if retry == push_attempts:
-                            raise
+                print 'pushing %s' % test_file
+                self.device.pushFile(os.path.join(root, filename), test_file, retryLimit=10)
 
     # Overridden
     def pushLibs(self):
@@ -66,14 +58,18 @@ class B2GXPCShellRemote(XPCShellRemote):
             XPCShellRemote.setLD_LIBRARY_PATH(self, env)
 
     # Overridden
-    # This returns 1 even when tests pass - this is why it's switched to 0
-    # https://bugzilla.mozilla.org/show_bug.cgi?id=773703
-    def getReturnCode(self, proc):
-#        if self.shellReturnCode is not None:
-#            return self.shellReturnCode
-#        return -1
-        return 0
-
+    def launchProcess(self, cmd, stdout, stderr, env, cwd):
+        try:
+            # This returns 1 even when tests pass - hardcode returncode to 0 (bug 773703)
+            outputFile = XPCShellRemote.launchProcess(self, cmd, stdout, stderr, env, cwd)
+            self.shellReturnCode = 0
+        except DMError:
+            self.shellReturnCode = -1
+            outputFile = "xpcshelloutput"
+            f = open(outputFile, "a")
+            f.write("\n%s" % traceback.format_exc())
+            f.close()
+        return outputFile
 
 class B2GOptions(RemoteXPCShellOptions):
 
@@ -136,6 +132,7 @@ class B2GOptions(RemoteXPCShellOptions):
                         help="Path to busybox binary to install on device")
         defaults['busybox'] = None
 
+        defaults["remoteTestRoot"] = DEVICE_TEST_ROOT
         defaults['dm_trans'] = 'adb'
         defaults['debugger'] = None
         defaults['debuggerArgs'] = None
@@ -170,6 +167,8 @@ def main():
             kwargs['logcat_dir'] = options.logcat_dir
         if options.busybox:
             kwargs['busybox'] = options.busybox
+        if options.symbolsPath:
+            kwargs['symbols_path'] = options.symbolsPath
     if options.b2g_path:
         kwargs['homedir'] = options.emu_path or options.b2g_path
     if options.address:
@@ -186,10 +185,11 @@ def main():
     if options.deviceIP:
         kwargs['host'] = options.deviceIP
         kwargs['port'] = options.devicePort
-    kwargs['deviceRoot'] = DEVICE_TEST_ROOT
+    kwargs['deviceRoot'] = options.remoteTestRoot
     dm = devicemanagerADB.DeviceManagerADB(**kwargs)
 
-    options.remoteTestRoot = dm.getDeviceRoot()
+    if not options.remoteTestRoot:
+        options.remoteTestRoot = dm.getDeviceRoot()
     xpcsh = B2GXPCShellRemote(dm, options, args)
 
     try:

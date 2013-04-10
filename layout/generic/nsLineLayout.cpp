@@ -27,6 +27,7 @@
 #include "nsLayoutUtils.h"
 #include "nsTextFrame.h"
 #include "nsCSSRendering.h"
+#include <algorithm>
 
 #ifdef DEBUG
 #undef  NOISY_HORIZONTAL_ALIGN
@@ -85,7 +86,7 @@ nsLineLayout::nsLineLayout(nsPresContext* aPresContext,
   MOZ_COUNT_CTOR(nsLineLayout);
 
   // Stash away some style data that we need
-  mStyleText = aOuterReflowState->frame->GetStyleText();
+  mStyleText = aOuterReflowState->frame->StyleText();
   mLineNumber = 0;
   mTotalPlacedFrames = 0;
   mTopEdge = 0;
@@ -178,17 +179,33 @@ nsLineLayout::BeginLineReflow(nscoord aX, nscoord aY,
     mLineBox->ClearHasBullet();
   }
 
-  PerSpanData* psd;
-  NewPerSpanData(&psd);
+  PerSpanData* psd = NewPerSpanData();
   mCurrentSpan = mRootSpan = psd;
   psd->mReflowState = mBlockReflowState;
   psd->mLeftEdge = aX;
   psd->mX = aX;
   psd->mRightEdge = aX + aWidth;
 
+  // If we're in a constrained height frame, then we don't allow a
+  // max line box width to take effect.
+  if (!(GetLineContainerFrame()->GetStateBits() &
+      NS_FRAME_IN_CONSTRAINED_HEIGHT)) {
+
+    // If the available size is greater than the maximum line box width (if
+    // specified), then we need to adjust the line box width to be at the max
+    // possible width.
+    nscoord maxLineBoxWidth =
+      GetLineContainerFrame()->PresContext()->PresShell()->MaxLineBoxWidth();
+
+    if (maxLineBoxWidth > 0 &&
+        psd->mRightEdge - psd->mLeftEdge > maxLineBoxWidth) {
+      psd->mRightEdge = psd->mLeftEdge + maxLineBoxWidth;
+    }
+  }
+
   mTopEdge = aY;
 
-  psd->mNoWrap = !mStyleText->WhiteSpaceCanWrap();
+  psd->mNoWrap = !mStyleText->WhiteSpaceCanWrap(GetLineContainerFrame());
   psd->mDirection = aDirection;
   psd->mChangedFrameDirection = false;
 
@@ -332,15 +349,15 @@ nsLineLayout::UpdateBand(const nsRect& aNewAvailSpace,
   mLastFloatWasLetterFrame = nsGkAtoms::letterFrame == aFloatFrame->GetType();
 }
 
-nsresult
-nsLineLayout::NewPerSpanData(PerSpanData** aResult)
+nsLineLayout::PerSpanData*
+nsLineLayout::NewPerSpanData()
 {
   PerSpanData* psd = mSpanFreeList;
-  if (nullptr == psd) {
+  if (!psd) {
     void *mem;
     PL_ARENA_ALLOCATE(mem, &mArena, sizeof(PerSpanData));
-    if (nullptr == mem) {
-      return NS_ERROR_OUT_OF_MEMORY;
+    if (!mem) {
+      NS_RUNTIMEABORT("OOM");
     }
     psd = reinterpret_cast<PerSpanData*>(mem);
   }
@@ -358,15 +375,13 @@ nsLineLayout::NewPerSpanData(PerSpanData** aResult)
 #ifdef DEBUG
   mSpansAllocated++;
 #endif
-  *aResult = psd;
-  return NS_OK;
+  return psd;
 }
 
-nsresult
+void
 nsLineLayout::BeginSpan(nsIFrame* aFrame,
                         const nsHTMLReflowState* aSpanReflowState,
-                        nscoord aLeftEdge,
-                        nscoord aRightEdge,
+                        nscoord aLeftEdge, nscoord aRightEdge,
                         nscoord* aBaseline)
 {
   NS_ASSERTION(aRightEdge != NS_UNCONSTRAINEDSIZE,
@@ -377,33 +392,29 @@ nsLineLayout::BeginSpan(nsIFrame* aFrame,
   printf(": BeginSpan leftEdge=%d rightEdge=%d\n", aLeftEdge, aRightEdge);
 #endif
 
-  PerSpanData* psd;
-  nsresult rv = NewPerSpanData(&psd);
-  if (NS_SUCCEEDED(rv)) {
-    // Link up span frame's pfd to point to its child span data
-    PerFrameData* pfd = mCurrentSpan->mLastFrame;
-    NS_ASSERTION(pfd->mFrame == aFrame, "huh?");
-    pfd->mSpan = psd;
+  PerSpanData* psd = NewPerSpanData();
+  // Link up span frame's pfd to point to its child span data
+  PerFrameData* pfd = mCurrentSpan->mLastFrame;
+  NS_ASSERTION(pfd->mFrame == aFrame, "huh?");
+  pfd->mSpan = psd;
 
-    // Init new span
-    psd->mFrame = pfd;
-    psd->mParent = mCurrentSpan;
-    psd->mReflowState = aSpanReflowState;
-    psd->mLeftEdge = aLeftEdge;
-    psd->mX = aLeftEdge;
-    psd->mRightEdge = aRightEdge;
-    psd->mBaseline = aBaseline;
+  // Init new span
+  psd->mFrame = pfd;
+  psd->mParent = mCurrentSpan;
+  psd->mReflowState = aSpanReflowState;
+  psd->mLeftEdge = aLeftEdge;
+  psd->mX = aLeftEdge;
+  psd->mRightEdge = aRightEdge;
+  psd->mBaseline = aBaseline;
 
-    psd->mNoWrap =
-      !aSpanReflowState->frame->GetStyleText()->WhiteSpaceCanWrap();
-    psd->mDirection = aSpanReflowState->mStyleVisibility->mDirection;
-    psd->mChangedFrameDirection = false;
+  nsIFrame* frame = aSpanReflowState->frame;
+  psd->mNoWrap = !frame->StyleText()->WhiteSpaceCanWrap(frame);
+  psd->mDirection = aSpanReflowState->mStyleVisibility->mDirection;
+  psd->mChangedFrameDirection = false;
 
-    // Switch to new span
-    mCurrentSpan = psd;
-    mSpanDepth++;
-  }
-  return rv;
+  // Switch to new span
+  mCurrentSpan = psd;
+  mSpanDepth++;
 }
 
 nscoord
@@ -562,15 +573,15 @@ nsLineLayout::IsZeroHeight()
   return true;
 }
 
-nsresult
-nsLineLayout::NewPerFrameData(PerFrameData** aResult)
+nsLineLayout::PerFrameData*
+nsLineLayout::NewPerFrameData()
 {
   PerFrameData* pfd = mFrameFreeList;
-  if (nullptr == pfd) {
+  if (!pfd) {
     void *mem;
     PL_ARENA_ALLOCATE(mem, &mArena, sizeof(PerFrameData));
-    if (nullptr == mem) {
-      return NS_ERROR_OUT_OF_MEMORY;
+    if (!mem) {
+      NS_RUNTIMEABORT("OOM");
     }
     pfd = reinterpret_cast<PerFrameData*>(mem);
   }
@@ -587,8 +598,7 @@ nsLineLayout::NewPerFrameData(PerFrameData** aResult)
   pfd->mVerticalAlign = 0xFF;
   mFramesAllocated++;
 #endif
-  *aResult = pfd;
-  return NS_OK;
+  return pfd;
 }
 
 bool
@@ -632,19 +642,19 @@ IsPercentageAware(const nsIFrame* aFrame)
   // things unnecessarily complicated, since they'll probably be set
   // quite rarely.
 
-  const nsStyleMargin* margin = aFrame->GetStyleMargin();
+  const nsStyleMargin* margin = aFrame->StyleMargin();
   if (HasPercentageUnitSide(margin->mMargin)) {
     return true;
   }
 
-  const nsStylePadding* padding = aFrame->GetStylePadding();
+  const nsStylePadding* padding = aFrame->StylePadding();
   if (HasPercentageUnitSide(padding->mPadding)) {
     return true;
   }
 
   // Note that borders can't be aware of percentages
 
-  const nsStylePosition* pos = aFrame->GetStylePosition();
+  const nsStylePosition* pos = aFrame->StylePosition();
 
   if ((pos->WidthDependsOnContainer() &&
        pos->mWidth.GetUnit() != eStyleUnit_Auto) ||
@@ -658,7 +668,7 @@ IsPercentageAware(const nsIFrame* aFrame)
   if (eStyleUnit_Auto == pos->mWidth.GetUnit()) {
     // We need to check for frames that shrink-wrap when they're auto
     // width.
-    const nsStyleDisplay* disp = aFrame->GetStyleDisplay();
+    const nsStyleDisplay* disp = aFrame->StyleDisplay();
     if (disp->mDisplay == NS_STYLE_DISPLAY_INLINE_BLOCK ||
         disp->mDisplay == NS_STYLE_DISPLAY_INLINE_TABLE ||
         fType == nsGkAtoms::HTMLButtonControlFrame ||
@@ -699,11 +709,7 @@ nsLineLayout::ReflowFrame(nsIFrame* aFrame,
   // Initialize OUT parameter
   aPushedFrame = false;
 
-  PerFrameData* pfd;
-  nsresult rv = NewPerFrameData(&pfd);
-  if (NS_FAILED(rv)) {
-    return rv;
-  }
+  PerFrameData* pfd = NewPerFrameData();
   PerSpanData* psd = mCurrentSpan;
   psd->AppendFrame(pfd);
 
@@ -748,15 +754,6 @@ nsLineLayout::ReflowFrame(nsIFrame* aFrame,
   // includes room for the side margins.
   // For now, set the available height to unconstrained always.
   nsSize availSize(mBlockReflowState->ComputedWidth(), NS_UNCONSTRAINEDSIZE);
-
-  // If the available size is greater than the maximum line box width (if
-  // specified), then we need to adjust the line box width to be at the max
-  // possible width.
-  nscoord maxLineBoxWidth = aFrame->PresContext()->PresShell()->MaxLineBoxWidth();
-
-  if (maxLineBoxWidth > 0 && psd->mRightEdge - psd->mLeftEdge > maxLineBoxWidth) {
-    psd->mRightEdge = psd->mLeftEdge + maxLineBoxWidth;
-  }
 
   // Inline-ish and text-ish things don't compute their width;
   // everything else does.  We need to give them an available width that
@@ -829,8 +826,8 @@ nsLineLayout::ReflowFrame(nsIFrame* aFrame,
                                  &savedOptionalBreakPriority);
 
   if (!isText) {
-    rv = aFrame->Reflow(mPresContext, metrics, reflowStateHolder.ref(),
-                        aReflowStatus);
+    nsresult rv = aFrame->Reflow(mPresContext, metrics, reflowStateHolder.ref(),
+                                 aReflowStatus);
     if (NS_FAILED(rv)) {
       NS_WARNING( "Reflow of frame failed in nsLineLayout" );
       return rv;
@@ -1053,7 +1050,7 @@ nsLineLayout::ReflowFrame(nsIFrame* aFrame,
   printf(" status=%x\n", aReflowStatus);
 #endif
 
-  return rv;
+  return NS_OK;
 }
 
 void
@@ -1304,7 +1301,7 @@ nsLineLayout::PlaceFrame(PerFrameData* pfd, nsHTMLReflowMetrics& aMetrics)
   else
     pfd->mAscent = aMetrics.ascent;
 
-  bool ltr = (NS_STYLE_DIRECTION_LTR == pfd->mFrame->GetStyleVisibility()->mDirection);
+  bool ltr = (NS_STYLE_DIRECTION_LTR == pfd->mFrame->StyleVisibility()->mDirection);
   // Advance to next X coordinate
   psd->mX = pfd->mBounds.XMost() + (ltr ? pfd->mMargin.right : pfd->mMargin.left);
 
@@ -1314,13 +1311,12 @@ nsLineLayout::PlaceFrame(PerFrameData* pfd, nsHTMLReflowMetrics& aMetrics)
   }
 }
 
-nsresult
+void
 nsLineLayout::AddBulletFrame(nsIFrame* aFrame,
                              const nsHTMLReflowMetrics& aMetrics)
 {
   NS_ASSERTION(mCurrentSpan == mRootSpan, "bad linelayout user");
   NS_ASSERTION(mGotLineBox, "must have line box");
-
 
   nsIFrame *blockFrame = mBlockReflowState->frame;
   NS_ASSERTION(blockFrame->IsFrameOfType(nsIFrame::eBlockFrame),
@@ -1330,25 +1326,21 @@ nsLineLayout::AddBulletFrame(nsIFrame* aFrame,
     mLineBox->SetHasBullet();
   }
 
-  PerFrameData* pfd;
-  nsresult rv = NewPerFrameData(&pfd);
-  if (NS_SUCCEEDED(rv)) {
-    mRootSpan->AppendFrame(pfd);
-    pfd->mFrame = aFrame;
-    pfd->mMargin.SizeTo(0, 0, 0, 0);
-    pfd->mBorderPadding.SizeTo(0, 0, 0, 0);
-    pfd->mFlags = 0;  // all flags default to false
-    pfd->SetFlag(PFD_ISBULLET, true);
-    if (aMetrics.ascent == nsHTMLReflowMetrics::ASK_FOR_BASELINE)
-      pfd->mAscent = aFrame->GetBaseline();
-    else
-      pfd->mAscent = aMetrics.ascent;
+  PerFrameData* pfd = NewPerFrameData();
+  mRootSpan->AppendFrame(pfd);
+  pfd->mFrame = aFrame;
+  pfd->mMargin.SizeTo(0, 0, 0, 0);
+  pfd->mBorderPadding.SizeTo(0, 0, 0, 0);
+  pfd->mFlags = 0;  // all flags default to false
+  pfd->SetFlag(PFD_ISBULLET, true);
+  if (aMetrics.ascent == nsHTMLReflowMetrics::ASK_FOR_BASELINE)
+    pfd->mAscent = aFrame->GetBaseline();
+  else
+    pfd->mAscent = aMetrics.ascent;
 
-    // Note: y value will be updated during vertical alignment
-    pfd->mBounds = aFrame->GetRect();
-    pfd->mOverflowAreas = aMetrics.mOverflowAreas;
-  }
-  return rv;
+  // Note: y value will be updated during vertical alignment
+  pfd->mBounds = aFrame->GetRect();
+  pfd->mOverflowAreas = aMetrics.mOverflowAreas;
 }
 
 #ifdef DEBUG
@@ -1458,7 +1450,7 @@ nsLineLayout::VerticalAlignLine()
   // offset in a frame property on any child frames that are vertically-aligned
   // somewhere other than the baseline. This property is then used by
   // nsTextFrame::GetTextDecorations when the same conditions are met.
-  if (rootPFD.mFrame->GetStyleContext()->HasTextDecorationLines()) {
+  if (rootPFD.mFrame->StyleContext()->HasTextDecorationLines()) {
     for (const PerFrameData* pfd = psd->mFirstFrame; pfd; pfd = pfd->mNext) {
       const nsIFrame *const f = pfd->mFrame;
       if (f->VerticalAlignEnum() != NS_STYLE_VERTICAL_ALIGN_BASELINE) {
@@ -1693,7 +1685,7 @@ nsLineLayout::VerticalAlignFrames(PerSpanData* psd)
     float inflation =
       nsLayoutUtils::FontSizeInflationInner(spanFrame, mInflationMinFontSize);
     nscoord logicalHeight = nsHTMLReflowState::
-      CalcLineHeight(spanFrame->GetStyleContext(),
+      CalcLineHeight(spanFrame->StyleContext(),
                      mBlockReflowState->ComputedHeight(),
                      inflation);
     nscoord contentHeight = spanFramePFD->mBounds.height -
@@ -1703,7 +1695,7 @@ nsLineLayout::VerticalAlignFrames(PerSpanData* psd)
     // the frame height if the user has left line-height == normal 
     if (spanFramePFD->GetFlag(PFD_ISLETTERFRAME) &&
         !spanFrame->GetPrevInFlow() &&
-        spanFrame->GetStyleText()->mLineHeight.GetUnit() == eStyleUnit_Normal) {
+        spanFrame->StyleText()->mLineHeight.GetUnit() == eStyleUnit_Normal) {
       logicalHeight = spanFramePFD->mBounds.height;
     }
 
@@ -1780,7 +1772,7 @@ nsLineLayout::VerticalAlignFrames(PerSpanData* psd)
 
     // Get vertical-align property
     const nsStyleCoord& verticalAlign =
-      frame->GetStyleTextReset()->mVerticalAlign;
+      frame->StyleTextReset()->mVerticalAlign;
     uint8_t verticalAlignEnum = frame->VerticalAlignEnum();
 #ifdef NOISY_VERTICAL_ALIGN
     printf("  [frame]");
@@ -1938,7 +1930,7 @@ nsLineLayout::VerticalAlignFrames(PerSpanData* psd)
         float inflation =
           nsLayoutUtils::FontSizeInflationInner(frame, mInflationMinFontSize);
         pctBasis = nsHTMLReflowState::CalcLineHeight(
-          frame->GetStyleContext(), mBlockReflowState->ComputedHeight(),
+          frame->StyleContext(), mBlockReflowState->ComputedHeight(),
           inflation);
       }
       nscoord offset =
@@ -1975,7 +1967,7 @@ nsLineLayout::VerticalAlignFrames(PerSpanData* psd)
       bool canUpdate = !pfd->GetFlag(PFD_ISTEXTFRAME);
       if (!canUpdate && pfd->GetFlag(PFD_ISNONWHITESPACETEXTFRAME)) {
         canUpdate =
-          frame->GetStyleText()->mLineHeight.GetUnit() == eStyleUnit_Normal;
+          frame->StyleText()->mLineHeight.GetUnit() == eStyleUnit_Normal;
       }
       if (canUpdate) {
 #endif
@@ -2117,11 +2109,11 @@ nsLineLayout::VerticalAlignFrames(PerSpanData* psd)
       // then to descent (maxY - baselineY) by adjusting minY or maxY,
       // but not to exceed goodMinY and goodMaxY.
       nscoord distribute = maxTopBoxHeight - (maxY - minY);
-      nscoord ascentSpace = NS_MAX(minY - goodMinY, 0);
+      nscoord ascentSpace = std::max(minY - goodMinY, 0);
       if (distribute > ascentSpace) {
         distribute -= ascentSpace;
         minY -= ascentSpace;
-        nscoord descentSpace = NS_MAX(goodMaxY - maxY, 0);
+        nscoord descentSpace = std::max(goodMaxY - maxY, 0);
         if (distribute > descentSpace) {
           maxY += descentSpace;
         } else {
@@ -2134,11 +2126,11 @@ nsLineLayout::VerticalAlignFrames(PerSpanData* psd)
     if (maxBottomBoxHeight > maxY - minY) {
       // Likewise, but preferring descent to ascent.
       nscoord distribute = maxBottomBoxHeight - (maxY - minY);
-      nscoord descentSpace = NS_MAX(goodMaxY - maxY, 0);
+      nscoord descentSpace = std::max(goodMaxY - maxY, 0);
       if (distribute > descentSpace) {
         distribute -= descentSpace;
         maxY += descentSpace;
-        nscoord ascentSpace = NS_MAX(minY - goodMinY, 0);
+        nscoord ascentSpace = std::max(minY - goodMinY, 0);
         if (distribute > ascentSpace) {
           minY -= ascentSpace;
         } else {
@@ -2665,7 +2657,7 @@ nsLineLayout::RelativePositionFrames(PerSpanData* psd, nsOverflowAreas& aOverflo
         // (2) When there are text decorations, since we can't recompute the
         //     overflow area until Reflow and VerticalAlignLine have finished
         if (pfd->GetFlag(PFD_RECOMPUTEOVERFLOW) ||
-            frame->GetStyleContext()->HasTextDecorationLines()) {
+            frame->StyleContext()->HasTextDecorationLines()) {
           nsTextFrame* f = static_cast<nsTextFrame*>(frame);
           r = f->RecomputeOverflow(*mBlockReflowState);
         }

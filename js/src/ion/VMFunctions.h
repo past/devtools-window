@@ -22,6 +22,15 @@ enum DataType {
     Type_Handle
 };
 
+struct PopValues
+{
+    uint32_t numValues;
+
+    explicit PopValues(uint32_t numValues)
+      : numValues(numValues)
+    { }
+};
+
 // Contains information about a virtual machine function that can be called
 // from JIT code. Functions described in this manner must conform to a simple
 // protocol: the return type must have a special "failure" value (for example,
@@ -43,7 +52,7 @@ struct VMFunction
 
     // Number of arguments expected, excluding JSContext * as an implicit
     // first argument and an outparam as a possible implicit final argument.
-    uint32 explicitArgs;
+    uint32_t explicitArgs;
 
     enum ArgProperties {
         WordByValue = 0,
@@ -57,7 +66,7 @@ struct VMFunction
     };
 
     // Contains properties about the first 16 arguments.
-    uint32 argumentProperties;
+    uint32_t argumentProperties;
 
     // The outparam may be any Type_*, and must be the final argument to the
     // function, if not Void. outParam != Void implies that the return type
@@ -86,9 +95,14 @@ struct VMFunction
 
     // Contains an combination of enumerated types used by the gc for marking
     // arguments of the VM wrapper.
-    uint64 argumentRootTypes;
+    uint64_t argumentRootTypes;
 
-    uint32 argc() const {
+    // Number of Values the VM wrapper should pop from the stack when it returns.
+    // Used by baseline IC stubs so that they can use tail calls to call the VM
+    // wrapper.
+    uint32_t extraValuesToPop;
+
+    uint32_t argc() const {
         // JSContext * + args + (OutParam? *)
         return 1 + explicitArgc() + ((outParam == Type_Void) ? 0 : 1);
     }
@@ -97,11 +111,11 @@ struct VMFunction
         return returnType;
     }
 
-    ArgProperties argProperties(uint32 explicitArg) const {
+    ArgProperties argProperties(uint32_t explicitArg) const {
         return ArgProperties((argumentProperties >> (2 * explicitArg)) & 3);
     }
 
-    RootType argRootType(uint32 explicitArg) const {
+    RootType argRootType(uint32_t explicitArg) const {
         return RootType((argumentRootTypes >> (3 * explicitArg)) & 7);
     }
 
@@ -110,7 +124,7 @@ struct VMFunction
         size_t stackSlots = explicitArgs;
 
         // Fetch all double-word flags of explicit arguments.
-        uint32 n =
+        uint32_t n =
             ((1 << (explicitArgs * 2)) - 1) // = Explicit argument mask.
             & 0x55555555                    // = Mask double-size args.
             & argumentProperties;
@@ -133,7 +147,7 @@ struct VMFunction
         size_t stackSlots = explicitArgs;
 
         // Fetch all explicit arguments.
-        uint32 n =
+        uint32_t n =
             ((1 << (explicitArgs * 2)) - 1) // = Explicit argument mask.
             & argumentProperties;
 
@@ -159,14 +173,15 @@ struct VMFunction
     {
     }
 
-    VMFunction(void *wrapped, uint32 explicitArgs, uint32 argumentProperties, uint64 argRootTypes,
-               DataType outParam, DataType returnType)
+    VMFunction(void *wrapped, uint32_t explicitArgs, uint32_t argumentProperties, uint64_t argRootTypes,
+               DataType outParam, DataType returnType, uint32_t extraValuesToPop = 0)
       : wrapped(wrapped),
         explicitArgs(explicitArgs),
         argumentProperties(argumentProperties),
         outParam(outParam),
         returnType(returnType),
-        argumentRootTypes(argRootTypes)
+        argumentRootTypes(argRootTypes),
+        extraValuesToPop(extraValuesToPop)
     {
         // Check for valid failure/return type.
         JS_ASSERT_IF(outParam != Type_Void, returnType == Type_Bool);
@@ -187,79 +202,84 @@ struct VMFunction
 template <class> struct TypeToDataType { /* Unexpected return type for a VMFunction. */ };
 template <> struct TypeToDataType<bool> { static const DataType result = Type_Bool; };
 template <> struct TypeToDataType<JSObject *> { static const DataType result = Type_Object; };
+template <> struct TypeToDataType<DeclEnvObject *> { static const DataType result = Type_Object; };
 template <> struct TypeToDataType<JSString *> { static const DataType result = Type_Object; };
 template <> struct TypeToDataType<JSFlatString *> { static const DataType result = Type_Object; };
 template <> struct TypeToDataType<HandleObject> { static const DataType result = Type_Handle; };
 template <> struct TypeToDataType<HandleString> { static const DataType result = Type_Handle; };
 template <> struct TypeToDataType<HandlePropertyName> { static const DataType result = Type_Handle; };
 template <> struct TypeToDataType<HandleFunction> { static const DataType result = Type_Handle; };
+template <> struct TypeToDataType<Handle<StaticBlockObject *> > { static const DataType result = Type_Handle; };
 template <> struct TypeToDataType<HandleScript> { static const DataType result = Type_Handle; };
 template <> struct TypeToDataType<HandleValue> { static const DataType result = Type_Handle; };
 template <> struct TypeToDataType<MutableHandleValue> { static const DataType result = Type_Handle; };
 
 // Convert argument types to properties of the argument known by the jit.
 template <class T> struct TypeToArgProperties {
-    static const uint32 result =
+    static const uint32_t result =
         (sizeof(T) <= sizeof(void *) ? VMFunction::Word : VMFunction::Double);
 };
 template <> struct TypeToArgProperties<const Value &> {
-    static const uint32 result = TypeToArgProperties<Value>::result | VMFunction::ByRef;
+    static const uint32_t result = TypeToArgProperties<Value>::result | VMFunction::ByRef;
 };
 template <> struct TypeToArgProperties<HandleObject> {
-    static const uint32 result = TypeToArgProperties<JSObject *>::result | VMFunction::ByRef;
+    static const uint32_t result = TypeToArgProperties<JSObject *>::result | VMFunction::ByRef;
 };
 template <> struct TypeToArgProperties<HandleString> {
-    static const uint32 result = TypeToArgProperties<JSString *>::result | VMFunction::ByRef;
+    static const uint32_t result = TypeToArgProperties<JSString *>::result | VMFunction::ByRef;
 };
 template <> struct TypeToArgProperties<HandlePropertyName> {
-    static const uint32 result = TypeToArgProperties<PropertyName *>::result | VMFunction::ByRef;
+    static const uint32_t result = TypeToArgProperties<PropertyName *>::result | VMFunction::ByRef;
 };
 template <> struct TypeToArgProperties<HandleFunction> {
-    static const uint32 result = TypeToArgProperties<JSFunction *>::result | VMFunction::ByRef;
+    static const uint32_t result = TypeToArgProperties<JSFunction *>::result | VMFunction::ByRef;
+};
+template <> struct TypeToArgProperties<Handle<StaticBlockObject *> > {
+    static const uint32_t result = TypeToArgProperties<StaticBlockObject *>::result | VMFunction::ByRef;
 };
 template <> struct TypeToArgProperties<HandleScript> {
-    static const uint32 result = TypeToArgProperties<JSScript *>::result | VMFunction::ByRef;
+    static const uint32_t result = TypeToArgProperties<RawScript>::result | VMFunction::ByRef;
 };
 template <> struct TypeToArgProperties<HandleValue> {
-    static const uint32 result = TypeToArgProperties<Value>::result | VMFunction::ByRef;
+    static const uint32_t result = TypeToArgProperties<Value>::result | VMFunction::ByRef;
 };
 template <> struct TypeToArgProperties<MutableHandleValue> {
-    static const uint32 result = TypeToArgProperties<Value>::result | VMFunction::ByRef;
+    static const uint32_t result = TypeToArgProperties<Value>::result | VMFunction::ByRef;
 };
 template <> struct TypeToArgProperties<HandleShape> {
-    static const uint32 result = TypeToArgProperties<Shape *>::result | VMFunction::ByRef;
+    static const uint32_t result = TypeToArgProperties<Shape *>::result | VMFunction::ByRef;
 };
 template <> struct TypeToArgProperties<HandleTypeObject> {
-    static const uint32 result = TypeToArgProperties<types::TypeObject *>::result | VMFunction::ByRef;
+    static const uint32_t result = TypeToArgProperties<types::TypeObject *>::result | VMFunction::ByRef;
 };
 
 // Convert argument types to root types used by the gc, see MarkIonExitFrame.
 template <class T> struct TypeToRootType {
-    static const uint32 result = VMFunction::RootNone;
+    static const uint32_t result = VMFunction::RootNone;
 };
 template <> struct TypeToRootType<HandleObject> {
-    static const uint32 result = VMFunction::RootObject;
+    static const uint32_t result = VMFunction::RootObject;
 };
 template <> struct TypeToRootType<HandleString> {
-    static const uint32 result = VMFunction::RootString;
+    static const uint32_t result = VMFunction::RootString;
 };
 template <> struct TypeToRootType<HandlePropertyName> {
-    static const uint32 result = VMFunction::RootPropertyName;
+    static const uint32_t result = VMFunction::RootPropertyName;
 };
 template <> struct TypeToRootType<HandleFunction> {
-    static const uint32 result = VMFunction::RootFunction;
+    static const uint32_t result = VMFunction::RootFunction;
 };
 template <> struct TypeToRootType<HandleValue> {
-    static const uint32 result = VMFunction::RootValue;
+    static const uint32_t result = VMFunction::RootValue;
 };
 template <> struct TypeToRootType<MutableHandleValue> {
-    static const uint32 result = VMFunction::RootValue;
+    static const uint32_t result = VMFunction::RootValue;
 };
 template <> struct TypeToRootType<HandleShape> {
-    static const uint32 result = VMFunction::RootCell;
+    static const uint32_t result = VMFunction::RootCell;
 };
 template <> struct TypeToRootType<HandleTypeObject> {
-    static const uint32 result = VMFunction::RootCell;
+    static const uint32_t result = VMFunction::RootCell;
 };
 
 template <class> struct OutParamToDataType { static const DataType result = Type_Void; };
@@ -273,11 +293,12 @@ template <> struct OutParamToDataType<MutableHandleValue> { static const DataTyp
 #define FOR_EACH_ARGS_3(Macro, Sep, Last) FOR_EACH_ARGS_2(Macro, Sep, Sep) Macro(3) Last(3)
 #define FOR_EACH_ARGS_4(Macro, Sep, Last) FOR_EACH_ARGS_3(Macro, Sep, Sep) Macro(4) Last(4)
 #define FOR_EACH_ARGS_5(Macro, Sep, Last) FOR_EACH_ARGS_4(Macro, Sep, Sep) Macro(5) Last(5)
+#define FOR_EACH_ARGS_6(Macro, Sep, Last) FOR_EACH_ARGS_5(Macro, Sep, Sep) Macro(6) Last(6)
 
 #define COMPUTE_INDEX(NbArg) NbArg
 #define COMPUTE_OUTPARAM_RESULT(NbArg) OutParamToDataType<A ## NbArg>::result
 #define COMPUTE_ARG_PROP(NbArg) (TypeToArgProperties<A ## NbArg>::result << (2 * (NbArg - 1)))
-#define COMPUTE_ARG_ROOT(NbArg) (uint64(TypeToRootType<A ## NbArg>::result) << (3 * (NbArg - 1)))
+#define COMPUTE_ARG_ROOT(NbArg) (uint64_t(TypeToRootType<A ## NbArg>::result) << (3 * (NbArg - 1)))
 #define SEP_OR(_) |
 #define NOTHING(_)
 
@@ -294,16 +315,16 @@ template <> struct OutParamToDataType<MutableHandleValue> { static const DataTyp
     static inline size_t explicitArgs() {                                               \
         return NbArgs() - (outParam() != Type_Void ? 1 : 0);                            \
     }                                                                                   \
-    static inline uint32 argumentProperties() {                                         \
+    static inline uint32_t argumentProperties() {                                         \
         return ForEachNb(COMPUTE_ARG_PROP, SEP_OR, NOTHING);                            \
     }                                                                                   \
-    static inline uint64 argumentRootTypes() {                                          \
+    static inline uint64_t argumentRootTypes() {                                          \
         return ForEachNb(COMPUTE_ARG_ROOT, SEP_OR, NOTHING);                            \
     }                                                                                   \
-    FunctionInfo(pf fun)                                                                \
+    FunctionInfo(pf fun, PopValues extraValuesToPop = PopValues(0))                     \
         : VMFunction(JS_FUNC_TO_DATA_PTR(void *, fun), explicitArgs(),                  \
                      argumentProperties(),argumentRootTypes(),                          \
-                     outParam(), returnType())                                          \
+                     outParam(), returnType(), extraValuesToPop.numValues)              \
     { }
 
 template <typename Fun>
@@ -324,10 +345,10 @@ struct FunctionInfo<R (*)(JSContext *)> : public VMFunction {
     static inline size_t explicitArgs() {
         return 0;
     }
-    static inline uint32 argumentProperties() {
+    static inline uint32_t argumentProperties() {
         return 0;
     }
-    static inline uint64 argumentRootTypes() {
+    static inline uint64_t argumentRootTypes() {
         return 0;
     }
     FunctionInfo(pf fun)
@@ -342,31 +363,37 @@ struct FunctionInfo<R (*)(JSContext *)> : public VMFunction {
 template <class R, class A1>
 struct FunctionInfo<R (*)(JSContext *, A1)> : public VMFunction {
     typedef R (*pf)(JSContext *, A1);
-    FUNCTION_INFO_STRUCT_BODY(FOR_EACH_ARGS_1);
+    FUNCTION_INFO_STRUCT_BODY(FOR_EACH_ARGS_1)
 };
 
 template <class R, class A1, class A2>
 struct FunctionInfo<R (*)(JSContext *, A1, A2)> : public VMFunction {
     typedef R (*pf)(JSContext *, A1, A2);
-    FUNCTION_INFO_STRUCT_BODY(FOR_EACH_ARGS_2);
+    FUNCTION_INFO_STRUCT_BODY(FOR_EACH_ARGS_2)
 };
 
 template <class R, class A1, class A2, class A3>
 struct FunctionInfo<R (*)(JSContext *, A1, A2, A3)> : public VMFunction {
     typedef R (*pf)(JSContext *, A1, A2, A3);
-    FUNCTION_INFO_STRUCT_BODY(FOR_EACH_ARGS_3);
+    FUNCTION_INFO_STRUCT_BODY(FOR_EACH_ARGS_3)
 };
 
 template <class R, class A1, class A2, class A3, class A4>
 struct FunctionInfo<R (*)(JSContext *, A1, A2, A3, A4)> : public VMFunction {
     typedef R (*pf)(JSContext *, A1, A2, A3, A4);
-    FUNCTION_INFO_STRUCT_BODY(FOR_EACH_ARGS_4);
+    FUNCTION_INFO_STRUCT_BODY(FOR_EACH_ARGS_4)
 };
 
 template <class R, class A1, class A2, class A3, class A4, class A5>
     struct FunctionInfo<R (*)(JSContext *, A1, A2, A3, A4, A5)> : public VMFunction {
     typedef R (*pf)(JSContext *, A1, A2, A3, A4, A5);
-    FUNCTION_INFO_STRUCT_BODY(FOR_EACH_ARGS_5);
+    FUNCTION_INFO_STRUCT_BODY(FOR_EACH_ARGS_5)
+};
+
+template <class R, class A1, class A2, class A3, class A4, class A5, class A6>
+    struct FunctionInfo<R (*)(JSContext *, A1, A2, A3, A4, A5, A6)> : public VMFunction {
+    typedef R (*pf)(JSContext *, A1, A2, A3, A4, A5, A6);
+    FUNCTION_INFO_STRUCT_BODY(FOR_EACH_ARGS_6)
 };
 
 #undef FUNCTION_INFO_STRUCT_BODY
@@ -409,34 +436,35 @@ class AutoDetectInvalidation
     }
 };
 
-bool InvokeFunction(JSContext *cx, JSFunction *fun, uint32 argc, Value *argv, Value *rval);
-bool InvokeConstructor(JSContext *cx, JSObject *obj, uint32 argc, Value *argv, Value *rval);
+bool InvokeFunction(JSContext *cx, HandleFunction fun0, uint32_t argc, Value *argv, Value *rval);
 JSObject *NewGCThing(JSContext *cx, gc::AllocKind allocKind, size_t thingSize);
 
 bool CheckOverRecursed(JSContext *cx);
 
 bool DefVarOrConst(JSContext *cx, HandlePropertyName dn, unsigned attrs, HandleObject scopeChain);
+bool SetConst(JSContext *cx, HandlePropertyName name, HandleObject scopeChain, HandleValue rval);
 bool InitProp(JSContext *cx, HandleObject obj, HandlePropertyName name, HandleValue value);
 
 template<bool Equal>
-bool LooselyEqual(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
+bool LooselyEqual(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
 
 template<bool Equal>
-bool StrictlyEqual(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
+bool StrictlyEqual(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
 
-bool LessThan(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
-bool LessThanOrEqual(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
-bool GreaterThan(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
-bool GreaterThanOrEqual(JSContext *cx, HandleValue lhs, HandleValue rhs, JSBool *res);
+bool LessThan(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
+bool LessThanOrEqual(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
+bool GreaterThan(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
+bool GreaterThanOrEqual(JSContext *cx, MutableHandleValue lhs, MutableHandleValue rhs, JSBool *res);
 
 template<bool Equal>
 bool StringsEqual(JSContext *cx, HandleString left, HandleString right, JSBool *res);
 
-bool ValueToBooleanComplement(JSContext *cx, const Value &input, JSBool *output);
+JSBool ObjectEmulatesUndefined(RawObject obj);
 
 bool IteratorMore(JSContext *cx, HandleObject obj, JSBool *res);
 
-// Allocation functions for JSOP_NEWARRAY and JSOP_NEWOBJECT
+// Allocation functions for JSOP_NEWARRAY and JSOP_NEWOBJECT and parallel array inlining
+JSObject *NewInitParallelArray(JSContext *cx, HandleObject templateObj);
 JSObject *NewInitArray(JSContext *cx, uint32_t count, types::TypeObject *type);
 JSObject *NewInitObject(JSContext *cx, HandleObject templateObject);
 
@@ -445,6 +473,7 @@ bool ArrayPushDense(JSContext *cx, HandleObject obj, HandleValue v, uint32_t *le
 bool ArrayShiftDense(JSContext *cx, HandleObject obj, MutableHandleValue rval);
 JSObject *ArrayConcatDense(JSContext *cx, HandleObject obj1, HandleObject obj2, HandleObject res);
 
+bool CharCodeAt(JSContext *cx, HandleString str, int32_t index, uint32_t *code);
 JSFlatString *StringFromCharCode(JSContext *cx, int32_t code);
 
 bool SetProperty(JSContext *cx, HandleObject obj, HandlePropertyName name, HandleValue value,
@@ -462,6 +491,31 @@ bool SPSExit(JSContext *cx, HandleScript script);
 bool OperatorIn(JSContext *cx, HandleValue key, HandleObject obj, JSBool *out);
 
 bool GetIntrinsicValue(JSContext *cx, HandlePropertyName name, MutableHandleValue rval);
+
+bool CreateThis(JSContext *cx, HandleObject callee, MutableHandleValue rval);
+
+void GetDynamicName(JSContext *cx, JSObject *scopeChain, JSString *str, Value *vp);
+
+JSBool FilterArguments(JSContext *cx, JSString *str);
+
+uint32_t GetIndexFromString(JSString *str);
+
+bool DebugPrologue(JSContext *cx, BaselineFrame *frame, JSBool *mustReturn);
+bool DebugEpilogue(JSContext *cx, BaselineFrame *frame, JSBool ok);
+
+bool StrictEvalPrologue(JSContext *cx, BaselineFrame *frame);
+bool HeavyweightFunPrologue(JSContext *cx, BaselineFrame *frame);
+
+bool NewArgumentsObject(JSContext *cx, BaselineFrame *frame, MutableHandleValue res);
+
+bool HandleDebugTrap(JSContext *cx, BaselineFrame *frame, uint8_t *retAddr, JSBool *mustReturn);
+bool OnDebuggerStatement(JSContext *cx, BaselineFrame *frame, jsbytecode *pc, JSBool *mustReturn);
+
+bool EnterBlock(JSContext *cx, BaselineFrame *frame, Handle<StaticBlockObject *> block);
+bool LeaveBlock(JSContext *cx, BaselineFrame *frame);
+
+bool InitBaselineFrameForOsr(BaselineFrame *frame, StackFrame *interpFrame,
+                             uint32_t numStackValues);
 
 } // namespace ion
 } // namespace js

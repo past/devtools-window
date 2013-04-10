@@ -8,11 +8,13 @@
 
 #include "MediaDecoderStateMachine.h"
 #include "mozilla/TimeStamp.h"
-#include "nsTimeRanges.h"
+#include "mozilla/dom/TimeRanges.h"
 #include "MediaResource.h"
 #include "VideoUtils.h"
 #include "MediaOmxDecoder.h"
 #include "AbstractMediaDecoder.h"
+#include "OmxDecoder.h"
+#include "MPAPI.h"
 
 #define MAX_DROPPED_FRAMES 25
 
@@ -22,12 +24,10 @@ namespace mozilla {
 
 MediaOmxReader::MediaOmxReader(AbstractMediaDecoder *aDecoder) :
   MediaDecoderReader(aDecoder),
-  mOmxDecoder(nullptr),
   mHasVideo(false),
   mHasAudio(false),
   mVideoSeekTimeUs(-1),
   mAudioSeekTimeUs(-1),
-  mLastVideoFrame(nullptr),
   mSkipCount(0)
 {
 }
@@ -49,9 +49,11 @@ nsresult MediaOmxReader::ReadMetadata(VideoInfo* aInfo,
 
   *aTags = nullptr;
 
-  if (!mOmxDecoder) {
+  if (!mOmxDecoder.get()) {
     mOmxDecoder = new OmxDecoder(mDecoder->GetResource(), mDecoder);
-    mOmxDecoder->Init();
+    if (!mOmxDecoder->Init()) {
+      return NS_ERROR_FAILURE;
+    }
   }
 
   // Set the total duration (the max of the audio and video track).
@@ -111,14 +113,7 @@ nsresult MediaOmxReader::ResetDecode()
     container->ClearCurrentFrame();
   }
 
-  if (mLastVideoFrame) {
-    delete mLastVideoFrame;
-    mLastVideoFrame = nullptr;
-  }
-  if (mOmxDecoder) {
-    delete mOmxDecoder;
-    mOmxDecoder = nullptr;
-  }
+  mOmxDecoder.clear();
   return NS_OK;
 }
 
@@ -129,12 +124,6 @@ bool MediaOmxReader::DecodeVideoFrame(bool &aKeyframeSkip,
   // stats counters using the AutoNotifyDecoded stack-based class.
   uint32_t parsed = 0, decoded = 0;
   AbstractMediaDecoder::AutoNotifyDecoded autoNotify(mDecoder, parsed, decoded);
-
-  // Throw away the currently buffered frame if we are seeking.
-  if (mLastVideoFrame && mVideoSeekTimeUs != -1) {
-    delete mLastVideoFrame;
-    mLastVideoFrame = nullptr;
-  }
 
   bool doSeek = mVideoSeekTimeUs != -1;
   if (doSeek) {
@@ -147,18 +136,6 @@ bool MediaOmxReader::DecodeVideoFrame(bool &aKeyframeSkip,
     frame.mGraphicBuffer = nullptr;
     frame.mShouldSkip = false;
     if (!mOmxDecoder->ReadVideo(&frame, aTimeThreshold, aKeyframeSkip, doSeek)) {
-      // We reached the end of the video stream. If we have a buffered
-      // video frame, push it the video queue using the total duration
-      // of the video as the end time.
-      if (mLastVideoFrame) {
-        int64_t durationUs;
-        mOmxDecoder->GetDuration(&durationUs);
-        mLastVideoFrame->mEndTime = (durationUs > mLastVideoFrame->mTime)
-                                  ? durationUs
-                                  : mLastVideoFrame->mTime;
-        mVideoQueue.Push(mLastVideoFrame);
-        mLastVideoFrame = nullptr;
-      }
       mVideoQueue.Finish();
       return false;
     }
@@ -244,28 +221,7 @@ bool MediaOmxReader::DecodeVideoFrame(bool &aKeyframeSkip,
     decoded++;
     NS_ASSERTION(decoded <= parsed, "Expect to decode fewer frames than parsed in MediaPlugin...");
 
-    // Seeking hack
-    if (mLastVideoFrame && mLastVideoFrame->mTime > v->mTime) {
-      delete mLastVideoFrame;
-      mLastVideoFrame = v;
-      continue;
-    }
-
-    // Since MPAPI doesn't give us the end time of frames, we keep one frame
-    // buffered in MediaOmxReader and push it into the queue as soon
-    // we read the following frame so we can use that frame's start time as
-    // the end time of the buffered frame.
-    if (!mLastVideoFrame) {
-      mLastVideoFrame = v;
-      continue;
-    }
-
-    mLastVideoFrame->mEndTime = v->mTime;
-
-    mVideoQueue.Push(mLastVideoFrame);
-
-    // Buffer the current frame we just decoded.
-    mLastVideoFrame = v;
+    mVideoQueue.Push(v);
 
     break;
   }
@@ -330,9 +286,9 @@ static uint64_t BytesToTime(int64_t offset, uint64_t length, uint64_t durationUs
   return uint64_t(double(durationUs) * perc);
 }
 
-nsresult MediaOmxReader::GetBuffered(nsTimeRanges* aBuffered, int64_t aStartTime)
+nsresult MediaOmxReader::GetBuffered(mozilla::dom::TimeRanges* aBuffered, int64_t aStartTime)
 {
-  if (!mOmxDecoder)
+  if (!mOmxDecoder.get())
     return NS_OK;
 
   MediaResource* stream = mOmxDecoder->GetResource();

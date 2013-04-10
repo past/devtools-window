@@ -18,6 +18,7 @@
 class nsCocoaWindow;
 class nsChildView;
 class nsMenuBarX;
+@class ChildView;
 
 // Value copied from BITMAP_MAX_AREA, used in nsNativeThemeCocoa.mm
 #define CUIDRAW_MAX_AREA 500000
@@ -107,8 +108,10 @@ typedef struct _nsCocoaWindowList {
 
 // If we set the window's stylemask to be textured, the corners on the bottom of
 // the window are rounded by default. We use this private method to make
-// the corners square again, a la Safari.
+// the corners square again, a la Safari. Starting with 10.7, all windows have
+// rounded bottom corners, so this call doesn't have any effect there.
 - (void)setBottomCornerRounded:(BOOL)rounded;
+- (BOOL)bottomCornerRounded;
 
 @end
 
@@ -176,6 +179,7 @@ typedef struct _nsCocoaWindowList {
   TitlebarAndBackgroundColor *mColor;
   float mUnifiedToolbarHeight;
   NSColor *mBackgroundColor;
+  NSView *mTitlebarView; // strong
 }
 // Pass nil here to get the default appearance.
 - (void)setTitlebarColor:(NSColor*)aColor forActiveWindow:(BOOL)aActive;
@@ -186,6 +190,7 @@ typedef struct _nsCocoaWindowList {
 - (void)setTitlebarNeedsDisplayInRect:(NSRect)aRect sync:(BOOL)aSync;
 - (void)setTitlebarNeedsDisplayInRect:(NSRect)aRect;
 - (void)setDrawsContentsIntoWindowFrame:(BOOL)aState;
+- (ChildView*)mainChildView;
 @end
 
 class nsCocoaWindow : public nsBaseWidget, public nsPIWidgetCocoa
@@ -226,15 +231,15 @@ public:
     NS_IMETHOD              ConstrainPosition(bool aAllowSlop,
                                               int32_t *aX, int32_t *aY);
     virtual void            SetSizeConstraints(const SizeConstraints& aConstraints);
-    NS_IMETHOD              Move(int32_t aX, int32_t aY);
+    NS_IMETHOD              Move(double aX, double aY);
     NS_IMETHOD              PlaceBehind(nsTopLevelWidgetZPlacement aPlacement,
                                         nsIWidget *aWidget, bool aActivate);
     NS_IMETHOD              SetSizeMode(int32_t aMode);
     NS_IMETHOD              HideWindowChrome(bool aShouldHide);
     void                    EnteredFullScreen(bool aFullScreen);
     NS_IMETHOD              MakeFullScreen(bool aFullScreen);
-    NS_IMETHOD              Resize(int32_t aWidth,int32_t aHeight, bool aRepaint);
-    NS_IMETHOD              Resize(int32_t aX, int32_t aY, int32_t aWidth, int32_t aHeight, bool aRepaint);
+    NS_IMETHOD              Resize(double aWidth, double aHeight, bool aRepaint);
+    NS_IMETHOD              Resize(double aX, double aY, double aWidth, double aHeight, bool aRepaint);
     NS_IMETHOD              GetClientBounds(nsIntRect &aRect);
     NS_IMETHOD              GetScreenBounds(nsIntRect &aRect);
     void                    ReportMoveEvent();
@@ -283,7 +288,6 @@ public:
     void SetMenuBar(nsMenuBarX* aMenuBar);
     nsMenuBarX *GetMenuBar();
 
-    NS_IMETHOD ResetInputState();
     NS_IMETHOD_(void) SetInputContext(const InputContext& aContext,
                                       const InputContextAction& aAction)
     {
@@ -325,7 +329,7 @@ protected:
   void                 CleanUpWindowFilter();
   void                 UpdateBounds();
 
-  nsresult             DoResize(int32_t aX, int32_t aY, int32_t aWidth, int32_t aHeight,
+  nsresult             DoResize(double aX, double aY, double aWidth, double aHeight,
                                 bool aRepaint, bool aConstrainToCurrentScreen);
 
   virtual already_AddRefed<nsIWidget>

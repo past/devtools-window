@@ -28,6 +28,10 @@ pref("general.useragent.compatMode.firefox", false);
 // overrides by default, don't initialize UserAgentOverrides.jsm.
 pref("general.useragent.site_specific_overrides", true);
 
+// This pref controls whether or not to enable UA overrides in the
+// product code that end users use (as opposed to testing code).
+pref("general.useragent.enable_overrides", false);
+
 pref("general.config.obscure_value", 13); // for MCD .cfg files
 
 pref("general.warnOnAboutConfig", true);
@@ -150,6 +154,9 @@ pref("media.cache_size", 512000);
 // Master HTML5 media volume scale.
 pref("media.volume_scale", "1.0");
 
+#ifdef MOZ_WMF
+pref("media.windows-media-foundation.enabled", true);
+#endif
 #ifdef MOZ_RAW
 pref("media.raw.enabled", true);
 #endif
@@ -166,19 +173,38 @@ pref("media.wave.enabled", true);
 pref("media.webm.enabled", true);
 #endif
 #ifdef MOZ_DASH
-pref("media.dash.enabled", true);
+pref("media.dash.enabled", false);
 #endif
 #ifdef MOZ_GSTREAMER
 pref("media.gstreamer.enabled", true);
 #endif
 #ifdef MOZ_WEBRTC
-pref("media.navigator.enabled", false);
-pref("media.peerconnection.enabled", false);
+pref("media.navigator.enabled", true);
+pref("media.navigator.video.default_width",640);
+pref("media.navigator.video.default_height",480);
+pref("media.navigator.video.default_fps",30);
+pref("media.navigator.video.default_minfps",10);
+pref("media.peerconnection.enabled", true);
 pref("media.navigator.permission.disabled", false);
+pref("media.peerconnection.default_iceservers", "[{\"url\": \"stun:23.21.150.121\"}]");
+pref("media.peerconnection.use_document_iceservers", true);
+// These values (aec, agc, and noice) are from media/webrtc/trunk/webrtc/common_types.h
+// kXxxUnchanged = 0, kXxxDefault = 1, and higher values are specific to each 
+// setting (for Xxx = Ec, Agc, or Ns).  Defaults are all set to kXxxDefault here.
+pref("media.peerconnection.aec_enabled", true);
+pref("media.peerconnection.aec", 1);
+pref("media.peerconnection.agc_enabled", false);
+pref("media.peerconnection.agc", 1);
+pref("media.peerconnection.noise_enabled", false);
+pref("media.peerconnection.noise", 1);
 #else
 #ifdef ANDROID
 pref("media.navigator.enabled", true);
 #endif
+#endif
+
+#ifdef MOZ_WEBSPEECH
+pref("media.webspeech.recognition.enable", false);
 #endif
 
 // Whether to enable Web Audio support
@@ -208,16 +234,13 @@ pref("gfx.color_management.enablev4", false);
 
 pref("gfx.downloadable_fonts.enabled", true);
 pref("gfx.downloadable_fonts.fallback_delay", 3000);
-pref("gfx.downloadable_fonts.sanitize", true);
 
 pref("gfx.filter.nearest.force-enabled", false);
 
 // whether to always search all font cmaps during system font fallback
 pref("gfx.font_rendering.fallback.always_use_cmaps", false);
 
-#ifdef MOZ_GRAPHITE
-pref("gfx.font_rendering.graphite.enabled", false);
-#endif
+pref("gfx.font_rendering.graphite.enabled", true);
 
 // Check intl/unicharutil/util/nsUnicodeProperties.h for definitions of script bits
 // in the ShapingType enumeration
@@ -250,7 +273,7 @@ pref("gfx.font_rendering.opentype_svg.enabled", false);
 #ifdef XP_WIN
 // comma separated list of backends to use in order of preference
 // e.g., pref("gfx.canvas.azure.backends", "direct2d,skia,cairo");
-pref("gfx.canvas.azure.backends", "direct2d,cairo");
+pref("gfx.canvas.azure.backends", "direct2d,skia,cairo");
 pref("gfx.content.azure.backends", "direct2d");
 pref("gfx.content.azure.enabled", true);
 #else
@@ -308,6 +331,16 @@ pref("accessibility.tabfocus_applies_to_xul", true);
 // further checks.
 pref("accessibility.force_disabled", 0);
 
+#ifdef XP_WIN
+// Some accessibility tools poke at windows in the plugin process during setup
+// which can cause hangs.  To hack around this set accessibility.delay_plugins
+// to true, you can also try increasing accessibility.delay_plugin_time if your
+// machine is slow and you still experience hangs.
+// See bug 781791.
+pref("accessibility.delay_plugins", false);
+pref("accessibility.delay_plugin_time", 10000);
+#endif
+
 pref("focusmanager.testmode", false);
 
 pref("accessibility.usetexttospeech", "");
@@ -340,6 +373,9 @@ pref("browser.frames.enabled", true);
 // Number of characters to consider emphasizing for rich autocomplete results
 pref("toolkit.autocomplete.richBoundaryCutoff", 200);
 
+// Variable controlling logging for osfile.
+pref("toolkit.osfile.log", false);
+
 pref("toolkit.scrollbox.smoothScroll", true);
 pref("toolkit.scrollbox.scrollIncrement", 20);
 pref("toolkit.scrollbox.verticalScrollDistance", 3);
@@ -347,12 +383,16 @@ pref("toolkit.scrollbox.horizontalScrollDistance", 5);
 pref("toolkit.scrollbox.clickToScroll.scrollDelay", 150);
 
 // Telemetry
+#ifdef MOZ_TELEMETRY_ON_BY_DEFAULT
+pref("toolkit.telemetry.enabledPreRelease", true);
+#else
 pref("toolkit.telemetry.enabled", false);
+#endif
 pref("toolkit.telemetry.server", "https://data.mozilla.com");
 // Telemetry server owner. Please change if you set toolkit.telemetry.server to a different server
 pref("toolkit.telemetry.server_owner", "Mozilla");
 // Information page about telemetry (temporary ; will be about:telemetry in the end)
-pref("toolkit.telemetry.infoURL", "http://www.mozilla.com/legal/privacy/firefox.html#telemetry");
+pref("toolkit.telemetry.infoURL", "https://www.mozilla.org/legal/privacy/firefox.html#telemetry");
 // Determines whether full SQL strings are returned when they might contain sensitive info
 // i.e. dynamically constructed SQL strings or SQL executed by addons against addon DBs
 pref("toolkit.telemetry.debugSlowSql", false);
@@ -360,6 +400,9 @@ pref("toolkit.telemetry.debugSlowSql", false);
 // Identity module
 pref("toolkit.identity.enabled", false);
 pref("toolkit.identity.debug", false);
+
+// Enable deprecation warnings.
+pref("devtools.errorconsole.deprecation_warnings", true);
 
 // Disable remote debugging protocol logging
 pref("devtools.debugger.log", false);
@@ -377,6 +420,9 @@ pref("view_source.editor.path", "");
 // allows to add further arguments to the editor; use the %LINE% placeholder
 // for jumping to a specific line (e.g. "/line:%LINE%" or "--goto %LINE%")
 pref("view_source.editor.args", "");
+
+// When true this will word-wrap plain text documents.
+pref("plain_text.wrap_long_lines", false);
 
 // dispatch left clicks only to content in browser (still allows clicks to chrome/xul)
 pref("nglayout.events.dispatchLeftClickOnly", true);
@@ -680,12 +726,20 @@ pref("dom.min_timeout_value", 4);
 // And for background windows
 pref("dom.min_background_timeout_value", 1000);
 
-// Use the new DOM bindings (only affects any scopes created after the pref is
-// changed)
-pref("dom.experimental_bindings", true);
+// Run content XBL in a separate scope.
+pref("dom.xbl_scopes", true);
+
+// Stop defining the Components object in content.
+pref("dom.omit_components_in_content", true);
 
 // Don't use new input types
 pref("dom.experimental_forms", false);
+
+// Don't enable <input type=range> yet:
+pref("dom.experimental_forms_range", true);
+
+// Allocation Threshold for Workers
+pref("dom.workers.mem.gc_allocation_threshold_mb", 30);
 
 // Parsing perf prefs. For now just mimic what the old code did.
 #ifndef XP_WIN
@@ -700,6 +754,9 @@ pref("privacy.popups.disable_from_plugins", 2);
 
 // "do not track" HTTP header, disabled by default
 pref("privacy.donottrackheader.enabled",    false);
+//   0 = tracking is acceptable
+//   1 = tracking is unacceptable
+pref("privacy.donottrackheader.value",      1);
 
 pref("dom.event.contextmenu.enabled",       true);
 pref("dom.event.clipboardevents.enabled",   true);
@@ -711,13 +768,18 @@ pref("javascript.options.strict.debug",     true);
 #endif
 pref("javascript.options.methodjit.content", true);
 pref("javascript.options.methodjit.chrome",  true);
+pref("javascript.options.baselinejit.content", true);
+pref("javascript.options.baselinejit.chrome",  true);
 pref("javascript.options.ion.content",      true);
-pref("javascript.options.ion.parallel_compilation", false);
+#ifdef RELEASE_BUILD
+pref("javascript.options.experimental_asmjs", false);
+#else
+pref("javascript.options.experimental_asmjs", true);
+#endif
+pref("javascript.options.ion.parallel_compilation", true);
 pref("javascript.options.pccounts.content", false);
 pref("javascript.options.pccounts.chrome",  false);
 pref("javascript.options.methodjit_always", false);
-pref("javascript.options.xml.content", false);
-pref("javascript.options.xml.chrome", true);
 pref("javascript.options.jit_hardening", true);
 pref("javascript.options.typeinference", true);
 // This preference limits the memory usage of javascript.
@@ -746,6 +808,8 @@ pref("javascript.options.mem.gc_allocation_threshold_mb", 30);
 
 pref("javascript.options.mem.analysis_purge_mb", 100);
 
+pref("javascript.options.showInConsole", false);
+
 // advanced prefs
 pref("advanced.mailftp",                    false);
 pref("image.animation_mode",                "normal");
@@ -765,6 +829,9 @@ pref("security.fileuri.strict_origin_policy", true);
 // telemetry is also enabled as otherwise there is no way to report
 // the results
 pref("network.allow-experiments", true);
+
+// Turn off interprocess security checks. Needed to run xpcshell tests.
+pref("network.disable.ipc.security", false);
 
 // Default action for unlisted external protocol handlers
 pref("network.protocol-handler.external-default", true);      // OK to load
@@ -910,6 +977,14 @@ pref("network.http.connection-retry-timeout", 250);
 // to give up if the OS does not give up first
 pref("network.http.connection-timeout", 90);
 
+// The maximum number of current global half open sockets allowable
+// when starting a new speculative connection.
+pref("network.http.speculative-parallel-limit", 6);
+
+// Whether or not to block requests for non head js/css items (e.g. media)
+// while those elements load.
+pref("network.http.rendering-critical-requests-prioritization", true);
+
 // Disable IPv6 for backup connections to workaround problems about broken
 // IPv6 connectivity.
 pref("network.http.fast-fallback-to-IPv4", true);
@@ -922,6 +997,7 @@ pref("network.http.spdy.chunk-size", 4096);
 pref("network.http.spdy.timeout", 180);
 pref("network.http.spdy.coalesce-hostnames", true);
 pref("network.http.spdy.use-alternate-protocol", true);
+pref("network.http.spdy.persistent-settings", false);
 pref("network.http.spdy.ping-threshold", 58);
 pref("network.http.spdy.ping-timeout", 8);
 pref("network.http.spdy.send-buffer-size", 131072);
@@ -994,21 +1070,27 @@ pref("dom.server-events.default-reconnection-time", 5000); // in milliseconds
 // by the jar channel.
 pref("network.jar.open-unsafe-types", false);
 
-// This preference controls whether or not internationalized domain names (IDN)
-// are handled.  IDN requires a nsIIDNService implementation.
-pref("network.enableIDN", true);
-
 // This preference, if true, causes all UTF-8 domain names to be normalized to
 // punycode.  The intention is to allow UTF-8 domain names as input, but never
 // generate them from punycode.
 pref("network.IDN_show_punycode", false);
 
-// TLDs with "network.IDN.whitelist.tld" explicitly set to true are treated as 
+// If "network.IDN.use_whitelist" is set to true, TLDs with
+// "network.IDN.whitelist.tld" explicitly set to true are treated as
 // IDN-safe. Otherwise, they're treated as unsafe and punycode will be used
-// for displaying them in the UI (e.g. URL bar). Note that these preferences
-// are referred to ONLY when "network.IDN_show_punycode" is false. In other
-// words, all IDNs will be shown in punycode if "network.IDN_show_punycode"
-// is true.
+// for displaying them in the UI (e.g. URL bar), unless they conform to one of
+// the profiles specified in
+// http://www.unicode.org/reports/tr36/proposed.html#Security_Levels_and_Alerts
+// If "network.IDN.restriction_profile" is "high", the Highly Restrictive
+// profile is used.
+// If "network.IDN.restriction_profile" is "moderate", the Moderately
+// Restrictive profile is used.
+// In all other cases, the ASCII-Only profile is used.
+// Note that these preferences are referred to ONLY when
+// "network.IDN_show_punycode" is false. In other words, all IDNs will be shown
+// in punycode if "network.IDN_show_punycode" is true.
+pref("network.IDN.restriction_profile", "moderate");
+pref("network.IDN.use_whitelist", true);
 
 // ccTLDs
 pref("network.IDN.whitelist.ac", true);
@@ -1098,11 +1180,8 @@ pref("network.IDN.whitelist.xn--kprw13d", true);  // Simplified
 pref("network.IDN.whitelist.asia", true);
 pref("network.IDN.whitelist.biz", true);
 pref("network.IDN.whitelist.cat", true);
-pref("network.IDN.whitelist.com", true);
 pref("network.IDN.whitelist.info", true);
 pref("network.IDN.whitelist.museum", true);
-pref("network.IDN.whitelist.name", true);
-pref("network.IDN.whitelist.net", true);
 pref("network.IDN.whitelist.org", true);
 pref("network.IDN.whitelist.tel", true);
 
@@ -1239,7 +1318,13 @@ pref("network.proxy.socks_remote_dns",      false);
 pref("network.proxy.no_proxies_on",         "localhost, 127.0.0.1");
 pref("network.proxy.failover_timeout",      1800); // 30 minutes
 pref("network.online",                      true); //online/offline
-pref("network.cookie.cookieBehavior",       0); // 0-Accept, 1-dontAcceptForeign, 2-dontUse
+pref("network.cookie.cookieBehavior",       3); // 0-Accept, 1-dontAcceptForeign, 2-dontUse, 3-limitForeign
+#ifdef ANDROID
+pref("network.cookie.cookieBehavior",       0); // Keep the old default of accepting all cookies
+#endif
+#ifdef MOZ_WIDGET_GONK
+pref("network.cookie.cookieBehavior",       0); // Keep the old default of accepting all cookies
+#endif
 pref("network.cookie.thirdparty.sessionOnly", false);
 pref("network.cookie.lifetimePolicy",       0); // accept normally, 1-askBeforeAccepting, 2-acceptForSession,3-acceptForNDays
 pref("network.cookie.alwaysAcceptSessionCookies", false);
@@ -1269,7 +1354,6 @@ pref("intl.charsetmenu.browser.more2",      "ISO-8859-4, ISO-8859-13, windows-12
 pref("intl.charsetmenu.browser.more3",      "GB2312, gbk, gb18030, HZ-GB-2312, ISO-2022-CN, Big5, Big5-HKSCS, x-euc-tw, EUC-JP, ISO-2022-JP, Shift_JIS, EUC-KR, x-johab, ISO-2022-KR");
 pref("intl.charsetmenu.browser.more4",      "armscii-8, TIS-620, ISO-8859-11, windows-874, IBM857, ISO-8859-9, x-mac-turkish, windows-1254, x-viet-tcvn5712, VISCII, x-viet-vps, windows-1258, x-mac-devanagari, x-mac-gujarati, x-mac-gurmukhi");
 pref("intl.charsetmenu.browser.more5",      "ISO-8859-6, windows-1256, ISO-8859-8-I, windows-1255, ISO-8859-8, IBM862");
-pref("intl.charsetmenu.browser.unicode",    "UTF-8, UTF-16LE, UTF-16BE");
 pref("intl.charsetmenu.mailedit",           "chrome://global/locale/intl.properties");
 pref("intl.charsetmenu.browser.cache",      "");
 pref("intl.charsetmenu.mailview.cache",     "");
@@ -1363,6 +1447,7 @@ pref("security.checkloaduri", true);
 pref("security.xpconnect.plugin.unrestricted", true);
 // security-sensitive dialogs should delay button enabling. In milliseconds.
 pref("security.dialog_enable_delay", 2000);
+pref("security.notification_enable_delay", 500);
 
 pref("security.csp.enable", true);
 pref("security.csp.debug", false);
@@ -1436,6 +1521,17 @@ pref("mousewheel.with_control.action", 3);
 pref("mousewheel.with_meta.action", 1);  // command key on Mac
 pref("mousewheel.with_shift.action", 1);
 pref("mousewheel.with_win.action", 1);
+
+// mousewheel.*.action.override_x will override the action
+// when the mouse wheel is rotated along the x direction.
+// -1: Don't override the action.
+// 0 to 3: Override the action with the specified value.
+pref("mousewheel.default.action.override_x", -1);
+pref("mousewheel.with_alt.action.override_x", -1);
+pref("mousewheel.with_control.action.override_x", -1);
+pref("mousewheel.with_meta.action.override_x", -1);  // command key on Mac
+pref("mousewheel.with_shift.action.override_x", -1);
+pref("mousewheel.with_win.action.override_x", -1);
 
 // mousewheel.*.delta_multiplier_* can specify the value muliplied by the delta
 // value.  The values will be used after divided by 100.  I.e., 100 means 1.0,
@@ -1610,17 +1706,31 @@ pref("layout.css.dpi", -1);
 // of a CSS "px". This is only used for windows on the screen, not for printing.
 pref("layout.css.devPixelsPerPx", "-1.0");
 
+// Is support for CSS Masking features enabled?
+#ifdef RELEASE_BUILD
+pref("layout.css.masking.enabled", false);
+#else
+pref("layout.css.masking.enabled", true);
+#endif
+
 // Is support for the the @supports rule enabled?
 pref("layout.css.supports-rule.enabled", true);
 
 // Is support for CSS Flexbox enabled?
-pref("layout.css.flexbox.enabled", false);
+pref("layout.css.flexbox.enabled", true);
 
 // Are sets of prefixed properties supported?
 pref("layout.css.prefixes.border-image", true);
 pref("layout.css.prefixes.transforms", true);
 pref("layout.css.prefixes.transitions", true);
 pref("layout.css.prefixes.animations", true);
+
+// Is support for the :scope selector enabled?
+#ifdef RELEASE_BUILD
+pref("layout.css.scope-pseudo.enabled", false);
+#else
+pref("layout.css.scope-pseudo.enabled", true);
+#endif
 
 // pref for which side vertical scrollbars should be on
 // 0 = end-side in UI direction
@@ -1695,6 +1805,7 @@ pref("dom.archivereader.enabled", false);
 // resolved.
 pref("hangmonitor.timeout", 0);
 
+pref("plugins.load_appdir_plugins", false);
 // If true, plugins will be click to play
 pref("plugins.click_to_play", false);
 
@@ -1709,26 +1820,53 @@ pref("dom.ipc.plugins.parentTimeoutSecs", 0);
 // How long a plugin launch is allowed to take before
 // we consider it failed.
 pref("dom.ipc.plugins.processLaunchTimeoutSecs", 45);
+#ifdef XP_WIN
+// How long a plugin is allowed to process a synchronous IPC message 
+// before we display the plugin hang UI
+pref("dom.ipc.plugins.hangUITimeoutSecs", 11);
+// Minimum time that the plugin hang UI will be displayed
+pref("dom.ipc.plugins.hangUIMinDisplaySecs", 10);
+#endif
+// How long a content process can take before closing its IPC channel
+// after shutdown is initiated.  If the process exceeds the timeout,
+// we fear the worst and kill it.
+pref("dom.ipc.tabs.shutdownTimeoutSecs", 5);
 #else
 // No timeout in DEBUG builds
 pref("dom.ipc.plugins.timeoutSecs", 0);
 pref("dom.ipc.plugins.processLaunchTimeoutSecs", 0);
 pref("dom.ipc.plugins.parentTimeoutSecs", 0);
+#ifdef XP_WIN
+pref("dom.ipc.plugins.hangUITimeoutSecs", 0);
+pref("dom.ipc.plugins.hangUIMinDisplaySecs", 0);
+#endif
+pref("dom.ipc.tabs.shutdownTimeoutSecs", 0);
 #endif
 
-// Disable oopp for standard java. They run their own process isolation (which
-// conflicts with our implementation, at least on Windows).
+#ifdef XP_WIN
+// Disable oopp for java on windows. They run their own
+// process isolation which conflicts with our implementation.
 pref("dom.ipc.plugins.java.enabled", false);
+#endif
 
 pref("dom.ipc.plugins.flash.subprocess.crashreporter.enabled", true);
+pref("dom.ipc.plugins.reportCrashURL", true);
 
 pref("dom.ipc.processCount", 1);
-
-pref("svg.smil.enabled", true);
 
 // Enable the use of display-lists for SVG hit-testing and painting.
 pref("svg.display-lists.hit-testing.enabled", true);
 pref("svg.display-lists.painting.enabled", true);
+
+// Is support for the SVG 2 paint-order property enabled?
+#ifdef RELEASE_BUILD
+pref("svg.paint-order.enabled", false);
+#else
+pref("svg.paint-order.enabled", true);
+#endif
+
+// Is support for the new SVG text implementation enabled?
+pref("svg.text.css-frames.enabled", false);
 
 pref("font.minimum-size.ar", 0);
 pref("font.minimum-size.x-armn", 0);
@@ -1887,6 +2025,10 @@ pref("ui.mouse.radius.topmm", 12);
 pref("ui.mouse.radius.rightmm", 8);
 pref("ui.mouse.radius.bottommm", 4);
 pref("ui.mouse.radius.visitedWeight", 120);
+
+// When true, the ui.mouse.radius.* prefs will only affect simulated mouse events generated by touch input.
+// When false, the prefs will be used for all mouse events.
+pref("ui.mouse.radius.inputSource.touchOnly", true);
 
 #ifdef XP_WIN
 
@@ -2286,9 +2428,6 @@ pref("print.print_extra_margin", 90); // twips (90 twips is an eigth of an inch)
 // Whether to extend the native dialog with information on printing frames.
 pref("print.extend_native_print_dialog", true);
 
-// Locate Java by scanning the Sun JRE installation directory with a minimum version
-pref("plugin.scan.SunJRE", "1.6");
-
 // Locate plugins by scanning the Adobe Acrobat installation directory with a minimum version
 pref("plugin.scan.Acrobat", "5.0");
 
@@ -2346,10 +2485,6 @@ pref("ui.window_class_override", "");
 // and 1 is on.  Set this to 1 if three-finger swipe gestures do not cause
 // page back/forward actions, or if pinch-to-zoom does not work.
 pref("ui.elantech_gesture_hacks.enabled", -1);
-
-// Disable auto-configuration of devPixelsPerPx until we're ready to turn
-// it on.
-pref("layout.css.devPixelsPerPx", "1.0");
 
 # WINNT
 #endif
@@ -2605,12 +2740,12 @@ pref("font.name-list.monospace.x-western", "Courier,Courier New");
 pref("font.name-list.cursive.x-western", "Apple Chancery");
 pref("font.name-list.fantasy.x-western", "Papyrus");
 
-pref("font.name.serif.zh-CN", "STSong");
-pref("font.name.sans-serif.zh-CN", "STHeiti");
-pref("font.name.monospace.zh-CN", "STHeiti");
-pref("font.name-list.serif.zh-CN", "STSong,Heiti SC");
-pref("font.name-list.sans-serif.zh-CN", "STHeiti,Heiti SC");
-pref("font.name-list.monospace.zh-CN", "STHeiti,Heiti SC");
+pref("font.name.serif.zh-CN", "Times");
+pref("font.name.sans-serif.zh-CN", "Helvetica");
+pref("font.name.monospace.zh-CN", "Courier");
+pref("font.name-list.serif.zh-CN", "Times,STSong,Heiti SC");
+pref("font.name-list.sans-serif.zh-CN", "Helvetica,STHeiti,Heiti SC");
+pref("font.name-list.monospace.zh-CN", "Courier,STHeiti,Heiti SC");
 
 pref("font.name.serif.zh-TW", "Times"); 
 pref("font.name.sans-serif.zh-TW", "Helvetica");  
@@ -3036,6 +3171,16 @@ pref("print.print_extra_margin", 0); // twips
 
 pref("font.alias-list", "sans,sans-serif,serif,monospace");
 
+// As we ship bundled Open Sans and Charis SIL Compact fonts on Android,
+// but not on B2G/Gonk, we give them separate default font preferences.
+
+#ifdef MOZ_WIDGET_GONK
+
+// TODO: this block is initially a copy of the ANDROID prefs as they were
+// prior to the switch to Open Sans and Charis SIL Compact (bug 831354).
+// We should review these in the light of what's actually present on the Gonk platform;
+// some entries could probably be cleaned up.
+
 // ar
 
 pref("font.name.serif.el", "Droid Serif");
@@ -3109,6 +3254,97 @@ pref("font.name.monospace.zh-HK", "Droid Sans Mono");
 pref("font.name.serif.zh-TW", "Droid Serif");
 pref("font.name.sans-serif.zh-TW", "Droid Sans");
 pref("font.name.monospace.zh-TW", "Droid Sans Mono");
+
+#else
+
+// not MOZ_WIDGET_GONK (i.e. this is Firefox for Android) - here, we use the bundled fonts
+
+// ar
+
+pref("font.name.serif.el", "Droid Serif"); // not Charis SIL Compact, only has a few Greek chars
+pref("font.name.sans-serif.el", "Open Sans");
+pref("font.name.monospace.el", "Droid Sans Mono");
+pref("font.name-list.sans-serif.el", "Open Sans, Roboto, Droid Sans");
+
+pref("font.name.serif.he", "Droid Serif");
+pref("font.name.sans-serif.he", "Open Sans");
+pref("font.name.monospace.he", "Droid Sans Mono");
+pref("font.name-list.sans-serif.he", "Droid Sans Hebrew, Open Sans, Droid Sans");
+
+pref("font.name.serif.ja", "Charis SIL Compact");
+pref("font.name.sans-serif.ja", "Open Sans");
+pref("font.name.monospace.ja", "MotoyaLMaru");
+pref("font.name-list.sans-serif.ja", "Open Sans, Roboto, Droid Sans, MotoyaLMaru, MotoyaLCedar, Droid Sans Japanese");
+pref("font.name-list.monospace.ja", "MotoyaLMaru, MotoyaLCedar, Droid Sans Mono");
+
+pref("font.name.serif.ko", "Charis SIL Compact");
+pref("font.name.sans-serif.ko", "Open Sans");
+pref("font.name.monospace.ko", "Droid Sans Mono");
+
+pref("font.name.serif.th", "Charis SIL Compact");
+pref("font.name.sans-serif.th", "Open Sans");
+pref("font.name.monospace.th", "Droid Sans Mono");
+pref("font.name-list.sans-serif.th", "Droid Sans Thai, Open Sans, Droid Sans");
+
+pref("font.name.serif.tr", "Charis SIL Compact");
+pref("font.name.sans-serif.tr", "Open Sans");
+pref("font.name.monospace.tr", "Droid Sans Mono");
+pref("font.name-list.sans-serif.tr", "Open Sans, Roboto, Droid Sans");
+
+pref("font.name.serif.x-baltic", "Charis SIL Compact");
+pref("font.name.sans-serif.x-baltic", "Open Sans");
+pref("font.name.monospace.x-baltic", "Droid Sans Mono");
+pref("font.name-list.sans-serif.x-baltic", "Open Sans, Roboto, Droid Sans");
+
+pref("font.name.serif.x-central-euro", "Charis SIL Compact");
+pref("font.name.sans-serif.x-central-euro", "Open Sans");
+pref("font.name.monospace.x-central-euro", "Droid Sans Mono");
+pref("font.name-list.sans-serif.x-central-euro", "Open Sans, Roboto, Droid Sans");
+
+pref("font.name.serif.x-cyrillic", "Charis SIL Compact");
+pref("font.name.sans-serif.x-cyrillic", "Open Sans");
+pref("font.name.monospace.x-cyrillic", "Droid Sans Mono");
+pref("font.name-list.sans-serif.x-cyrillic", "Open Sans, Roboto, Droid Sans");
+
+pref("font.name.serif.x-unicode", "Charis SIL Compact");
+pref("font.name.sans-serif.x-unicode", "Open Sans");
+pref("font.name.monospace.x-unicode", "Droid Sans Mono");
+pref("font.name-list.sans-serif.x-unicode", "Open Sans, Roboto, Droid Sans");
+
+pref("font.name.serif.x-user-def", "Charis SIL Compact");
+pref("font.name.sans-serif.x-user-def", "Open Sans");
+pref("font.name.monospace.x-user-def", "Droid Sans Mono");
+pref("font.name-list.sans-serif.x-user-def", "Open Sans, Roboto, Droid Sans");
+
+pref("font.name.serif.x-western", "Charis SIL Compact");
+pref("font.name.sans-serif.x-western", "Open Sans");
+pref("font.name.monospace.x-western", "Droid Sans Mono");
+pref("font.name-list.sans-serif.x-western", "Open Sans, Roboto, Droid Sans");
+
+pref("font.name.serif.zh-CN", "Charis SIL Compact");
+pref("font.name.sans-serif.zh-CN", "Open Sans");
+pref("font.name.monospace.zh-CN", "Droid Sans Mono");
+pref("font.name-list.serif.zh-CN", "Droid Sans Fallback");
+pref("font.name-list.sans-serif.zh-CN", "Roboto, Droid Sans, Droid Sans Fallback");
+pref("font.name-list.monospace.zh-CN", "Droid Sans Fallback");
+
+pref("font.name.serif.zh-HK", "Charis SIL Compact");
+pref("font.name.sans-serif.zh-HK", "Open Sans");
+pref("font.name.monospace.zh-HK", "Droid Sans Mono");
+pref("font.name-list.serif.zh-HK", "Droid Sans Fallback");
+pref("font.name-list.sans-serif.zh-HK", "Roboto, Droid Sans, Droid Sans Fallback");
+pref("font.name-list.monospace.zh-HK", "Droid Sans Fallback");
+
+pref("font.name.serif.zh-TW", "Charis SIL Compact");
+pref("font.name.sans-serif.zh-TW", "Open Sans");
+pref("font.name.monospace.zh-TW", "Droid Sans Mono");
+pref("font.name-list.serif.zh-TW", "Droid Sans Fallback");
+pref("font.name-list.sans-serif.zh-TW", "Roboto, Droid Sans, Droid Sans Fallback");
+pref("font.name-list.monospace.zh-TW", "Droid Sans Fallback");
+
+// end ! MOZ_WIDGET_GONK
+
+#endif
 
 pref("font.default.ar", "sans-serif");
 pref("font.size.variable.ar", 16);
@@ -3592,6 +3828,17 @@ pref("toolkit.zoomManager.zoomValues", ".3,.5,.67,.8,.9,1,1.1,1.2,1.33,1.5,1.7,2
  */
 pref("browser.zoom.reflowOnZoom", false);
 
+/**
+ * Controls whether or not the reflow-on-zoom behavior happens on page load.
+ * This can be enabled in conjunction with the above preference (reflowOnZoom),
+ * but has no effect if browser.zoom.reflowOnZoom is disabled.
+ *
+ * Note that this should be turned off only in cases where debugging of the
+ * reflow-on-zoom feature is necessary, and enabling the feature during
+ * a page load inhbits this debugging.
+ */
+pref("browser.zoom.reflowZoom.reflowTextOnPageLoad", true);
+
 // Image-related prefs
 // The maximum size, in bytes, of the decoded images we cache
 pref("image.cache.size", 5242880);
@@ -3613,6 +3860,10 @@ pref("image.high_quality_downscaling.enabled", true);
 // The minimum percent downscaling we'll use high-quality downscaling on,
 // interpreted as a floating-point number / 1000.
 pref("image.high_quality_downscaling.min_factor", 1000);
+
+// The maximum memory size which we'll use high-quality uspcaling on,
+// interpreted as number of decoded bytes.
+pref("image.high_quality_upscaling.max_size", 20971520);
 
 //
 // Image memory management prefs
@@ -3645,18 +3896,28 @@ pref("image.mem.max_ms_before_yield", 5);
 // might keep around more than this, but we'll try to get down to this value).
 pref("image.mem.max_decoded_image_kb", 51200);
 
+// Whether we decode images on multiple background threads rather than the
+// foreground thread.
+pref("image.multithreaded_decoding.enabled", true);
+
+// How many threads we'll use for multithreaded decoding. If < 0, will be
+// automatically determined based on the system's number of cores.
+pref("image.multithreaded_decoding.limit", -1);
+
 // WebGL prefs
+pref("gl.msaa-level", 2);
 pref("webgl.force-enabled", false);
 pref("webgl.disabled", false);
 pref("webgl.shader_validator", true);
 pref("webgl.prefer-native-gl", false);
 pref("webgl.min_capability_mode", false);
 pref("webgl.disable-extensions", false);
-pref("webgl.msaa-level", 2);
 pref("webgl.msaa-force", false);
 pref("webgl.prefer-16bpp", false);
 pref("webgl.default-no-alpha", false);
 pref("webgl.force-layers-readback", false);
+pref("webgl.lose-context-on-heap-minimize", false);
+pref("webgl.can-lose-context-in-foreground", true);
 
 // Stagefright prefs
 pref("stagefright.force-enabled", false);
@@ -3679,7 +3940,13 @@ pref("layers.acceleration.disabled", false);
 #endif
 
 // Whether to force acceleration on, ignoring blacklists.
+#ifdef ANDROID
+// bug 838603 -- on Android, accidentally blacklisting OpenGL layers
+// means a startup crash for everyone.
+pref("layers.acceleration.force-enabled", true);
+#else
 pref("layers.acceleration.force-enabled", false);
+#endif
 
 pref("layers.acceleration.draw-fps", false);
 
@@ -3751,13 +4018,16 @@ pref("network.buffer.cache.size",  32768);
 // Desktop Notification
 pref("notification.feature.enabled", false);
 
+// Web Notification
+pref("dom.webnotifications.enabled", true);
+
 // Alert animation effect, name is disableSlidingEffect for backwards-compat.
 pref("alerts.disableSlidingEffect", false);
 
 // DOM full-screen API.
 pref("full-screen-api.enabled", false);
 pref("full-screen-api.allow-trusted-requests-only", true);
-pref("full-screen-api.exit-on-deactivate", true);
+pref("full-screen-api.content-only", false);
 pref("full-screen-api.pointer-lock.enabled", true);
 
 // DOM idle observers API
@@ -3788,6 +4058,9 @@ pref("dom.mozContacts.enabled", false);
 
 // WebAlarms
 pref("dom.mozAlarms.enabled", false);
+
+// SimplePush
+pref("services.push.enabled", false);
 
 // WebNetworkStats
 pref("dom.mozNetworkStats.enabled", false);
@@ -3847,12 +4120,20 @@ pref("social.enabled", false);
 // observers (bug 780507).
 pref("dom.idle-observers-api.fuzz_time.disabled", true);
 
-// Setting that to true grant elevated privileges to apps that ask
-// for them in their manifest.
-pref("dom.mozApps.dev_mode", false);
-
 // Lowest localId for apps.
 pref("dom.mozApps.maxLocalId", 1000);
+
+// XXX Security: You CANNOT safely add a new app store for
+// installing privileged apps just by modifying this pref and
+// adding the signing cert for that store to the cert trust
+// database. *Any* origin listed can install apps signed with
+// *any* certificate trusted; we don't try to maintain a strong
+// association between certificate with installOrign. The
+// expectation here is that in production builds the pref will
+// contain exactly one origin. However, in custom development
+// builds it may contain more than one origin so we can test
+// different stages (dev, staging, prod) of the same app store.
+pref("dom.mozApps.signed_apps_installable_from", "https://marketplace.firefox.com");
 
 // Minimum delay in milliseconds between network activity notifications (0 means
 // no notifications). The delay is the same for both download and upload, though
@@ -3877,3 +4158,26 @@ pref("dom.placeholder.show_on_focus", true);
 pref("wap.UAProf.url", "");
 pref("wap.UAProf.tagname", "x-wap-profile");
 
+//Retrieval mode for MMS
+//manual: Manual retrieval mode.
+//automatic: Automatic retrieval mode.
+//never: Never retrieval mode.
+pref("dom.mms.retrieval_mode", "manual");
+pref("dom.mms.retrievalRetryCount", 3);
+pref("dom.mms.retrievalRetryInterval", 300000);
+
+// If the user puts a finger down on an element and we think the user
+// might be executing a pan gesture, how long do we wait before
+// tentatively deciding the gesture is actually a tap and activating
+// the target element?
+pref("ui.touch_activation.delay_ms", 100);
+
+// nsMemoryInfoDumper can watch a fifo in the temp directory and take various
+// actions when the fifo is written to.  Disable this in general.
+pref("memory_info_dumper.watch_fifo", false);
+
+#ifdef MOZ_CAPTIVEDETECT
+pref("captivedetect.maxWaitingTime", 5000);
+pref("captivedetect.pollingTime", 3000);
+pref("captivedetect.maxRetryCount", 5);
+#endif

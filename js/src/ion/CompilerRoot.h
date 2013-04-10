@@ -9,7 +9,8 @@
 #define jsion_ion_gc_h__
 
 #include "jscntxt.h"
-#include "gc/Root.h"
+
+#include "js/RootingAPI.h"
 
 namespace js {
 namespace ion {
@@ -33,15 +34,15 @@ class CompilerRoot : public CompilerRootNode
     void setRoot(T root) {
         CompilerRootNode *&rootList = GetIonContext()->temp->rootList();
 
-        JS_ASSERT(!ptr);
-        ptr = root;
+        JS_ASSERT(!ptr_);
+        ptr_ = root;
         next = rootList;
         rootList = this;
     }
 
   public:
-    operator T () const { return static_cast<T>(ptr); }
-    T operator ->() const { return static_cast<T>(ptr); }
+    operator T () const { return static_cast<T>(ptr_); }
+    T operator ->() const { return static_cast<T>(ptr_); }
 
   private:
     CompilerRoot() MOZ_DELETE;
@@ -49,9 +50,11 @@ class CompilerRoot : public CompilerRootNode
     CompilerRoot<T> &operator =(const CompilerRoot<T> &) MOZ_DELETE;
 };
 
-typedef CompilerRoot<JSObject*>   CompilerRootObject;
+typedef CompilerRoot<JSObject*> CompilerRootObject;
 typedef CompilerRoot<JSFunction*> CompilerRootFunction;
+typedef CompilerRoot<JSScript*> CompilerRootScript;
 typedef CompilerRoot<PropertyName*> CompilerRootPropertyName;
+typedef CompilerRoot<Shape*> CompilerRootShape;
 typedef CompilerRoot<Value> CompilerRootValue;
 
 } // namespace ion

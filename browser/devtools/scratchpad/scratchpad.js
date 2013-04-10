@@ -28,6 +28,8 @@ Cu.import("resource:///modules/devtools/scratchpad-manager.jsm");
 Cu.import("resource://gre/modules/jsdebugger.jsm");
 Cu.import("resource:///modules/devtools/gDevTools.jsm");
 Cu.import("resource:///modules/devtools/Target.jsm");
+Cu.import("resource://gre/modules/osfile.jsm");
+Cu.import("resource://gre/modules/commonjs/sdk/core/promise.js");
 
 const SCRATCHPAD_CONTEXT_CONTENT = 1;
 const SCRATCHPAD_CONTEXT_BROWSER = 2;
@@ -45,6 +47,41 @@ const BUTTON_POSITION_REVERT=0;
 var Scratchpad = {
   _instanceId: null,
   _initialWindowTitle: document.title,
+
+  /**
+   * Check if provided string is a mode-line and, if it is, return an
+   * object with its values.
+   *
+   * @param string aLine
+   * @return string
+   */
+  _scanModeLine: function SP__scanModeLine(aLine="")
+  {
+    aLine = aLine.trim();
+
+    let obj = {};
+    let ch1 = aLine.charAt(0);
+    let ch2 = aLine.charAt(1);
+
+    if (ch1 !== "/" || (ch2 !== "*" && ch2 !== "/")) {
+      return obj;
+    }
+
+    aLine = aLine
+      .replace(/^\/\//, "")
+      .replace(/^\/\*/, "")
+      .replace(/\*\/$/, "");
+
+    aLine.split(",").forEach(function (pair) {
+      let [key, val] = pair.split(":");
+
+      if (key && val) {
+        obj[key.trim()] = val.trim();
+      }
+    });
+
+    return obj;
+  },
 
   /**
    * The script execution context. This tells Scratchpad in which context the
@@ -318,119 +355,108 @@ var Scratchpad = {
   },
 
   /**
-   * Evaluate a string in the active tab content window.
-   *
-   * @param string aString
-   *        The script you want evaluated.
-   * @return mixed
-   *         The script evaluation result.
-   */
-  evalInContentSandbox: function SP_evalInContentSandbox(aString)
-  {
-    let error, result;
-    try {
-      result = Cu.evalInSandbox(aString, this.contentSandbox, "1.8",
-                                this.uniqueName, 1);
-    }
-    catch (ex) {
-      error = ex;
-    }
-
-    return [error, result];
-  },
-
-  /**
-   * Evaluate a string in the most recent navigator:browser chrome window.
-   *
-   * @param string aString
-   *        The script you want evaluated.
-   * @return mixed
-   *         The script evaluation result.
-   */
-  evalInChromeSandbox: function SP_evalInChromeSandbox(aString)
-  {
-    let error, result;
-    try {
-      result = Cu.evalInSandbox(aString, this.chromeSandbox, "1.8",
-                                this.uniqueName, 1);
-    }
-    catch (ex) {
-      error = ex;
-    }
-
-    return [error, result];
-  },
-
-  /**
    * Evaluate a string in the currently desired context, that is either the
    * chrome window or the tab content window object.
    *
    * @param string aString
    *        The script you want to evaluate.
-   * @return mixed
-   *         The script evaluation result.
+   * @return Promise
+   *         The promise for the script evaluation result.
    */
   evalForContext: function SP_evaluateForContext(aString)
   {
-    return this.executionContext == SCRATCHPAD_CONTEXT_CONTENT ?
-           this.evalInContentSandbox(aString) :
-           this.evalInChromeSandbox(aString);
+    let deferred = Promise.defer();
+
+    // This setTimeout is temporary and will be replaced by DebuggerClient
+    // execution in a future patch (bug 825039). The purpose for using
+    // setTimeout is to ensure there is no accidental dependency on the
+    // promise being resolved synchronously, which can cause subtle bugs.
+    setTimeout(() => {
+      let chrome = this.executionContext != SCRATCHPAD_CONTEXT_CONTENT;
+      let sandbox = chrome ? this.chromeSandbox : this.contentSandbox;
+      let name = this.uniqueName;
+
+      try {
+        let result = Cu.evalInSandbox(aString, sandbox, "1.8", name, 1);
+        deferred.resolve([aString, undefined, result]);
+      }
+      catch (ex) {
+        deferred.resolve([aString, ex]);
+      }
+    }, 0);
+
+    return deferred.promise;
   },
 
   /**
    * Execute the selected text (if any) or the entire editor content in the
    * current context.
-   * @return mixed
-   *         The script evaluation result.
+   *
+   * @return Promise
+   *         The promise for the script evaluation result.
    */
   execute: function SP_execute()
   {
     let selection = this.selectedText || this.getText();
-    let [error, result] = this.evalForContext(selection);
-    return [selection, error, result];
+    return this.evalForContext(selection);
   },
 
   /**
    * Execute the selected text (if any) or the entire editor content in the
    * current context.
+   *
+   * @return Promise
+   *         The promise for the script evaluation result.
    */
   run: function SP_run()
   {
-    let [selection, error, result] = this.execute();
-
-    if (!error) {
-      this.deselect();
-    } else {
-      this.writeAsErrorComment(error);
-    }
-
-    return [selection, error, result];
+    let promise = this.execute();
+    promise.then(([, aError, ]) => {
+      if (aError) {
+        this.writeAsErrorComment(aError);
+      }
+      else {
+        this.deselect();
+      }
+    });
+    return promise;
   },
 
   /**
    * Execute the selected text (if any) or the entire editor content in the
    * current context. The resulting object is opened up in the Property Panel
    * for inspection.
+   *
+   * @return Promise
+   *         The promise for the script evaluation result.
    */
   inspect: function SP_inspect()
   {
-    let [selection, error, result] = this.execute();
-
-    if (!error) {
-      this.deselect();
-      this.openPropertyPanel(selection, result);
-    } else {
-      this.writeAsErrorComment(error);
-    }
+    let promise = this.execute();
+    promise.then(([aString, aError, aResult]) => {
+      if (aError) {
+        this.writeAsErrorComment(aError);
+      }
+      else {
+        this.deselect();
+        this.openPropertyPanel(aString, aResult);
+      }
+    });
+    return promise;
   },
 
   /**
    * Reload the current page and execute the entire editor content when
    * the page finishes loading. Note that this operation should be available
    * only in the content context.
+   *
+   * @return Promise
+   *         The promise for the script evaluation result.
    */
   reloadAndRun: function SP_reloadAndRun()
   {
+    let deferred = Promise.defer();
+
     if (this.executionContext !== SCRATCHPAD_CONTEXT_CONTENT) {
       Cu.reportError(this.strings.
           GetStringFromName("scratchpadContext.invalid"));
@@ -439,17 +465,20 @@ var Scratchpad = {
 
     let browser = this.gBrowser.selectedBrowser;
 
-    this._reloadAndRunEvent = function onLoad(evt) {
+    this._reloadAndRunEvent = evt => {
       if (evt.target !== browser.contentDocument) {
         return;
       }
 
       browser.removeEventListener("load", this._reloadAndRunEvent, true);
-      this.run();
-    }.bind(this);
+
+      this.run().then(aResults => deferred.resolve(aResults));
+    };
 
     browser.addEventListener("load", this._reloadAndRunEvent, true);
     browser.contentWindow.location.reload();
+
+    return deferred.promise;
   },
 
   /**
@@ -457,16 +486,22 @@ var Scratchpad = {
    * current context. The evaluation result is inserted into the editor after
    * the selected text, or at the end of the editor content if there is no
    * selected text.
+   *
+   * @return Promise
+   *         The promise for the script evaluation result.
    */
   display: function SP_display()
   {
-    let [selectedText, error, result] = this.execute();
-
-    if (!error) {
-      this.writeAsComment(result);
-    } else {
-      this.writeAsErrorComment(error);
-    }
+    let promise = this.execute();
+    promise.then(([aString, aError, aResult]) => {
+      if (aError) {
+        this.writeAsErrorComment(aError);
+      }
+      else {
+        this.writeAsComment(aResult);
+      }
+    });
+    return promise;
   },
 
   /**
@@ -531,7 +566,6 @@ var Scratchpad = {
    */
   openPropertyPanel: function SP_openPropertyPanel(aEvalString, aOutputObject)
   {
-    let self = this;
     let propPanel;
     // The property panel has a button:
     // `Update`: reexecutes the string executed on the command line. The
@@ -547,12 +581,12 @@ var Scratchpad = {
                GetStringFromName("propertyPanel.updateButton.label"),
         accesskey: this.strings.
                    GetStringFromName("propertyPanel.updateButton.accesskey"),
-        oncommand: function _SP_PP_Update_onCommand() {
-          let [error, result] = self.evalForContext(aEvalString);
-
-          if (!error) {
-            propPanel.treeView.data = { object: result };
-          }
+        oncommand: () => {
+          this.evalForContext(aEvalString).then(([, aError, aResult]) => {
+            if (!aError) {
+              propPanel.treeView.data = { object: aResult };
+            }
+          });
         }
       });
     }
@@ -607,26 +641,22 @@ var Scratchpad = {
       return;
     }
 
-    let fs = Cc["@mozilla.org/network/file-output-stream;1"].
-             createInstance(Ci.nsIFileOutputStream);
-    let modeFlags = 0x02 | 0x08 | 0x20;
-    fs.init(aFile, modeFlags, 420 /* 0644 */, fs.DEFER_OPEN);
-
-    let converter = Cc["@mozilla.org/intl/scriptableunicodeconverter"].
-                    createInstance(Ci.nsIScriptableUnicodeConverter);
-    converter.charset = "UTF-8";
-    let input = converter.convertToInputStream(this.getText());
-
-    let self = this;
-    NetUtil.asyncCopy(input, fs, function(aStatus) {
-      if (!aSilentError && !Components.isSuccessCode(aStatus)) {
-        window.alert(self.strings.GetStringFromName("saveFile.failed"));
-      }
-
+    let encoder = new TextEncoder();
+    let buffer = encoder.encode(this.getText());
+    let promise = OS.File.writeAtomic(aFile.path, buffer,{tmpPath: aFile.path + ".tmp"});
+    promise.then(function success(value) {
       if (aCallback) {
-        aCallback.call(self, aStatus);
+        aCallback.call(this, Components.results.NS_OK);
       }
-    });
+    }.bind(this), function failure(reason) {
+      if (!aSilentError) {
+        window.alert(this.strings.GetStringFromName("saveFile.failed"));
+      }
+      if (aCallback) {
+        aCallback.call(this, Components.results.NS_ERROR_UNEXPECTED);
+      }
+    }.bind(this));
+
   },
 
   /**
@@ -660,6 +690,16 @@ var Scratchpad = {
         content = NetUtil.readInputStreamToString(aInputStream,
                                                   aInputStream.available());
         content = converter.ConvertToUnicode(content);
+
+        // Check to see if the first line is a mode-line comment.
+        let line = content.split("\n")[0];
+        let modeline = self._scanModeLine(line);
+        let chrome = Services.prefs.getBoolPref(DEVTOOLS_CHROME_ENABLED);
+
+        if (chrome && modeline["-sp-context"] === "browser") {
+          self.setBrowserContext();
+        }
+
         self.setText(content);
         self.editor.resetUndo();
       }
@@ -1056,7 +1096,7 @@ var Scratchpad = {
   openWebConsole: function SP_openWebConsole()
   {
     let target = TargetFactory.forTab(this.gBrowser.selectedTab);
-    gDevTools.openToolboxForTab(target, "webconsole");
+    gDevTools.showToolbox(target, "webconsole");
     this.browserWindow.focus();
   },
 

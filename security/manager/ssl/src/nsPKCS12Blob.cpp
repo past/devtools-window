@@ -6,7 +6,6 @@
 #include "prmem.h"
 #include "prprf.h"
 
-#include "nsISupportsArray.h"
 #include "nsIFile.h"
 #include "nsNetUtil.h"
 #include "nsIDirectoryService.h"
@@ -26,15 +25,15 @@
 #include "nsICertificateDialogs.h"
 #include "nsNSSShutDown.h"
 #include "nsCRT.h"
-#include "pk11func.h"
+#include "ScopedNSSTypes.h"
+
 #include "secerr.h"
 
 #ifdef PR_LOGGING
 extern PRLogModuleInfo* gPIPNSSLog;
 #endif
 
-#include "nsNSSCleaner.h"
-NSSCleanupAutoPtrClass(CERTCertificate, CERT_DestroyCertificate)
+using namespace mozilla;
 
 static NS_DEFINE_CID(kNSSComponentCID, NS_NSSCOMPONENT_CID);
 
@@ -51,7 +50,6 @@ static NS_DEFINE_CID(kNSSComponentCID, NS_NSSCOMPONENT_CID);
 // constructor
 nsPKCS12Blob::nsPKCS12Blob():mCertArray(0),
                              mTmpFile(nullptr),
-                             mTmpFilePath(nullptr),
                              mDigest(nullptr),
                              mDigestIterator(nullptr),
                              mTokenSet(false)
@@ -360,9 +358,7 @@ nsPKCS12Blob::ExportToFile(nsIFile *file,
 //    nsNSSCertificate *cert = reinterpret_cast<nsNSSCertificate *>(certs[i]);
     nsNSSCertificate *cert = (nsNSSCertificate *)certs[i];
     // get it as a CERTCertificate XXX
-    CERTCertificate *nssCert = NULL;
-    CERTCertificateCleaner nssCertCleaner(nssCert);
-    nssCert = cert->GetCert();
+    ScopedCERTCertificate nssCert(cert->GetCert());
     if (!nssCert) {
       rv = NS_ERROR_FAILURE;
       goto finish;
@@ -832,4 +828,3 @@ nsPKCS12Blob::handleError(int myerr)
   if (NS_SUCCEEDED(rv))
     (void) nssComponent->ShowAlertFromStringBundle(msgID);
 }
-

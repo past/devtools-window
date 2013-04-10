@@ -2,7 +2,7 @@
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
 var MockFilePicker = SpecialPowers.MockFilePicker;
-MockFilePicker.init();
+MockFilePicker.init(window);
 
 let tempScope = {};
 Cu.import("resource://gre/modules/NetUtil.jsm", tempScope);
@@ -46,7 +46,10 @@ function triggerSave(aWindow, aCallback) {
       MockFilePicker.filterIndex = 1; // kSaveAsType_URL
     };
 
-    mockTransferCallback = function(a) onTransferComplete(aWindow, a, destFile, destDir);
+    mockTransferCallback = function(a) {
+      onTransferComplete(aWindow, a, destFile, destDir);
+      mockTransferCallback = function(){};
+    }
 
     // Select "Save Link As" option from context menu
     var saveLinkCommand = aWindow.document.getElementById("context-savelink");

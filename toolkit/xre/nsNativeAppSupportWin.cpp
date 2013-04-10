@@ -17,7 +17,6 @@
 #include "nsIDOMChromeWindow.h"
 #include "nsXPCOM.h"
 #include "nsISupportsPrimitives.h"
-#include "nsISupportsArray.h"
 #include "nsIWindowWatcher.h"
 #include "nsPIDOMWindow.h"
 #include "nsIDocShell.h"
@@ -48,6 +47,8 @@
 #include <io.h>
 #include <direct.h>
 #include <fcntl.h>
+
+using namespace mozilla;
 
 static HWND hwndForDOMWindow( nsISupports * );
 
@@ -1473,7 +1474,7 @@ SafeJSContext::SafeJSContext() : mContext(nullptr) {
 
 SafeJSContext::~SafeJSContext() {
   JSContext *cx;
-  nsresult   rv;
+  DebugOnly<nsresult> rv;
 
   if(mContext) {
     rv = mService->Pop(&cx);

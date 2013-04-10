@@ -32,11 +32,6 @@
 #define USE_WORD
 #endif
 
-#if defined(_WIN32_WCE)
-#undef WORD
-#define WORD ARC4WORD
-#endif
-
 #if (defined(IS_64))
 typedef PRUint64 WORD;
 #else
@@ -131,7 +126,7 @@ RC4_InitContext(RC4Context *cx, const unsigned char *key, unsigned int len,
 
 	/* verify the key length. */
 	PORT_Assert(len > 0 && len < ARCFOUR_STATE_SIZE);
-	if (len < 0 || len >= ARCFOUR_STATE_SIZE) {
+	if (len == 0 || len >= ARCFOUR_STATE_SIZE) {
 		PORT_SetError(SEC_ERROR_INVALID_ARGS);
 		return SECFailure;
 	}

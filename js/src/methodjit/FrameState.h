@@ -8,6 +8,8 @@
 #if !defined jsjaeger_framestate_h__ && defined JS_METHODJIT
 #define jsjaeger_framestate_h__
 
+#include "mozilla/PodOperations.h"
+
 #include "jsanalyze.h"
 #include "jsapi.h"
 #include "methodjit/MachineRegs.h"
@@ -696,11 +698,10 @@ class FrameState
 
     /* Compiler-owned metadata about stack entries, reset on push/pop/copy. */
     struct StackEntryExtra {
-        bool initArray;
         JSObject *initObject;
         types::StackTypeSet *types;
         JSAtom *name;
-        void reset() { PodZero(this); }
+        void reset() { mozilla::PodZero(this); }
     };
     StackEntryExtra& extra(const FrameEntry *fe) {
         JS_ASSERT(fe >= a->args && fe < a->sp);
@@ -826,7 +827,7 @@ class FrameState
 #ifdef DEBUG
     void assertValidRegisterState() const;
 #else
-    inline void assertValidRegisterState() const {};
+    inline void assertValidRegisterState() const {}
 #endif
 
     // Return an address, relative to the StackFrame, that represents where
@@ -1043,7 +1044,7 @@ class FrameState
     /* State for the active stack frame. */
 
     struct ActiveFrame {
-        ActiveFrame() { PodZero(this); }
+        ActiveFrame() { mozilla::PodZero(this); }
 
         ActiveFrame *parent;
 

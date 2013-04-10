@@ -163,6 +163,13 @@ EnsureSharedSurfaceSize(gfxIntSize size)
   return (sSharedSurfaceData != nullptr);
 }
 
+nsIWidgetListener* nsWindow::GetPaintListener()
+{
+  if (mDestroyCalled)
+    return nullptr;
+  return mAttachedWidgetListener ? mAttachedWidgetListener : mWidgetListener;
+}
+
 bool nsWindow::OnPaint(HDC aDC, uint32_t aNestingLevel)
 {
   // We never have reentrant paint events, except when we're running our RPC
@@ -205,10 +212,14 @@ bool nsWindow::OnPaint(HDC aDC, uint32_t aNestingLevel)
     return true;
   }
 
-  nsIWidgetListener* listener = mAttachedWidgetListener ? mAttachedWidgetListener : mWidgetListener;
+  nsIWidgetListener* listener = GetPaintListener();
   if (listener) {
-    listener->WillPaintWindow(this, true);
+    listener->WillPaintWindow(this);
   }
+  // Re-get the listener since the will paint notification may have killed it.
+  listener = GetPaintListener();
+  if (!listener)
+    return false;
 
   bool result = true;
   PAINTSTRUCT ps;
@@ -386,7 +397,7 @@ bool nsWindow::OnPaint(HDC aDC, uint32_t aNestingLevel)
           {
             AutoLayerManagerSetup
                 setupLayerManager(this, thebesContext, doubleBuffering);
-            result = listener->PaintWindow(this, region, nsIWidgetListener::SENT_WILL_PAINT | nsIWidgetListener::WILL_SEND_DID_PAINT);
+            result = listener->PaintWindow(this, region, 0);
           }
 
 #ifdef MOZ_XUL
@@ -501,15 +512,15 @@ bool nsWindow::OnPaint(HDC aDC, uint32_t aNestingLevel)
       case LAYERS_OPENGL:
         static_cast<mozilla::layers::LayerManagerOGL*>(GetLayerManager())->
           SetClippingRegion(region);
-        result = listener->PaintWindow(this, region, nsIWidgetListener::SENT_WILL_PAINT | nsIWidgetListener::WILL_SEND_DID_PAINT);
+        result = listener->PaintWindow(this, region, 0);
         break;
 #ifdef MOZ_ENABLE_D3D9_LAYER
       case LAYERS_D3D9:
         {
-          LayerManagerD3D9 *layerManagerD3D9 =
+          nsRefPtr<LayerManagerD3D9> layerManagerD3D9 =
             static_cast<mozilla::layers::LayerManagerD3D9*>(GetLayerManager());
           layerManagerD3D9->SetClippingRegion(region);
-          result = listener->PaintWindow(this, region, nsIWidgetListener::SENT_WILL_PAINT | nsIWidgetListener::WILL_SEND_DID_PAINT);
+          result = listener->PaintWindow(this, region, 0);
           if (layerManagerD3D9->DeviceWasRemoved()) {
             mLayerManager->Destroy();
             mLayerManager = nullptr;
@@ -529,7 +540,7 @@ bool nsWindow::OnPaint(HDC aDC, uint32_t aNestingLevel)
           if (layerManagerD3D10->device() != gfxWindowsPlatform::GetPlatform()->GetD3D10Device()) {
             Invalidate();
           } else {
-            result = listener->PaintWindow(this, region, nsIWidgetListener::SENT_WILL_PAINT | nsIWidgetListener::WILL_SEND_DID_PAINT);
+            result = listener->PaintWindow(this, region, 0);
           }
         }
         break;
@@ -566,6 +577,8 @@ bool nsWindow::OnPaint(HDC aDC, uint32_t aNestingLevel)
 
   mPainting = false;
 
+  // Re-get the listener since painting may have killed it.
+  listener = GetPaintListener();
   if (listener)
     listener->DidPaintWindow();
 
@@ -595,12 +608,14 @@ nsresult nsWindowGfx::CreateIcon(imgIContainer *aContainer,
                                   HICON *aIcon) {
 
   // Get the image data
-  nsRefPtr<gfxImageSurface> frame;
-  aContainer->CopyFrame(imgIContainer::FRAME_CURRENT,
-                        imgIContainer::FLAG_SYNC_DECODE,
-                        getter_AddRefs(frame));
-  if (!frame)
-    return NS_ERROR_NOT_AVAILABLE;
+  nsRefPtr<gfxASurface> surface;
+  aContainer->GetFrame(imgIContainer::FRAME_CURRENT,
+                       imgIContainer::FLAG_SYNC_DECODE,
+                       getter_AddRefs(surface));
+  NS_ENSURE_TRUE(surface, NS_ERROR_NOT_AVAILABLE);
+
+  nsRefPtr<gfxImageSurface> frame(surface->GetAsReadableARGB32ImageSurface());
+  NS_ENSURE_TRUE(frame, NS_ERROR_NOT_AVAILABLE);
 
   int32_t width = frame->Width();
   int32_t height = frame->Height();
@@ -608,6 +623,8 @@ nsresult nsWindowGfx::CreateIcon(imgIContainer *aContainer,
     return NS_ERROR_FAILURE;
 
   uint8_t *data;
+  nsRefPtr<gfxImageSurface> dest;
+
   if ((aScaledSize.width == 0 && aScaledSize.height == 0) ||
       (aScaledSize.width == width && aScaledSize.height == height)) {
     // We're not scaling the image. The data is simply what's in the frame.
@@ -617,8 +634,7 @@ nsresult nsWindowGfx::CreateIcon(imgIContainer *aContainer,
     NS_ENSURE_ARG(aScaledSize.width > 0);
     NS_ENSURE_ARG(aScaledSize.height > 0);
     // Draw a scaled version of the image to a temporary surface
-    nsRefPtr<gfxImageSurface> dest = new gfxImageSurface(aScaledSize,
-                                                         gfxASurface::ImageFormatARGB32);
+    dest = new gfxImageSurface(aScaledSize, gfxASurface::ImageFormatARGB32);
     if (!dest)
       return NS_ERROR_OUT_OF_MEMORY;
 

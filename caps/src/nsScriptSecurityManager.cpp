@@ -1,4 +1,5 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/* vim: set ts=4 et sw=4 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -39,7 +40,6 @@
 #include "nsIScriptGlobalObject.h"
 #include "nsPIDOMWindow.h"
 #include "nsIDocShell.h"
-#include "nsIDocShellTreeItem.h"
 #include "nsIPrompt.h"
 #include "nsIWindowWatcher.h"
 #include "nsIConsoleService.h"
@@ -99,7 +99,7 @@ IDToString(JSContext *cx, jsid id)
         return JS_GetInternedStringChars(JSID_TO_STRING(id));
 
     JSAutoRequest ar(cx);
-    jsval idval;
+    JS::Value idval;
     if (!JS_IdToValue(cx, id, &idval))
         return nullptr;
     JSString *str = JS_ValueToString(cx, idval);
@@ -330,7 +330,7 @@ nsScriptSecurityManager::GetChannelPrincipal(nsIChannel* aChannel,
     }
 
     // OK, get the principal from the URI.  Make sure this does the same thing
-    // as nsDocument::Reset and nsXULDocument::StartDocumentLoad.
+    // as nsDocument::Reset and XULDocument::StartDocumentLoad.
     nsCOMPtr<nsIURI> uri;
     nsresult rv = NS_GetFinalChannelURI(aChannel, getter_AddRefs(uri));
     NS_ENSURE_SUCCESS(rv, rv);
@@ -482,7 +482,8 @@ nsScriptSecurityManager::ContentSecurityPolicyPermitsJSAction(JSContext *cx)
         return JS_TRUE;
 
     bool evalOK = true;
-    rv = csp->GetAllowsEval(&evalOK);
+    bool reportViolation = false;
+    rv = csp->GetAllowsEval(&reportViolation, &evalOK);
 
     if (NS_FAILED(rv))
     {
@@ -490,9 +491,7 @@ nsScriptSecurityManager::ContentSecurityPolicyPermitsJSAction(JSContext *cx)
         return JS_TRUE; // fail open to not break sites.
     }
 
-    if (!evalOK) {
-        // get the script filename, script sample, and line number
-        // to log with the violation
+    if (reportViolation) {
         nsAutoString fileName;
         unsigned lineNum = 0;
         NS_NAMED_LITERAL_STRING(scriptSample, "call to eval() or related function blocked by CSP");
@@ -503,7 +502,6 @@ nsScriptSecurityManager::ContentSecurityPolicyPermitsJSAction(JSContext *cx)
                 CopyUTF8toUTF16(nsDependentCString(file), fileName);
             }
         }
-
         csp->LogViolationDetails(nsIContentSecurityPolicy::VIOLATION_TYPE_EVAL,
                                  fileName,
                                  scriptSample,
@@ -1610,7 +1608,7 @@ nsScriptSecurityManager::CheckFunctionAccess(JSContext *aCx, void *aFunObj,
     // This check is called for event handlers
     nsresult rv;
     nsIPrincipal* subject =
-        GetFunctionObjectPrincipal(aCx, (JSObject *)aFunObj, nullptr, &rv);
+        GetFunctionObjectPrincipal(aCx, (JSObject *)aFunObj, &rv);
 
     // If subject is null, get a principal from the function object's scope.
     if (NS_SUCCEEDED(rv) && !subject)
@@ -1639,7 +1637,7 @@ nsScriptSecurityManager::CheckFunctionAccess(JSContext *aCx, void *aFunObj,
     // allowed to execute scripts.
 
     bool result;
-    rv = CanExecuteScripts(aCx, subject, &result);
+    rv = CanExecuteScripts(aCx, subject, true, &result);
     if (NS_FAILED(rv))
       return rv;
 
@@ -1673,6 +1671,15 @@ nsScriptSecurityManager::CanExecuteScripts(JSContext* cx,
                                            nsIPrincipal *aPrincipal,
                                            bool *result)
 {
+    return CanExecuteScripts(cx, aPrincipal, false, result);
+}
+
+nsresult
+nsScriptSecurityManager::CanExecuteScripts(JSContext* cx,
+                                           nsIPrincipal *aPrincipal,
+                                           bool aAllowIfNoScriptContext,
+                                           bool *result)
+{
     *result = false; 
 
     if (aPrincipal == mSystemPrincipal)
@@ -1682,9 +1689,23 @@ nsScriptSecurityManager::CanExecuteScripts(JSContext* cx,
         return NS_OK;
     }
 
+    // Same thing for nsExpandedPrincipal, which is pseudo-privileged.
+    nsCOMPtr<nsIExpandedPrincipal> ep = do_QueryInterface(aPrincipal);
+    if (ep)
+    {
+        *result = true;
+        return NS_OK;
+    }
+
     //-- See if the current window allows JS execution
     nsIScriptContext *scriptContext = GetScriptContext(cx);
-    if (!scriptContext) return NS_ERROR_FAILURE;
+    if (!scriptContext) {
+        if (aAllowIfNoScriptContext) {
+            *result = true;
+            return NS_OK;
+        }
+        return NS_ERROR_FAILURE;
+    }
 
     if (!scriptContext->GetScriptsEnabled()) {
         // No scripting on this context, folks
@@ -1955,7 +1976,6 @@ nsScriptSecurityManager::GetScriptPrincipal(JSScript *script,
 nsIPrincipal*
 nsScriptSecurityManager::GetFunctionObjectPrincipal(JSContext *cx,
                                                     JSObject *obj,
-                                                    JSStackFrame *fp,
                                                     nsresult *rv)
 {
     NS_PRECONDITION(rv, "Null out param");
@@ -1980,22 +2000,7 @@ nsScriptSecurityManager::GetFunctionObjectPrincipal(JSContext *cx,
         return nullptr;
     }
 
-    JSScript *frameScript = fp ? JS_GetFrameScript(cx, fp) : nullptr;
-
-    if (frameScript && frameScript != script)
-    {
-        // There is a frame script, and it's different from the
-        // function script. In this case we're dealing with either
-        // an eval or a Script object, and in these cases the
-        // principal we want is in the frame's script, not in the
-        // function's script. The function's script is where the
-        // eval-calling code came from, not where the eval or new
-        // Script object came from, and we want the principal of
-        // the eval function object or new Script object.
-
-        script = frameScript;
-    }
-    else if (!js::IsOriginalScriptFunction(fun))
+    if (!js::IsOriginalScriptFunction(fun))
     {
         // Here, obj is a cloned function object.  In this case, the
         // clone's prototype may have been precompiled from brutally
@@ -2425,7 +2430,6 @@ nsScriptSecurityManager::nsScriptSecurityManager(void)
       mCapabilities(nullptr),
       mPrefInitialized(false),
       mIsJavaScriptEnabled(false),
-      mIsWritingPrefs(false),
       mPolicyPrefsChanged(true)
 {
     MOZ_STATIC_ASSERT(sizeof(intptr_t) == sizeof(void*),
@@ -2509,8 +2513,8 @@ void
 nsScriptSecurityManager::Shutdown()
 {
     if (sRuntime) {
-        JS_SetSecurityCallbacks(sRuntime, NULL);
-        JS_SetTrustedPrincipals(sRuntime, NULL);
+        JS_SetSecurityCallbacks(sRuntime, nullptr);
+        JS_SetTrustedPrincipals(sRuntime, nullptr);
         sRuntime = nullptr;
     }
     sEnabledID = JSID_VOID;

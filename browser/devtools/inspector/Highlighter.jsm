@@ -84,7 +84,7 @@ this.Highlighter = function Highlighter(aTarget, aInspector, aToolbox)
   this.chromeWin = this.chromeDoc.defaultView;
   this.inspector = aInspector
 
-  new EventEmitter(this);
+  EventEmitter.decorate(this);
 
   this._init();
 }
@@ -96,7 +96,7 @@ Highlighter.prototype = {
 
   _init: function Highlighter__init()
   {
-    this.unlock = this.unlock.bind(this);
+    this.unlockAndFocus = this.unlockAndFocus.bind(this);
     this.updateInfobar = this.updateInfobar.bind(this);
     this.highlight = this.highlight.bind(this);
 
@@ -129,18 +129,24 @@ Highlighter.prototype = {
     this.transitionDisabler = null;
     this.pageEventsMuter = null;
 
-    this.unlock();
+    this.unlockAndFocus();
 
     this.selection.on("new-node", this.highlight);
     this.selection.on("new-node", this.updateInfobar);
-    this.selection.on("detached", this.highlight);
     this.selection.on("pseudoclass", this.updateInfobar);
     this.selection.on("attribute-changed", this.updateInfobar);
 
     this.onToolSelected = function(event, id) {
       if (id != "inspector") {
+        this.chromeWin.clearTimeout(this.pageEventsMuter);
+        this.detachMouseListeners();
+        this.disabled = true;
         this.hide();
       } else {
+        if (!this.locked) {
+          this.attachMouseListeners();
+        }
+        this.disabled = false;
         this.show();
       }
     }.bind(this);
@@ -155,7 +161,7 @@ Highlighter.prototype = {
    */
   destroy: function Highlighter_destroy()
   {
-    this.inspectButton.removeEventListener("command", this.unlock);
+    this.inspectButton.removeEventListener("command", this.unlockAndFocus);
     this.inspectButton = null;
 
     this.toolbox.off("select", this.onToolSelected);
@@ -163,7 +169,6 @@ Highlighter.prototype = {
 
     this.selection.off("new-node", this.highlight);
     this.selection.off("new-node", this.updateInfobar);
-    this.selection.off("detached", this.highlight);
     this.selection.off("pseudoclass", this.updateInfobar);
     this.selection.off("attribute-changed", this.updateInfobar);
 
@@ -203,6 +208,9 @@ Highlighter.prototype = {
                           this.selection.isElementNode();
 
     if (canHighlightNode) {
+      if (this.selection.reason != "navigateaway") {
+        this.disabled = false;
+      }
       this.show();
       this.updateInfobar();
       this.invalidateSize();
@@ -211,6 +219,7 @@ Highlighter.prototype = {
         LayoutHelpers.scrollIntoViewIfNeeded(this.selection.node);
       }
     } else {
+      this.disabled = true;
       this.hide();
     }
   },
@@ -243,7 +252,7 @@ Highlighter.prototype = {
    * Show the highlighter if it has been hidden.
    */
   show: function() {
-    if (!this.hidden) return;
+    if (!this.hidden || this.disabled) return;
     this.showOutline();
     this.showInfobar();
     this.computeZoomFactor();
@@ -294,12 +303,20 @@ Highlighter.prototype = {
     this.nodeInfo.container.removeAttribute("locked");
     this.attachMouseListeners();
     this.locked = false;
-    this.chromeWin.focus();
     if (this.selection.isElementNode() &&
         this.selection.isConnected()) {
       this.showOutline();
     }
     this.emit("unlocked");
+  },
+
+  /**
+   * Focus the browser before unlocking.
+   */
+  unlockAndFocus: function Highlighter_unlockAndFocus() {
+    if (this.locked === false) return;
+    this.chromeWin.focus();
+    this.unlock();
   },
 
   /**
@@ -392,7 +409,7 @@ Highlighter.prototype = {
     this.inspectButton.className = "highlighter-nodeinfobar-button highlighter-nodeinfobar-inspectbutton"
     let toolbarInspectButton = this.inspector.panelDoc.getElementById("inspector-inspect-toolbutton");
     this.inspectButton.setAttribute("tooltiptext", toolbarInspectButton.getAttribute("tooltiptext"));
-    this.inspectButton.addEventListener("command", this.unlock);
+    this.inspectButton.addEventListener("command", this.unlockAndFocus);
 
     let nodemenu = this.chromeDoc.createElement("toolbarbutton");
     nodemenu.setAttribute("type", "menu");
@@ -740,11 +757,9 @@ Highlighter.prototype = {
   {
     // Stop inspection when the user clicks on a node.
     if (aEvent.button == 0) {
-      let win = aEvent.target.ownerDocument.defaultView;
       this.lock();
       let node = this.selection.node;
       this.selection.setNode(node, "highlighter-lock");
-      win.focus();
       aEvent.preventDefault();
       aEvent.stopPropagation();
     }

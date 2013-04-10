@@ -24,6 +24,9 @@ function SpecialPowersAPI() {
   this._prefEnvUndoStack = [];
   this._pendingPrefs = [];
   this._applyingPrefs = false;
+  this._permissionsUndoStack = [];
+  this._pendingPermissions = [];
+  this._applyingPermissions = false;
   this._fm = null;
   this._cb = null;
 }
@@ -32,43 +35,9 @@ function bindDOMWindowUtils(aWindow) {
   if (!aWindow)
     return
 
-  var util = aWindow.QueryInterface(Components.interfaces.nsIInterfaceRequestor)
-                   .getInterface(Components.interfaces.nsIDOMWindowUtils);
-  // This bit of magic brought to you by the letters
-  // B Z, and E, S and the number 5.
-  //
-  // Take all of the properties on the nsIDOMWindowUtils-implementing
-  // object, and rebind them onto a new object with a stub that uses
-  // apply to call them from this privileged scope. This way we don't
-  // have to explicitly stub out new methods that appear on
-  // nsIDOMWindowUtils.
-  //
-  // Note that this will be a chrome object that is (possibly) exposed to
-  // content. Make sure to define __exposedProps__ for each property to make
-  // sure that it gets through the security membrane.
-  var proto = Object.getPrototypeOf(util);
-  var target = { __exposedProps__: {} };
-  function rebind(desc, prop) {
-    if (prop in desc && typeof(desc[prop]) == "function") {
-      var oldval = desc[prop];
-      try {
-        desc[prop] = function() {
-          return oldval.apply(util, arguments);
-        };
-      } catch (ex) {
-        dump("WARNING: Special Powers failed to rebind function: " + desc + "::" + prop + "\n");
-      }
-    }
-  }
-  for (var i in proto) {
-    var desc = Object.getOwnPropertyDescriptor(proto, i);
-    rebind(desc, "get");
-    rebind(desc, "set");
-    rebind(desc, "value");
-    Object.defineProperty(target, i, desc);
-    target.__exposedProps__[i] = 'rw';
-  }
-  return target;
+   var util = aWindow.QueryInterface(Ci.nsIInterfaceRequestor)
+                     .getInterface(Ci.nsIDOMWindowUtils);
+   return wrapPrivileged(util);
 }
 
 function getRawComponents(aWindow) {
@@ -90,13 +59,7 @@ function unwrapIfWrapped(x) {
 };
 
 function isXrayWrapper(x) {
-  try {
-    return /XrayWrapper/.exec(x.toString());
-  } catch(e) {
-    // The toString() implementation could theoretically throw. But it never
-    // throws for Xray, so we can just assume non-xray in that case.
-    return false;
-  }
+  return Cu.isXrayWrapper(x);
 }
 
 function callGetOwnPropertyDescriptor(obj, name) {
@@ -511,7 +474,7 @@ SpecialPowersAPI.prototype = {
     if (aExpectingProcessCrash) {
       var message = {
         op: "delete-crash-dump-files",
-        filenames: this._encounteredCrashDumpFiles 
+        filenames: this._encounteredCrashDumpFiles
       };
       if (!this._sendSyncMessage("SPProcessCrashService", message)[0]) {
         success = false;
@@ -532,6 +495,150 @@ SpecialPowersAPI.prototype = {
       self._unexpectedCrashDumpFiles[aFilename] = true;
     });
     return crashDumpFiles;
+  },
+
+  /* apply permissions to the system and when the test case is finished (SimpleTest.finish())
+     we will revert the permission back to the original.
+
+     inPermissions is an array of objects where each object has a type, action, context, ex:
+     [{'type': 'SystemXHR', 'allow': 1, 'context': document}, 
+      {'type': 'SystemXHR', 'allow': 0, 'context': document}]
+
+    allow is a boolean and can be true/false or 1/0
+  */
+  pushPermissions: function(inPermissions, callback) {
+    var pendingPermissions = [];
+    var cleanupPermissions = [];
+
+    for (var p in inPermissions) {
+        var permission = inPermissions[p];
+        var originalValue = Ci.nsIPermissionManager.UNKNOWN_ACTION;
+        if (this.testPermission(permission.type, Ci.nsIPermissionManager.ALLOW_ACTION, permission.context)) {
+          originalValue = Ci.nsIPermissionManager.ALLOW_ACTION;
+        } else if (this.testPermission(permission.type, Ci.nsIPermissionManager.DENY_ACTION, permission.context)) {
+          originalValue = Ci.nsIPermissionManager.DENY_ACTION;
+        }
+
+        let [url, appId, isInBrowserElement] = this._getInfoFromPermissionArg(permission.context);
+
+        let perm = permission.allow ? Ci.nsIPermissionManager.ALLOW_ACTION
+                           : Ci.nsIPermissionManager.DENY_ACTION;
+
+        if (originalValue == perm) {
+          continue;
+        }
+        pendingPermissions.push({'op': 'add', 'type': permission.type, 'permission': perm, 'value': perm, 'url': url, 'appId': appId, 'isInBrowserElement': isInBrowserElement});
+
+        /* Push original permissions value or clear into cleanup array */
+        var cleanupTodo = {'op': 'add', 'type': permission.type, 'permission': perm, 'value': perm, 'url': url, 'appId': appId, 'isInBrowserElement': isInBrowserElement};
+        if (originalValue == Ci.nsIPermissionManager.UNKNOWN_ACTION) {
+          cleanupTodo.op = 'remove';
+        } else {
+          cleeanupTodo.value = originalValue;
+        }
+        cleanupPermissions.push(cleanupTodo);
+    }
+
+    if (pendingPermissions.length > 0) {
+      // The callback needs to be delayed twice. One delay is because the pref
+      // service doesn't guarantee the order it calls its observers in, so it
+      // may notify the observer holding the callback before the other
+      // observers have been notified and given a chance to make the changes
+      // that the callback checks for. The second delay is because pref
+      // observers often defer making their changes by posting an event to the
+      // event loop.
+      function delayedCallback() {
+        function delayAgain() {
+          content.window.setTimeout(callback, 0);
+        }
+        content.window.setTimeout(delayAgain, 0);
+      }
+      this._permissionsUndoStack.push(cleanupPermissions);
+      this._pendingPermissions.push([pendingPermissions, delayedCallback]);
+      this._applyPermissions();
+    } else {
+      content.window.setTimeout(callback, 0);
+    }
+  },
+
+  popPermissions: function(callback) {
+    if (this._permissionsUndoStack.length > 0) {
+      // See pushPermissions comment regarding delay.
+      function delayedCallback() {
+        function delayAgain() {
+          content.window.setTimeout(callback, 0);
+        }
+        content.window.setTimeout(delayAgain, 0);
+      }
+      let cb = callback ? delayedCallback : null;
+      /* Each pop from the stack will yield an object {op/type/permission/value/url/appid/isInBrowserElement} or null */
+      this._pendingPermissions.push([this._permissionsUndoStack.pop(), cb]);
+      this._applyPermissions();
+    } else {
+      content.window.setTimeout(callback, 0);
+    }
+  },
+
+  flushPermissions: function(callback) {
+    while (this._permissionsUndoStack.length > 1)
+      this.popPermissions(null);
+
+    this.popPermissions(callback);
+  },
+
+
+  _permissionObserver: {
+    _lastPermission: {},
+    _callBack: null,
+    _nextCallback: null,
+
+    observe: function (aSubject, aTopic, aData)
+    {
+      if (aTopic == "perm-changed") {
+        var permission = aSubject.QueryInterface(Ci.nsIPermission);
+        if (permission.type == this._lastPermission.type) {
+          var os = Components.classes["@mozilla.org/observer-service;1"]
+                             .getService(Components.interfaces.nsIObserverService);
+          os.removeObserver(this, "perm-changed");
+          content.window.setTimeout(this._callback, 0);
+          content.window.setTimeout(this._nextCallback, 0);
+        }
+      }
+    }
+  },
+
+  /*
+    Iterate through one atomic set of permissions actions and perform allow/deny as appropriate.
+    All actions performed must modify the relevant permission.
+  */
+  _applyPermissions: function() {
+    if (this._applyingPermissions || this._pendingPermissions.length <= 0) {
+      return;
+    }
+
+    /* Set lock and get prefs from the _pendingPrefs queue */
+    this._applyingPermissions = true;
+    var transaction = this._pendingPermissions.shift();
+    var pendingActions = transaction[0];
+    var callback = transaction[1];
+    lastPermission = pendingActions[pendingActions.length-1];
+
+    var self = this;
+    var os = Cc["@mozilla.org/observer-service;1"].getService(Ci.nsIObserverService);
+    this._permissionObserver._lastPermission = lastPermission;
+    this._permissionObserver._callback = callback;
+    this._permissionObserver._nextCallback = function () {
+        self._applyingPermissions = false;
+        // Now apply any permissions that may have been queued while we were applying
+        self._applyPermissions();
+    }
+
+    os.addObserver(this._permissionObserver, "perm-changed", false);
+
+    for (var idx in pendingActions) {
+      var perm = pendingActions[idx];
+      this._sendSyncMessage('SPPermissionManager', perm)[0];
+    }
   },
 
   /*
@@ -602,7 +709,7 @@ SpecialPowersAPI.prototype = {
           if (aPref.length == 3) {
             prefType = "COMPLEX";
           } else if (aPref.length == 2) {
-            if (typeof(prefValue) == "boolean") 
+            if (typeof(prefValue) == "boolean")
               prefType = "BOOL";
             else if (typeof(prefValue) == "number")
               prefType = "INT";
@@ -663,7 +770,7 @@ SpecialPowersAPI.prototype = {
         }
         content.window.setTimeout(delayAgain, 0);
       }
-      let cb = callback ? delayedCallback : null; 
+      let cb = callback ? delayedCallback : null;
       /* Each pop will have a valid block of preferences */
       this._pendingPrefs.push([this._prefEnvUndoStack.pop(), cb]);
       this._applyPrefs();
@@ -680,7 +787,7 @@ SpecialPowersAPI.prototype = {
   },
 
   /*
-    Iterate through one atomic set of pref actions and perform sets/clears as appropriate. 
+    Iterate through one atomic set of pref actions and perform sets/clears as appropriate.
     All actions performed must modify the relevant pref.
   */
   _applyPrefs: function() {
@@ -719,6 +826,24 @@ SpecialPowersAPI.prototype = {
     }
   },
 
+  // Disables the app install prompt for the duration of this test. There is
+  // no need to re-enable the prompt at the end of the test.
+  //
+  // The provided callback is invoked once the prompt is disabled.
+  autoConfirmAppInstall: function(cb) {
+    this.pushPrefEnv({set: [['dom.mozApps.auto_confirm_install', true]]}, cb);
+  },
+
+  // Allow tests to disable the per platform app validity checks so we can
+  // test higher level WebApp functionality without full platform support.
+  setAllAppsLaunchable: function(launchable) {
+    var message = {
+      op: "set-launchable",
+      launchable: launchable
+    };
+    return this._sendSyncMessage("SPWebAppService", message);
+  },
+
   addObserver: function(obs, notification, weak) {
     var obsvc = Cc['@mozilla.org/observer-service;1']
                    .getService(Ci.nsIObserverService);
@@ -729,18 +854,29 @@ SpecialPowersAPI.prototype = {
                    .getService(Ci.nsIObserverService);
     obsvc.removeObserver(obs, notification);
   },
-   
+
   can_QI: function(obj) {
     return obj.QueryInterface !== undefined;
   },
   do_QueryInterface: function(obj, iface) {
-    return obj.QueryInterface(Ci[iface]); 
+    return obj.QueryInterface(Ci[iface]);
   },
 
   call_Instanceof: function (obj1, obj2) {
      obj1=unwrapIfWrapped(obj1);
      obj2=unwrapIfWrapped(obj2);
      return obj1 instanceof obj2;
+  },
+
+  // Returns a privileged getter from an object. GetOwnPropertyDescriptor does
+  // not work here because xray wrappers don't properly implement it.
+  //
+  // This terribleness is used by content/base/test/test_object.html because
+  // <object> and <embed> tags will spawn plugins if their prototype is touched,
+  // so we need to get and cache the getter of |hasRunningPlugin| if we want to
+  // call it without paradoxically spawning the plugin.
+  do_lookupGetter: function(obj, name) {
+    return Object.prototype.__lookupGetter__.call(obj, name);
   },
 
   // Mimic the get*Pref API
@@ -1034,7 +1170,7 @@ SpecialPowersAPI.prototype = {
     var serv = Cc["@mozilla.org/dom/dom-request-service;1"].
       getService(Ci.nsIDOMRequestService);
     var res = { __exposedProps__: {} };
-    var props = ["createRequest", "fireError", "fireSuccess"];
+    var props = ["createRequest", "createCursor", "fireError", "fireSuccess", "fireDone"];
     for (i in props) {
       let prop = props[i];
       res[prop] = function() { return serv[prop].apply(serv, arguments) };
@@ -1109,7 +1245,7 @@ SpecialPowersAPI.prototype = {
   },
 
   getFocusedElementForWindow: function(targetWindow, aDeep, childTargetWindow) {
-    this.focusManager.getFocusedElementForWindow(targetWindow, aDeep, childTargetWindow);
+    return this.focusManager.getFocusedElementForWindow(targetWindow, aDeep, childTargetWindow);
   },
 
   activeWindow: function() {
@@ -1123,8 +1259,8 @@ SpecialPowersAPI.prototype = {
   focus: function(window) {
     window.focus();
   },
-  
-  getClipboardData: function(flavor) {  
+
+  getClipboardData: function(flavor) {
     if (this._cb == null)
       this._cb = Components.classes["@mozilla.org/widget/clipboard;1"].
                             getService(Components.interfaces.nsIClipboard);
@@ -1142,7 +1278,7 @@ SpecialPowersAPI.prototype = {
     data = data.value || null;
     if (data == null)
       return "";
-      
+
     return data.QueryInterface(Components.interfaces.nsISupportsString).data;
   },
 
@@ -1160,12 +1296,12 @@ SpecialPowersAPI.prototype = {
     return this._cb.supportsSelectionClipboard();
   },
 
-  swapFactoryRegistration: function(cid, contractID, newFactory, oldFactory) {  
+  swapFactoryRegistration: function(cid, contractID, newFactory, oldFactory) {
     var componentRegistrar = Components.manager.QueryInterface(Components.interfaces.nsIComponentRegistrar);
 
     var unregisterFactory = newFactory;
     var registerFactory = oldFactory;
-    
+
     if (cid == null) {
       if (contractID != null) {
         cid = componentRegistrar.contractIDToCID(contractID);
@@ -1188,12 +1324,12 @@ SpecialPowersAPI.prototype = {
                                        registerFactory);
     return {'cid':cid, 'originalFactory':oldFactory};
   },
-  
+
   _getElement: function(aWindow, id) {
     return ((typeof(id) == "string") ?
-        aWindow.document.getElementById(id) : id); 
+        aWindow.document.getElementById(id) : id);
   },
-  
+
   dispatchEvent: function(aWindow, target, event) {
     var el = this._getElement(aWindow, target);
     return el.dispatchEvent(event);
@@ -1204,6 +1340,10 @@ SpecialPowersAPI.prototype = {
     var debug = Cc["@mozilla.org/xpcom/debug;1"].getService(Ci.nsIDebug2);
     return this.isDebugBuild = debug.isDebugBuild;
   },
+  assertionCount: function() {
+    var debugsvc = Cc['@mozilla.org/xpcom/debug;1'].getService(Ci.nsIDebug2);
+    return debugsvc.assertionCount;
+  },
 
   /**
    * Get the message manager associated with an <iframe mozbrowser>.
@@ -1213,7 +1353,7 @@ SpecialPowersAPI.prototype = {
                                   .frameLoader
                                   .messageManager);
   },
-  
+
   setFullscreenAllowed: function(document) {
     var pm = Cc["@mozilla.org/permissionmanager;1"].getService(Ci.nsIPermissionManager);
     pm.addFromPrincipal(document.nodePrincipal, "fullscreen", Ci.nsIPermissionManager.ALLOW_ACTION);
@@ -1221,7 +1361,7 @@ SpecialPowersAPI.prototype = {
                    .getService(Ci.nsIObserverService);
     obsvc.notifyObservers(document, "fullscreen-approved", null);
   },
-  
+
   removeFullscreenAllowed: function(document) {
     var pm = Cc["@mozilla.org/permissionmanager;1"].getService(Ci.nsIPermissionManager);
     pm.removeFromPrincipal(document.nodePrincipal, "fullscreen");
@@ -1240,15 +1380,15 @@ SpecialPowersAPI.prototype = {
               .spec;
     } else if (arg.manifestURL) {
       // It's a thing representing an app.
-      let tmp = {};
-      Cu.import("resource://gre/modules/Webapps.jsm", tmp);
+      let appsSvc = Cc["@mozilla.org/AppsService;1"]
+                      .getService(Ci.nsIAppsService)
+      let app = appsSvc.getAppByManifestURL(arg.manifestURL);
 
-      let app = tmp.DOMApplicationRegistry.getAppByManifestURL(arg.manifestURL);
       if (!app) {
         throw "No app for this manifest!";
       }
 
-      appId = app.localId;
+      appId = appsSvc.getAppLocalIdByManifestURL(arg.manifestURL);
       url = app.origin;
       isInBrowserElement = arg.isInBrowserElement || false;
     } else if (arg.nodePrincipal) {
@@ -1272,7 +1412,7 @@ SpecialPowersAPI.prototype = {
                            : Ci.nsIPermissionManager.DENY_ACTION;
 
     var msg = {
-      'op': "add",
+      'op': 'add',
       'type': type,
       'permission': permission,
       'url': url,
@@ -1287,7 +1427,7 @@ SpecialPowersAPI.prototype = {
     let [url, appId, isInBrowserElement] = this._getInfoFromPermissionArg(arg);
 
     var msg = {
-      'op': "remove",
+      'op': 'remove',
       'type': type,
       'url': url,
       'appId': appId,
@@ -1295,6 +1435,33 @@ SpecialPowersAPI.prototype = {
     };
 
     this._sendSyncMessage('SPPermissionManager', msg);
+  },
+
+  hasPermission: function (type, arg) {
+   let [url, appId, isInBrowserElement] = this._getInfoFromPermissionArg(arg);
+
+    var msg = {
+      'op': 'has',
+      'type': type,
+      'url': url,
+      'appId': appId,
+      'isInBrowserElement': isInBrowserElement
+    };
+
+    return this._sendSyncMessage('SPPermissionManager', msg)[0];
+  },
+  testPermission: function (type, value, arg) {
+   let [url, appId, isInBrowserElement] = this._getInfoFromPermissionArg(arg);
+
+    var msg = {
+      'op': 'test',
+      'type': type,
+      'value': value, 
+      'url': url,
+      'appId': appId,
+      'isInBrowserElement': isInBrowserElement
+    };
+    return this._sendSyncMessage('SPPermissionManager', msg)[0];
   },
 
   getMozFullPath: function(file) {

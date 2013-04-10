@@ -245,8 +245,6 @@ nsParser::Cleanup()
   NS_ASSERTION(!(mFlags & NS_PARSER_FLAG_PENDING_CONTINUE_EVENT), "bad");
 }
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsParser)
-
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsParser)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDTD)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mSink)
@@ -793,15 +791,7 @@ DetermineParseMode(const nsString& aBuffer, nsDTDMode& aParseMode,
 {
   if (aMimeType.EqualsLiteral(TEXT_HTML)) {
     DetermineHTMLParseMode(aBuffer, aParseMode, aDocType);
-  } else if (aMimeType.EqualsLiteral(TEXT_PLAIN) ||
-             aMimeType.EqualsLiteral(TEXT_CACHE_MANIFEST) ||
-             aMimeType.EqualsLiteral(TEXT_CSS) ||
-             aMimeType.EqualsLiteral(APPLICATION_JAVASCRIPT) ||
-             aMimeType.EqualsLiteral(APPLICATION_XJAVASCRIPT) ||
-             aMimeType.EqualsLiteral(APPLICATION_JSON) ||
-             aMimeType.EqualsLiteral(TEXT_ECMASCRIPT) ||
-             aMimeType.EqualsLiteral(APPLICATION_ECMASCRIPT) ||
-             aMimeType.EqualsLiteral(TEXT_JAVASCRIPT)) {
+  } else if (nsContentUtils::IsPlainTextType(aMimeType)) {
     aDocType = ePlainText;
     aParseMode = eDTDMode_quirks;
   } else { // Some form of XML
@@ -1109,6 +1099,7 @@ nsParser::ContinueInterruptedParsing()
   // the reenabling process, hold a reference to ourselves.
   nsresult result=NS_OK;
   nsCOMPtr<nsIParser> kungFuDeathGrip(this);
+  nsCOMPtr<nsIContentSink> sinkDeathGrip(mSink);
 
 #ifdef DEBUG
   if (!(mFlags & NS_PARSER_FLAG_PARSER_ENABLED)) {
@@ -1753,8 +1744,8 @@ ExtractCharsetFromXmlDeclaration(const unsigned char* aBytes, int32_t aLen,
               if (q && q == qi) {
                 int32_t count = i - encStart;
                 // encoding value is invalid if it is UTF-16
-                if (count > 0 && (0 != PL_strcmp("UTF-16",
-                    (char*) (aBytes + encStart)))) {
+                if (count > 0 && PL_strncasecmp("UTF-16",
+                    (char*) (aBytes + encStart), count)) {
                   oCharset.Assign((char*) (aBytes + encStart), count);
                 }
                 encodingFound = true;
@@ -1919,6 +1910,8 @@ nsParser::OnDataAvailable(nsIRequest *request, nsISupports* aContext,
     // non-whitespace data
     if (IsOkToProcessNetworkData() &&
         theContext->mScanner->FirstNonWhitespacePosition() >= 0) {
+      nsCOMPtr<nsIParser> kungFuDeathGrip(this);
+      nsCOMPtr<nsIContentSink> sinkDeathGrip(mSink);
       mProcessingNetworkData = true;
       if (mSink) {
         mSink->WillParse();

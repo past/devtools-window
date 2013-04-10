@@ -19,6 +19,7 @@
 #include "nsISocketTransportService.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/net/DashboardTypes.h"
 
 #include "nsIObserver.h"
 #include "nsITimer.h"
@@ -207,6 +208,9 @@ public:
     nsresult ProcessPendingQ(nsHttpConnectionInfo *);
     bool     ProcessPendingQForEntry(nsHttpConnectionInfo *);
 
+    // Try and process all pending transactions
+    nsresult ProcessPendingQ();
+
     // This is used to force an idle connection to be closed and removed from
     // the idle connection list. It is called when the idle connection detects
     // that the network peer has closed the transport.
@@ -217,8 +221,16 @@ public:
     // bit different.
     void ReportSpdyConnection(nsHttpConnection *, bool usingSpdy);
 
+    // A spdy server can supply cwnd information for the session that is used
+    // in future sessions to speed up the opening portions of the connection.
+    void ReportSpdyCWNDSetting(nsHttpConnectionInfo *host, uint32_t cwndValue);
+    uint32_t GetSpdyCWNDSetting(nsHttpConnectionInfo *host);
     
     bool     SupportsPipelining(nsHttpConnectionInfo *);
+
+    bool GetConnectionData(nsTArray<mozilla::net::HttpRetParams> *);
+
+    void ResetIPFamillyPreference(nsHttpConnectionInfo *);
 
 private:
     virtual ~nsHttpConnectionMgr();
@@ -326,6 +338,11 @@ private:
         //
         nsCString mCoalescingKey;
 
+        // The value of a recevied SPDY settings type 5 previously received
+        // for this connection entry and the time it was set.
+        uint32_t            mSpdyCWND;
+        mozilla::TimeStamp  mSpdyCWNDTimeStamp;
+
         // To have the UsingSpdy flag means some host with the same connection
         // entry has done NPN=spdy/* at some point. It does not mean every
         // connection is currently using spdy.
@@ -338,6 +355,20 @@ private:
         bool mTestedSpdy;
 
         bool mSpdyPreferred;
+
+        // Flags to remember our happy-eyeballs decision.
+        // Reset only by Ctrl-F5 reload.
+        // True when we've first connected an IPv4 server for this host,
+        // initially false.
+        bool mPreferIPv4 : 1;
+        // True when we've first connected an IPv6 server for this host,
+        // initially false.
+        bool mPreferIPv6 : 1;
+
+        // Set the IP family preference flags according the connected family
+        void RecordIPFamilyPreference(uint16_t family);
+        // Resets all flags to their default values
+        void ResetIPFamilyPreference();
     };
 
     // nsConnectionHandle
@@ -453,12 +484,14 @@ private:
     //-------------------------------------------------------------------------
 
     static PLDHashOperator ProcessOneTransactionCB(const nsACString &, nsAutoPtr<nsConnectionEntry> &, void *);
+    static PLDHashOperator ProcessAllTransactionsCB(const nsACString &, nsAutoPtr<nsConnectionEntry> &, void *);
 
     static PLDHashOperator PruneDeadConnectionsCB(const nsACString &, nsAutoPtr<nsConnectionEntry> &, void *);
     static PLDHashOperator ShutdownPassCB(const nsACString &, nsAutoPtr<nsConnectionEntry> &, void *);
     static PLDHashOperator PurgeExcessIdleConnectionsCB(const nsACString &, nsAutoPtr<nsConnectionEntry> &, void *);
+    static PLDHashOperator PurgeExcessSpdyConnectionsCB(const nsACString &, nsAutoPtr<nsConnectionEntry> &, void *);
     static PLDHashOperator ClosePersistentConnectionsCB(const nsACString &, nsAutoPtr<nsConnectionEntry> &, void *);
-    bool     ProcessPendingQForEntry(nsConnectionEntry *);
+    bool     ProcessPendingQForEntry(nsConnectionEntry *, bool considerAll);
     bool     IsUnderPressure(nsConnectionEntry *ent,
                              nsHttpTransaction::Classifier classification);
     bool     AtActiveConnectionLimit(nsConnectionEntry *, uint32_t caps);
@@ -506,7 +539,6 @@ private:
                                              nsHttpTransaction *trans);
 
     void               ProcessSpdyPendingQ(nsConnectionEntry *ent);
-    void               ProcessAllSpdyPendingQ();
     static PLDHashOperator ProcessSpdyPendingQCB(
         const nsACString &key, nsAutoPtr<nsConnectionEntry> &ent,
         void *closure);
@@ -572,6 +604,7 @@ private:
     void OnMsgUpdateParam          (int32_t, void *);
     void OnMsgClosePersistentConnections (int32_t, void *);
     void OnMsgProcessFeedback      (int32_t, void *);
+    void OnMsgProcessAllSpdyPendingQ (int32_t, void *);
 
     // Total number of active connections in all of the ConnectionEntry objects
     // that are accessed from mCT connection table.
@@ -579,6 +612,9 @@ private:
     // Total number of idle connections in all of the ConnectionEntry objects
     // that are accessed from mCT connection table.
     uint16_t mNumIdleConns;
+    // Total number of connections in mHalfOpens ConnectionEntry objects
+    // that are accessed from mCT connection table
+    uint32_t mNumHalfOpenConns;
 
     // Holds time in seconds for next wake-up to prune dead connections. 
     uint64_t mTimeOfNextWakeUp;
@@ -604,6 +640,11 @@ private:
     nsTHashtable<nsCStringHashKey> mAlternateProtocolHash;
     static PLDHashOperator TrimAlternateProtocolHash(nsCStringHashKey *entry,
                                                      void *closure);
+
+    static PLDHashOperator ReadConnectionEntry(const nsACString &key,
+                                               nsAutoPtr<nsConnectionEntry> &ent,
+                                               void *aArg);
+
     // Read Timeout Tick handlers
     void ActivateTimeoutTick();
     void TimeoutTick();

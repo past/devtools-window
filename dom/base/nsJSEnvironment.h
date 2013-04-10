@@ -45,22 +45,10 @@ public:
   virtual nsIScriptObjectPrincipal* GetObjectPrincipal();
 
   virtual nsresult EvaluateString(const nsAString& aScript,
-                                  JSObject* aScopeObject,
-                                  nsIPrincipal *principal,
-                                  nsIPrincipal *originPrincipal,
-                                  const char *aURL,
-                                  uint32_t aLineNo,
-                                  JSVersion aVersion,
-                                  nsAString *aRetValue,
-                                  bool* aIsUndefined);
-  virtual nsresult EvaluateStringWithValue(const nsAString& aScript,
-                                           JSObject* aScopeObject,
-                                           nsIPrincipal* aPrincipal,
-                                           const char* aURL,
-                                           uint32_t aLineNo,
-                                           uint32_t aVersion,
-                                           JS::Value* aRetValue,
-                                           bool* aIsUndefined);
+                                  JSObject& aScopeObject,
+                                  JS::CompileOptions &aOptions,
+                                  bool aCoerceToString,
+                                  JS::Value* aRetValue);
 
   virtual nsresult CompileScript(const PRUnichar* aText,
                                  int32_t aTextLength,
@@ -68,42 +56,21 @@ public:
                                  const char *aURL,
                                  uint32_t aLineNo,
                                  uint32_t aVersion,
-                                 nsScriptObjectHolder<JSScript>& aScriptObject,
+                                 JS::MutableHandle<JSScript*> aScriptObject,
                                  bool aSaveSource = false);
   virtual nsresult ExecuteScript(JSScript* aScriptObject,
-                                 JSObject* aScopeObject,
-                                 nsAString* aRetValue,
-                                 bool* aIsUndefined);
+                                 JSObject* aScopeObject);
 
-  virtual nsresult CompileEventHandler(nsIAtom *aName,
-                                       uint32_t aArgCount,
-                                       const char** aArgNames,
-                                       const nsAString& aBody,
-                                       const char *aURL, uint32_t aLineNo,
-                                       uint32_t aVersion,
-                                       bool aIsXBL,
-                                       nsScriptObjectHolder<JSObject>& aHandler);
   virtual nsresult CallEventHandler(nsISupports* aTarget, JSObject* aScope,
                                     JSObject* aHandler,
                                     nsIArray *argv, nsIVariant **rv);
   virtual nsresult BindCompiledEventHandler(nsISupports *aTarget,
                                             JSObject *aScope,
                                             JSObject* aHandler,
-                                            nsScriptObjectHolder<JSObject>& aBoundHandler);
-  virtual nsresult CompileFunction(JSObject* aTarget,
-                                   const nsACString& aName,
-                                   uint32_t aArgCount,
-                                   const char** aArgArray,
-                                   const nsAString& aBody,
-                                   const char* aURL,
-                                   uint32_t aLineNo,
-                                   uint32_t aVersion,
-                                   bool aShared,
-                                   bool aIsXBL,
-                                   JSObject** aFunctionObject);
+                                            JS::MutableHandle<JSObject*> aBoundHandler);
 
   virtual nsIScriptGlobalObject *GetGlobalObject();
-  inline nsIScriptGlobalObject *GetGlobalObjectRef() { return mGlobalObjectRef; };
+  inline nsIScriptGlobalObject *GetGlobalObjectRef() { return mGlobalObjectRef; }
 
   virtual JSContext* GetNativeContext();
   virtual JSObject* GetNativeGlobal();
@@ -118,6 +85,9 @@ public:
 
   virtual nsresult SetProperty(JSObject* aTarget, const char* aPropName, nsISupports* aVal);
 
+  virtual bool GetProcessingScriptTag();
+  virtual void SetProcessingScriptTag(bool aResult);
+
   virtual bool GetExecutingScript();
 
   virtual nsresult InitClasses(JSObject* aGlobalObj);
@@ -127,10 +97,7 @@ public:
 
   virtual nsresult Serialize(nsIObjectOutputStream* aStream, JSScript* aScriptObject);
   virtual nsresult Deserialize(nsIObjectInputStream* aStream,
-                               nsScriptObjectHolder<JSScript>& aResult);
-
-  virtual nsresult DropScriptObject(void *object);
-  virtual nsresult HoldScriptObject(void *object);
+                               JS::MutableHandle<JSScript*> aResult);
 
   virtual void EnterModalState();
   virtual void LeaveModalState();
@@ -155,7 +122,7 @@ public:
     NonIncrementalGC
   };
 
-  static void GarbageCollectNow(js::gcreason::Reason reason,
+  static void GarbageCollectNow(JS::gcreason::Reason reason,
                                 IsIncremental aIncremental = NonIncrementalGC,
                                 IsCompartment aCompartment = NonCompartmentGC,
                                 IsShrinking aShrinking = NonShrinkingGC,
@@ -167,7 +134,7 @@ public:
                               int32_t aExtraForgetSkippableCalls = 0,
                               bool aForced = true);
 
-  static void PokeGC(js::gcreason::Reason aReason, int aDelay = 0);
+  static void PokeGC(JS::gcreason::Reason aReason, int aDelay = 0);
   static void KillGCTimer();
 
   static void PokeShrinkGCBuffers();
@@ -178,7 +145,10 @@ public:
   static void KillFullGCTimer();
   static void KillInterSliceGCTimer();
 
-  virtual void GC(js::gcreason::Reason aReason);
+  // Calling LikelyShortLivingObjectCreated() makes a GC more likely.
+  static void LikelyShortLivingObjectCreated();
+
+  virtual void GC(JS::gcreason::Reason aReason);
 
   static uint32_t CleanupsSinceLastGC();
 
@@ -281,6 +251,7 @@ private:
   bool mIsInitialized;
   bool mScriptsEnabled;
   bool mGCOnDestruction;
+  bool mProcessingScriptTag;
 
   uint32_t mExecuteDepth;
   uint32_t mDefaultJSOptions;
@@ -317,9 +288,6 @@ public:
   CreateContext(bool aGCOnDestruction,
                 nsIScriptGlobalObject* aGlobalObject);
 
-  virtual nsresult DropScriptObject(void *object);
-  virtual nsresult HoldScriptObject(void *object);
-  
   static void Startup();
   static void Shutdown();
   // Setup all the statics etc - safe to call multiple times after Startup()

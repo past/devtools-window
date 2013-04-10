@@ -17,7 +17,6 @@ VPATH       = \
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE         = thebes
 LIBRARY_NAME   = layers
 LIBXUL_LIBRARY = 1
 FORCE_STATIC_LIB = 1
@@ -83,6 +82,10 @@ CPPSRCS = \
         TexturePoolOGL.cpp \
         $(NULL)
 
+GTEST_CPPSRCS = \
+        TestTiledLayerBuffer.cpp \
+        $(NULL)
+
 ifeq ($(MOZ_WIDGET_TOOLKIT),windows)
 ifdef MOZ_ENABLE_D3D9_LAYER
 EXPORTS += \
@@ -141,7 +144,9 @@ EXPORTS_mozilla/layers =\
         ShadowLayersManager.h \
         RenderTrace.h \
         SharedImageUtils.h \
+        SharedRGBImage.h \
         ShmemYCbCrImage.h \
+        TaskThrottler.h \
         $(NULL)
 
 CPPSRCS += \
@@ -160,7 +165,9 @@ CPPSRCS += \
         ShadowLayersChild.cpp \
         ShadowLayerParent.cpp \
         ShadowLayersParent.cpp \
+        SharedRGBImage.cpp \
         ShmemYCbCrImage.cpp \
+        TaskThrottler.cpp \
         $(NULL)
 
 ifdef MOZ_X11 #{

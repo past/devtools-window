@@ -11,6 +11,7 @@
 #endif
                              return;
                            }
+                           updateCharacterEncodingMenuState();
                            if (event.target.parentNode.parentNode.parentNode.parentNode == this)
                              this._currentPopup = event.target;">
   <hbox>
@@ -27,12 +28,6 @@
                       label="&newNavigatorCmd.label;"
                       command="cmd_newNavigator"
                       key="key_newNavigator"/>
-#ifdef MOZ_PER_WINDOW_PRIVATE_BROWSING
-            <menuitem id="appmenu_newPrivateWindow"
-                      label="&newPrivateWindow.label;"
-                      command="Tools:PrivateBrowsing"
-                      key="key_privatebrowsing"/>
-#endif
             <menuseparator/>
             <menuitem id="appmenu_openFile"
                       label="&openFileCmd.label;"
@@ -40,15 +35,11 @@
                       key="openFileKb"/>
           </menupopup>
       </splitmenu>
-#ifndef MOZ_PER_WINDOW_PRIVATE_BROWSING
-      <menuitem id="appmenu_privateBrowsing"
+      <menuitem id="appmenu_newPrivateWindow"
                 class="menuitem-iconic menuitem-iconic-tooltip"
-                label="&privateBrowsingCmd.start.label;"
-                startlabel="&privateBrowsingCmd.start.label;"
-                stoplabel="&privateBrowsingCmd.stop.label;"
+                label="&newPrivateWindow.label;"
                 command="Tools:PrivateBrowsing"
                 key="key_privatebrowsing"/>
-#endif
       <menuitem label="&goOfflineCmd.label;"
                 id="appmenu_offlineModeRecovery"
                 type="checkbox"
@@ -147,8 +138,9 @@
           </menupopup>
       </splitmenu>
       <menuseparator class="appmenu-menuseparator"/>
-      <menu id="appmenu_webDeveloper"
-            label="&appMenuWebDeveloper.label;">
+      <splitmenu id="appmenu_webDeveloper"
+                 command="Tools:DevToolbox"
+                 label="&appMenuWebDeveloper.label;">
         <menupopup id="appmenu_webDeveloper_popup">
           <menuitem id="appmenu_devToolbox"
                     observes="devtoolsMenuBroadcaster_DevToolbox"/>
@@ -165,7 +157,6 @@
                     observes="devtoolsMenuBroadcaster_PageSource"/>
           <menuitem id="appmenu_errorConsole"
                     observes="devtoolsMenuBroadcaster_ErrorConsole"/>
-          <menuseparator id="appmenu_devToolsConnectSeparator"/>
           <menuitem id="appmenu_devtools_connect"
                     observes="devtoolsMenuBroadcaster_connect"/>
           <menuseparator id="appmenu_devToolsEndSeparator"/>
@@ -182,7 +173,7 @@
                     observes="workOfflineMenuitemState"
                     oncommand="BrowserOffline.toggleOfflineStatus();"/>
         </menupopup>
-      </menu>
+      </splitmenu>
       <menuseparator class="appmenu-menuseparator"/>
 #define ID_PREFIX appmenu_
 #define OMIT_ACCESSKEYS
@@ -309,10 +300,8 @@
                       disabled="true"/>
 #endif
             <menuitem id="appmenu_restoreLastSession"
-                      class="restoreLastSession"
                       label="&historyRestoreLastSession.label;"
-                      oncommand="restoreLastSession();"
-                      disabled="true"/>
+                      command="Browser:RestoreLastSession"/>
             <menu id="appmenu_recentlyClosedTabsMenu"
                   class="recentlyClosedTabsMenu"
                   label="&historyUndoMenu.label;"
@@ -380,6 +369,12 @@
                       label="&appMenuGettingStarted.label;"
                       oncommand="gBrowser.loadOneTab('http://www.mozilla.com/firefox/central/', {inBackground: false});"
                       onclick="checkForMiddleClick(this, event);"/>
+#ifdef MOZ_SERVICES_HEALTHREPORT
+            <menuitem id="appmenu_healthReport"
+                      label="&healthReport.label;"
+                      oncommand="openHealthReport()"
+                      onclick="checkForMiddleClick(this, event);"/>
+#endif
             <menuitem id="appmenu_troubleshootingInfo"
                       label="&helpTroubleshootingInfo.label;"
                       oncommand="openTroubleshootingPage()"

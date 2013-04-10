@@ -6,28 +6,27 @@
 #ifndef nsEventStateManager_h__
 #define nsEventStateManager_h__
 
+#include "mozilla/TypedEnum.h"
+
 #include "nsEvent.h"
 #include "nsGUIEvent.h"
-#include "nsIContent.h"
 #include "nsIObserver.h"
 #include "nsWeakReference.h"
-#include "nsHashtable.h"
 #include "nsITimer.h"
 #include "nsCOMPtr.h"
-#include "nsIDocument.h"
 #include "nsCOMArray.h"
 #include "nsIFrameLoader.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsIMarkupDocumentViewer.h"
 #include "nsIScrollableFrame.h"
 #include "nsFocusManager.h"
-#include "nsIDocument.h"
 #include "nsEventStates.h"
 #include "mozilla/TimeStamp.h"
-#include "nsContentUtils.h"
 #include "nsIFrame.h"
 
 class nsIPresShell;
+class nsIContent;
+class nsIDocument;
 class nsIDocShell;
 class nsIDocShellTreeNode;
 class nsIDocShellTreeItem;
@@ -173,15 +172,7 @@ public:
    * dom.event.handling-user-input-time-limit pref (default 1 second), this
    * function also returns false.
    */
-  static bool IsHandlingUserInput()
-  {
-    if (sUserInputEventDepth <= 0) {
-      return false;
-    }
-    TimeDuration timeout = nsContentUtils::HandlingUserInputTimeout();
-    return timeout <= TimeDuration(0) ||
-           (TimeStamp::Now() - sHandlingInputStart) <= timeout;
-  }
+  static bool IsHandlingUserInput();
 
   nsPresContext* GetPresContext() { return mPresContext; }
 
@@ -350,7 +341,7 @@ protected:
     /**
      * Computes the default action for the aEvent with the prefs.
      */
-    enum Action
+    enum Action MOZ_ENUM_TYPE(uint8_t)
     {
       ACTION_NONE = 0,
       ACTION_SCROLL,
@@ -428,6 +419,12 @@ protected:
     double mMultiplierY[COUNT_OF_MULTIPLIERS];
     double mMultiplierZ[COUNT_OF_MULTIPLIERS];
     Action mActions[COUNT_OF_MULTIPLIERS];
+    /**
+     * action values overridden by .override_x pref.
+     * If an .override_x value is -1, same as the
+     * corresponding mActions value.
+     */
+    Action mOverriddenActionsX[COUNT_OF_MULTIPLIERS];
 
     static WheelPrefs* sInstance;
   };
@@ -529,7 +526,7 @@ protected:
    * @param aScrollableFrame    A frame which will be scrolled by the event.
    *                            The result of ComputeScrollTarget() is
    *                            expected for this value.
-   *                            This can be NULL if there is no scrollable
+   *                            This can be nullptr if there is no scrollable
    *                            frame.  Then, this method uses root frame's
    *                            line height or visible area's width and height.
    */
@@ -816,7 +813,7 @@ public:
       if (mIsMouseDown) {
         nsIPresShell::SetCapturingContent(nullptr, 0);
         nsIPresShell::AllowMouseCapture(true);
-        if (aDocument && NS_IS_TRUSTED_EVENT(aEvent)) {
+        if (aDocument && aEvent->mFlags.mIsTrusted) {
           nsFocusManager* fm = nsFocusManager::GetFocusManager();
           if (fm) {
             fm->SetMouseButtonDownHandlingDocument(aDocument);

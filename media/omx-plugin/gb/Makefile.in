@@ -19,7 +19,6 @@ VPATH   = @srcdir@
 
 include $(DEPTH)/config/autoconf.mk
 
-MODULE = omxplugingb
 MODULE_NAME = omxplugingb
 LIBRARY_NAME = omxplugingb
 FORCE_SHARED_LIB = 1
@@ -54,6 +53,8 @@ EXTRA_DSO_LDOPTS += \
 		-lutils \
 		-L$(DEPTH)/media/omx-plugin/lib/gb/libstagefright \
 		-lstagefright \
+		-L$(DEPTH)/media/omx-plugin/lib/gb/libstagefright_color_conversion \
+		-lstagefright_color_conversion \
 		$(NULL)
 
 INCLUDES        += \

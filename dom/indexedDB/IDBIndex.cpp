@@ -670,8 +670,6 @@ IDBIndex::OpenCursorFromChildProcess(
   return NS_OK;
 }
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(IDBIndex)
-
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(IDBIndex)
   NS_IMPL_CYCLE_COLLECTION_TRACE_JSVAL_MEMBER_CALLBACK(mCachedKeyPath)
 NS_IMPL_CYCLE_COLLECTION_TRACE_END
@@ -1375,10 +1373,7 @@ GetAllKeysHelper::GetSuccessResult(JSContext* aCx,
   NS_ASSERTION(mKeys.Length() <= mLimit, "Too many results!");
 
   nsTArray<Key> keys;
-  if (!mKeys.SwapElements(keys)) {
-    NS_ERROR("Failed to swap elements!");
-    return NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR;
-  }
+  mKeys.SwapElements(keys);
 
   JSAutoRequest ar(aCx);
 
@@ -1542,13 +1537,12 @@ GetAllHelper::GetSuccessResult(JSContext* aCx,
 {
   NS_ASSERTION(mCloneReadInfos.Length() <= mLimit, "Too many results!");
 
-  nsresult rv = ConvertCloneReadInfosToArray(aCx, mCloneReadInfos, aVal);
+  nsresult rv = ConvertToArrayAndCleanup(aCx, mCloneReadInfos, aVal);
 
-  for (uint32_t index = 0; index < mCloneReadInfos.Length(); index++) {
-    mCloneReadInfos[index].mCloneBuffer.clear();
-  }
-
+  NS_ASSERTION(mCloneReadInfos.IsEmpty(),
+               "Should have cleared in ConvertToArrayAndCleanup");
   NS_ENSURE_SUCCESS(rv, rv);
+
   return NS_OK;
 }
 
@@ -1668,7 +1662,7 @@ GetAllHelper::UnpackResponseFromParentProcess(
 
   for (uint32_t index = 0; index < cloneInfos.Length(); index++) {
     const SerializedStructuredCloneReadInfo srcInfo = cloneInfos[index];
-    const InfallibleTArray<PBlobChild*> blobs = blobArrays[index].blobsChild();
+    const InfallibleTArray<PBlobChild*>& blobs = blobArrays[index].blobsChild();
 
     StructuredCloneReadInfo* destInfo = mCloneReadInfos.AppendElement();
     if (!destInfo->SetFromSerialized(srcInfo)) {

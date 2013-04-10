@@ -20,21 +20,12 @@ DOMCI_DATA(PropertyNodeList, mozilla::dom::PropertyNodeList)
 namespace mozilla {
 namespace dom {
 
-static PLDHashOperator
-TraverseNamedProperties(const nsAString& aKey, PropertyNodeList* aEntry, void* aData)
-{
-  nsCycleCollectionTraversalCallback* cb = static_cast<nsCycleCollectionTraversalCallback*>(aData);
-  cb->NoteXPCOMChild(static_cast<nsIDOMPropertyNodeList*>(aEntry));
-  return PL_DHASH_NEXT;
-}
-
-NS_IMPL_CYCLE_COLLECTION_CLASS(HTMLPropertiesCollection)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(HTMLPropertiesCollection)
   // SetDocument(nullptr) ensures that we remove ourselves as a mutation observer
   tmp->SetDocument(nullptr);
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mRoot)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mNames)
-  tmp->mNamedItemEntries.Clear();
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mNamedItemEntries)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mProperties)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
@@ -42,7 +33,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(HTMLPropertiesCollection)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDoc)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mRoot)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mNames)
-  tmp->mNamedItemEntries.EnumerateRead(TraverseNamedProperties, &cb);
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mNamedItemEntries);
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mProperties)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
@@ -72,13 +63,11 @@ HTMLPropertiesCollection::~HTMLPropertiesCollection()
 
 NS_INTERFACE_TABLE_HEAD(HTMLPropertiesCollection)
     NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
-    NS_INTERFACE_TABLE4(HTMLPropertiesCollection,
-                        nsIDOMHTMLPropertiesCollection,
+    NS_INTERFACE_TABLE3(HTMLPropertiesCollection,
                         nsIDOMHTMLCollection,
                         nsIHTMLCollection,
                         nsIMutationObserver)
     NS_INTERFACE_TABLE_TO_MAP_SEGUE_CYCLE_COLLECTION(HTMLPropertiesCollection)
-    NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(HTMLPropertiesCollection)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(HTMLPropertiesCollection)
@@ -106,10 +95,9 @@ HTMLPropertiesCollection::SetDocument(nsIDocument* aDocument) {
 }
 
 JSObject*
-HTMLPropertiesCollection::WrapObject(JSContext* cx, JSObject* scope,
-                                     bool* triedToWrap)
+HTMLPropertiesCollection::WrapObject(JSContext* cx, JSObject* scope)
 {
-  return HTMLPropertiesCollectionBinding::Wrap(cx, scope, this, triedToWrap);
+  return HTMLPropertiesCollectionBinding::Wrap(cx, scope, this);
 }
 
 NS_IMETHODIMP
@@ -136,7 +124,7 @@ NS_IMETHODIMP
 HTMLPropertiesCollection::NamedItem(const nsAString& aName,
                                     nsIDOMNode** aResult)
 {
-  *aResult = NULL;
+  *aResult = nullptr;
   return NS_OK;
 }
 
@@ -176,21 +164,6 @@ HTMLPropertiesCollection::NamedItem(const nsAString& aName)
     propertyList = newPropertyList;
   }
   return propertyList;
-}
-
-NS_IMETHODIMP
-HTMLPropertiesCollection::NamedItem(const nsAString& aName,
-                                    nsIDOMPropertyNodeList** aResult)
-{
-  NS_ADDREF(*aResult = NamedItem(aName));
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-HTMLPropertiesCollection::GetNames(nsIDOMDOMStringList** aResult)
-{
-  NS_ADDREF(*aResult = Names());
-  return NS_OK;
 }
 
 void
@@ -259,7 +232,7 @@ HTMLPropertiesCollection::EnsureFresh()
   mProperties.Clear();
   mNames->Clear();
   // We don't clear NamedItemEntries because the PropertyNodeLists must be live.
-  mNamedItemEntries.EnumerateRead(MarkDirty, NULL);
+  mNamedItemEntries.EnumerateRead(MarkDirty, nullptr);
   if (!mRoot->HasAttr(kNameSpaceID_None, nsGkAtoms::itemscope)) {
     return;
   }
@@ -282,7 +255,7 @@ HTMLPropertiesCollection::EnsureFresh()
     }
   }
 }
-  
+
 static Element*
 GetElementByIdForConnectedSubtree(nsIContent* aContent, const nsIAtom* aId)
 {
@@ -293,15 +266,15 @@ GetElementByIdForConnectedSubtree(nsIContent* aContent, const nsIAtom* aId)
     }
     aContent = aContent->GetNextNode();
   } while(aContent);
-  
-  return NULL;
+
+  return nullptr;
 }
 
 void
 HTMLPropertiesCollection::CrawlProperties()
 {
   nsIDocument* doc = mRoot->GetCurrentDoc();
- 
+
   const nsAttrValue* attr = mRoot->GetParsedAttr(nsGkAtoms::itemref);
   if (attr) {
     for (uint32_t i = 0; i < attr->GetAtomCount(); i++) {
@@ -317,7 +290,7 @@ HTMLPropertiesCollection::CrawlProperties()
       }
     }
   }
-  
+
   CrawlSubtree(mRoot);
 }
 
@@ -337,15 +310,15 @@ HTMLPropertiesCollection::CrawlSubtree(Element* aElement)
       if (element->HasAttr(kNameSpaceID_None, nsGkAtoms::itemprop) &&
           !mProperties.Contains(element)) {
         mProperties.AppendElement(static_cast<nsGenericHTMLElement*>(element));
-      }                 
-                     
+      }
+
       if (element->HasAttr(kNameSpaceID_None, nsGkAtoms::itemscope)) {
         aContent = element->GetNextNonChildNode(aElement);
-      } else {          
+      } else {
         aContent = element->GetNextNode(aElement);
-      }                 
-    }                     
-  }                    
+      }
+    }
+  }
 }
 
 void
@@ -403,7 +376,7 @@ PropertyNodeList::Item(uint32_t aIndex, nsIDOMNode** aReturn)
   EnsureFresh();
   nsINode* element = mElements.SafeElementAt(aIndex);
   if (!element) {
-    *aReturn = NULL;
+    *aReturn = nullptr;
     return NS_OK;
   }
   return CallQueryInterface(element, aReturn);
@@ -430,12 +403,11 @@ PropertyNodeList::GetParentObject()
 }
 
 JSObject*
-PropertyNodeList::WrapObject(JSContext *cx, JSObject *scope, bool *triedToWrap)
+PropertyNodeList::WrapObject(JSContext *cx, JSObject *scope)
 {
-  return PropertyNodeListBinding::Wrap(cx, scope, this, triedToWrap);
+  return PropertyNodeListBinding::Wrap(cx, scope, this);
 }
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(PropertyNodeList)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(PropertyNodeList)
   // SetDocument(nullptr) ensures that we remove ourselves as a mutation observer
   tmp->SetDocument(nullptr);
@@ -460,13 +432,11 @@ NS_IMPL_CYCLE_COLLECTING_RELEASE(PropertyNodeList)
 
 NS_INTERFACE_TABLE_HEAD(PropertyNodeList)
     NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
-    NS_INTERFACE_TABLE4(PropertyNodeList,
-                        nsIDOMPropertyNodeList,
+    NS_INTERFACE_TABLE3(PropertyNodeList,
                         nsIDOMNodeList,
                         nsINodeList,
                         nsIMutationObserver)
     NS_INTERFACE_TABLE_TO_MAP_SEGUE_CYCLE_COLLECTION(PropertyNodeList)
-    NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(PropertyNodeList)
 NS_INTERFACE_MAP_END
 
 void
@@ -485,40 +455,6 @@ PropertyNodeList::GetValues(JSContext* aCx, nsTArray<JS::Value >& aResult,
     }
     aResult.AppendElement(v);
   }
-}
-
-NS_IMETHODIMP
-PropertyNodeList::GetValues(nsIVariant** aValues)
-{
-  EnsureFresh();
-  nsCOMPtr<nsIWritableVariant> out = new nsVariant();
-
-  // We have to use an nsTArray<nsIVariant*> here and do manual refcounting because 
-  // nsWritableVariant::SetAsArray takes an nsIVariant**.
-  nsTArray<nsIVariant*> values;
-
-  uint32_t length = mElements.Length();
-  if (length == 0) {
-    out->SetAsEmptyArray();
-  } else {
-    for (uint32_t i = 0; i < length; ++i) {
-      nsIVariant* itemValue;
-      mElements.ElementAt(i)->GetItemValue(&itemValue);
-      values.AppendElement(itemValue);
-    }
-    out->SetAsArray(nsIDataType::VTYPE_INTERFACE_IS,
-                    &NS_GET_IID(nsIVariant),
-                    values.Length(),
-                    values.Elements());
-  }
-
-  out.forget(aValues);
-
-  for (uint32_t i = 0; i < values.Length(); ++i) {
-    NS_RELEASE(values[i]);
-  }
-
-  return NS_OK;
 }
 
 void
@@ -582,13 +518,7 @@ PropertyStringList::PropertyStringList(HTMLPropertiesCollection* aCollection)
   , mCollection(aCollection)
 { }
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(PropertyStringList)
-NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(PropertyStringList)
-  NS_IMPL_CYCLE_COLLECTION_UNLINK(mCollection)
-NS_IMPL_CYCLE_COLLECTION_UNLINK_END
-NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(PropertyStringList)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCollection)
-NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+NS_IMPL_CYCLE_COLLECTION_1(PropertyStringList, mCollection)
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(PropertyStringList)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(PropertyStringList)

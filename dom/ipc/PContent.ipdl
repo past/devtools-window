@@ -17,16 +17,18 @@ include protocol PIndexedDB;
 include protocol PMemoryReportRequest;
 include protocol PNecko;
 include protocol PSms;
+include protocol PSpeechSynthesis;
 include protocol PStorage;
 include protocol PTestShell;
 include DOMTypes;
+include InputStreamParams;
 include URIParams;
 
 include "mozilla/chrome/RegistryMessageUtils.h";
+include "mozilla/dom/PermissionMessageUtils.h";
 include "mozilla/dom/TabMessageUtils.h";
 include "mozilla/layout/RenderFrameUtils.h";
 include "mozilla/net/NeckoMessageUtils.h";
-
 include "nsGeoPositionIPCSerialiser.h";
 
 using GeoPosition;
@@ -35,9 +37,12 @@ using PrefTuple;
 using ChromePackage;
 using ResourceMapping;
 using OverrideMapping;
+using base::ChildPrivileges;
 using IPC::Permission;
+using IPC::Principal;
 using mozilla::null_t;
 using mozilla::void_t;
+using mozilla::dom::AudioChannelType;
 using mozilla::dom::NativeThreadId;
 using mozilla::layout::ScrollingBehavior;
 using gfxIntSize;
@@ -72,7 +77,19 @@ struct FontListEntry {
     uint8_t   index;
 };
 
-struct DeviceStorageStatParams
+struct DeviceStorageFreeSpaceParams
+{
+  nsString type;
+  nsString fullpath;
+};
+
+struct DeviceStorageUsedSpaceParams
+{
+  nsString type;
+  nsString fullpath;
+};
+
+struct DeviceStorageAvailableParams
 {
   nsString type;
   nsString fullpath;
@@ -112,7 +129,9 @@ union DeviceStorageParams
   DeviceStorageGetParams;
   DeviceStorageDeleteParams;
   DeviceStorageEnumerationParams;
-  DeviceStorageStatParams;
+  DeviceStorageFreeSpaceParams;
+  DeviceStorageUsedSpaceParams;
+  DeviceStorageAvailableParams;
 };
 
 struct SlicedBlobConstructorParams
@@ -128,12 +147,24 @@ struct MysteryBlobConstructorParams
   // Nothing is known about this type of blob.
 };
 
-union BlobConstructorParams
+union ChildBlobConstructorParams
 {
   NormalBlobConstructorParams;
   FileBlobConstructorParams;
   SlicedBlobConstructorParams;
   MysteryBlobConstructorParams;
+};
+
+struct ParentBlobConstructorParams
+{
+  ChildBlobConstructorParams blobParams;
+  OptionalInputStreamParams optionalInputStreamParams;
+};
+
+union BlobConstructorParams
+{
+  ChildBlobConstructorParams;
+  ParentBlobConstructorParams;
 };
 
 // An IPCTabContext which corresponds to a PBrowser opened by a child when it
@@ -230,6 +261,7 @@ rpc protocol PContent
     manages PMemoryReportRequest;
     manages PNecko;
     manages PSms;
+    manages PSpeechSynthesis;
     manages PStorage;
     manages PTestShell;
 
@@ -262,7 +294,19 @@ both:
     async PBlob(BlobConstructorParams params);
 
 child:
+    /**
+     * Update OS process privileges to |privs|.  Can usually only be
+     * performed zero or one times.  The child will abnormally exit if
+     * the privilege update fails.
+     */
+    async SetProcessPrivileges(ChildPrivileges privs);
+
     PMemoryReportRequest();
+
+    /**
+     * Notify the AudioChannelService in the child processes.
+     */
+    async AudioChannelNotify();
 
     /**
      * Dump the contents of about:memory to a file in our temp directory.
@@ -320,7 +364,8 @@ child:
 
     FilePathUpdate(nsString type, nsString filepath, nsCString reasons);
 
-    FileSystemUpdate(nsString fsName, nsString mountPoint, int32_t fsState);
+    FileSystemUpdate(nsString fsName, nsString mountPoint, int32_t fsState,
+                     int32_t mountGeneration);
 
 parent:
     /**
@@ -335,14 +380,16 @@ parent:
      * !isForBrowser|, we're probably loading <xul:browser remote>.
      */
     sync GetProcessAttributes()
-        returns (uint64_t id, bool startBackground,
-                 bool isForApp, bool isForBrowser);
+        returns (uint64_t id, bool isForApp, bool isForBrowser);
     sync GetXPCOMProcessAttributes()
         returns (bool isOffline);
 
     PDeviceStorageRequest(DeviceStorageParams params);
 
     sync PCrashReporter(NativeThreadId tid, uint32_t processType);
+
+    sync GetRandomValues(uint32_t length)
+        returns (uint8_t[] randomValues);
 
     PHal();
 
@@ -351,6 +398,8 @@ parent:
     PNecko();
 
     PSms();
+
+    PSpeechSynthesis();
     
     PStorage(StorageConstructData data);
 
@@ -378,19 +427,40 @@ parent:
     sync SyncMessage(nsString aMessage, ClonedMessageData aData)
       returns (nsString[] retval);
 
-    ShowAlertNotification(nsString imageUrl, 
-                          nsString title, 
-                          nsString text, 
+    ShowAlertNotification(nsString imageUrl,
+                          nsString title,
+                          nsString text,
                           bool textClickable,
                           nsString cookie,
-                          nsString name);
+                          nsString name,
+                          nsString bidi,
+                          nsString lang);
+
+    CloseAlert(nsString name);
+
+    /**
+     * Tests permission for a provided principal using the permission
+     * manager.
+     *
+     * @param principal
+     *   The principal to test for the permissions.
+     * @param type
+     *   The type of permission to for the principal.
+     *
+     * NOTE: The principal is untrusted in the parent process. Only
+     *       principals that can live in the content process should
+     *       be provided.
+     */
+    sync TestPermissionFromPrincipal(Principal principal, nsCString type)
+        returns (uint32_t permission);
 
     PExternalHelperApp(OptionalURIParams uri, nsCString aMimeContentType,
                        nsCString aContentDisposition, bool aForceSave,
                        int64_t aContentLength, OptionalURIParams aReferrer);
 
-    AddGeolocationListener();
+    AddGeolocationListener(Principal principal, bool highAccuracy);
     RemoveGeolocationListener();
+    SetGeolocationHigherAccuracy(bool enable);
 
     ConsoleMessage(nsString message);
     ScriptError(nsString message, nsString sourceName, nsString sourceLine,
@@ -423,6 +493,28 @@ parent:
 
     // Tell the parent that the child has gone idle for the first time
     async FirstIdle();
+
+    // Get Muted from the main AudioChannelService.
+    sync AudioChannelGetMuted(AudioChannelType aType, bool aElementHidden,
+                              bool aElementWasHidden)
+        returns (bool value);
+
+    sync AudioChannelRegisterType(AudioChannelType aType);
+    sync AudioChannelUnregisterType(AudioChannelType aType,
+                                    bool aElementHidden);
+
+    async AudioChannelChangedNotification();
+
+    async FilePathUpdateNotify(nsString aType,
+                               nsString aFilepath,
+                               nsCString aReason);
+    // get nsIVolumeService to broadcast volume information
+    async BroadcastVolume(nsString volumeName);
+
+    async RecordingDeviceEvents(nsString recordingStatus);
+
+    // Notify the parent that the child has finished handling a system message.
+    async SystemMessageHandled();
 
 both:
      AsyncMessage(nsString aMessage, ClonedMessageData aData);

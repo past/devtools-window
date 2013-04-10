@@ -6,6 +6,8 @@
 #ifndef GFX_LAYERS_H
 #define GFX_LAYERS_H
 
+#include "mozilla/DebugOnly.h"
+
 #include "gfxTypes.h"
 #include "gfxASurface.h"
 #include "nsRegion.h"
@@ -32,9 +34,12 @@
 #  endif
 #  define MOZ_LAYERS_LOG(_args)                             \
   PR_LOG(LayerManager::GetLog(), PR_LOG_DEBUG, _args)
+#  define MOZ_LAYERS_LOG_IF_SHADOWABLE(layer, _args)         \
+  do { if (layer->AsShadowableLayer()) { PR_LOG(LayerManager::GetLog(), PR_LOG_DEBUG, _args); } } while (0)
 #else
 struct PRLogModuleInfo;
 #  define MOZ_LAYERS_LOG(_args)
+#  define MOZ_LAYERS_LOG_IF_SHADOWABLE(layer, _args)
 #endif  // if defined(DEBUG) || defined(PR_LOGGING)
 
 class gfxContext;
@@ -45,6 +50,7 @@ extern uint8_t gLayerManagerLayerBuilder;
 namespace mozilla {
 
 class FrameLayerBuilder;
+class WebGLContext;
 
 namespace gl {
 class GLContext;
@@ -286,6 +292,12 @@ public:
   Layer* GetPrimaryScrollableLayer();
 
   /**
+   * Returns a list of all descendant layers for which 
+   * GetFrameMetrics().IsScrollable() is true.
+   */
+  void GetScrollableLayers(nsTArray<Layer*>& aArray);
+
+  /**
    * CONSTRUCTION PHASE ONLY
    * Called when a managee has mutated.
    * Subclasses overriding this method must first call their
@@ -481,8 +493,32 @@ public:
    */
   void LogSelf(const char* aPrefix="");
 
-  void StartFrameTimeRecording();
-  void StopFrameTimeRecording(nsTArray<float>& aTimes);
+  /**
+   * Record (and return) frame-intervals and paint-times for frames which were presented
+   *   between calling StartFrameTimeRecording and StopFrameTimeRecording.
+   *
+   * - Uses a cyclic buffer and serves concurrent consumers, so if Stop is called too late
+   *     (elements were overwritten since Start), result is considered invalid and hence empty.
+   * - Buffer is capable of holding 10 seconds @ 60fps (or more if frames were less frequent).
+   *     Can be changed (up to 1 hour) via pref: toolkit.framesRecording.bufferSize.
+   * - Note: the first frame-interval may be longer than expected because last frame
+   *     might have been presented some time before calling StartFrameTimeRecording.
+   */
+
+  /**
+   * Returns a handle which represents current recording start position.
+   */
+  uint32_t StartFrameTimeRecording();
+
+  /**
+   *  Clears, then populates 2 arraye with the recorded frames timing data.
+   *  The arrays will be empty if data was overwritten since aStartIndex was obtained.
+   */
+  void StopFrameTimeRecording(uint32_t         aStartIndex,
+                              nsTArray<float>& aFrameIntervals,
+                              nsTArray<float>& aPaintTimes);
+
+  void SetPaintStartTime(TimeStamp& aTime);
 
   void PostPresent();
 
@@ -492,7 +528,11 @@ public:
   static PRLogModuleInfo* GetLog() { return sLog; }
 
   bool IsCompositingCheap(LayersBackend aBackend)
-  { return LAYERS_BASIC != aBackend; }
+  {
+    // LAYERS_NONE is an error state, but in that case we should try to
+    // avoid loading the compositor!
+    return LAYERS_BASIC != aBackend && LAYERS_NONE != aBackend;
+  }
 
   virtual bool IsCompositingCheap() { return true; }
 
@@ -513,8 +553,25 @@ protected:
   uint64_t mId;
   bool mInTransaction;
 private:
-  TimeStamp mLastFrameTime;
-  nsTArray<float> mFrameTimes;
+  struct FramesTimingRecording
+  {
+    // Stores state and data for frame intervals and paint times recording.
+    // see LayerManager::StartFrameTimeRecording() at Layers.cpp for more details.
+    FramesTimingRecording()
+      : mIsPaused(true)
+      , mNextIndex(0)
+    {}
+    bool mIsPaused;
+    uint32_t mNextIndex;
+    TimeStamp mLastFrameTime;
+    TimeStamp mPaintStartTime;
+    nsTArray<float> mIntervals;
+    nsTArray<float> mPaints;
+    uint32_t mLatestStartIndex;
+    uint32_t mCurrentRunStartIndex;
+  };
+  FramesTimingRecording mRecording;
+
   TimeStamp mTabSwitchStart;
 };
 
@@ -576,7 +633,13 @@ public:
      * If this is set then this layer is part of a preserve-3d group, and should
      * be sorted with sibling layers that are also part of the same group.
      */
-    CONTENT_PRESERVE_3D = 0x04
+    CONTENT_PRESERVE_3D = 0x04,
+    /**
+     * This indicates that the transform may be changed on during an empty
+     * transaction where there is no possibility of redrawing the content, so the
+     * implementation should be ready for that.
+     */
+    CONTENT_MAY_CHANGE_TRANSFORM = 0x08
   };
   /**
    * CONSTRUCTION PHASE ONLY
@@ -590,6 +653,7 @@ public:
                  (CONTENT_OPAQUE | CONTENT_COMPONENT_ALPHA),
                  "Can't be opaque and require component alpha");
     if (mContentFlags != aFlags) {
+      MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) ContentFlags", this));
       mContentFlags = aFlags;
       Mutated();
     }
@@ -610,6 +674,8 @@ public:
   virtual void SetVisibleRegion(const nsIntRegion& aRegion)
   {
     if (!mVisibleRegion.IsEqual(aRegion)) {
+      MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) VisibleRegion was %s is %s", this,
+        mVisibleRegion.ToString().get(), aRegion.ToString().get()));
       mVisibleRegion = aRegion;
       Mutated();
     }
@@ -623,6 +689,7 @@ public:
   void SetOpacity(float aOpacity)
   {
     if (mOpacity != aOpacity) {
+      MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) Opacity", this));
       mOpacity = aOpacity;
       Mutated();
     }
@@ -642,44 +709,28 @@ public:
   {
     if (mUseClipRect) {
       if (!aRect) {
+        MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) ClipRect was %d,%d,%d,%d is <none>", this,
+                         mClipRect.x, mClipRect.y, mClipRect.width, mClipRect.height));
         mUseClipRect = false;
         Mutated();
       } else {
         if (!aRect->IsEqualEdges(mClipRect)) {
+          MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) ClipRect was %d,%d,%d,%d is %d,%d,%d,%d", this,
+                           mClipRect.x, mClipRect.y, mClipRect.width, mClipRect.height,
+                           aRect->x, aRect->y, aRect->width, aRect->height));
           mClipRect = *aRect;
           Mutated();
         }
       }
     } else {
       if (aRect) {
-        Mutated();
+        MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) ClipRect was <none> is %d,%d,%d,%d", this,
+                         aRect->x, aRect->y, aRect->width, aRect->height));
         mUseClipRect = true;
-        if (!aRect->IsEqualEdges(mClipRect)) {
-          mClipRect = *aRect;
-        }
+        mClipRect = *aRect;
+        Mutated();
       }
     }
-  }
-
-  /**
-   * CONSTRUCTION PHASE ONLY
-   * Set a clip rect which will be applied to this layer as it is
-   * composited to the destination. The coordinates are relative to
-   * the parent layer (i.e. the contents of this layer
-   * are transformed before this clip rect is applied).
-   * For the root layer, the coordinates are relative to the widget,
-   * in device pixels.
-   * The provided rect is intersected with any existing clip rect.
-   */
-  void IntersectClipRect(const nsIntRect& aRect)
-  {
-    if (mUseClipRect) {
-      mClipRect.IntersectRect(mClipRect, aRect);
-    } else {
-      mUseClipRect = true;
-      mClipRect = aRect;
-    }
-    Mutated();
   }
 
   /**
@@ -708,6 +759,7 @@ public:
 #endif
 
     if (mMaskLayer != aMaskLayer) {
+      MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) MaskLayer", this));
       mMaskLayer = aMaskLayer;
       Mutated();
     }
@@ -728,6 +780,7 @@ public:
     if (mTransform == aMatrix) {
       return;
     }
+    MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) BaseTransform", this));
     mTransform = aMatrix;
     Mutated();
   }
@@ -750,6 +803,7 @@ public:
     if (mPostXScale == aXScale && mPostYScale == aYScale) {
       return;
     }
+    MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) PostScale", this));
     mPostXScale = aXScale;
     mPostYScale = aYScale;
     Mutated();
@@ -761,10 +815,18 @@ public:
    * (not chrome) document, the topmost content document has a root scrollframe
    * with a displayport, but the layer does not move when that displayport scrolls.
    */
-  void SetIsFixedPosition(bool aFixedPosition) { mIsFixedPosition = aFixedPosition; }
+  void SetIsFixedPosition(bool aFixedPosition)
+  {
+    if (mIsFixedPosition != aFixedPosition) {
+      MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) IsFixedPosition", this));
+      mIsFixedPosition = aFixedPosition;
+      Mutated();
+    }
+  }
 
   // Call AddAnimation to add a new animation to this layer from layout code.
   // Caller must add segments to the returned animation.
+  // aStart represents the time at the *end* of the delay.
   Animation* AddAnimation(mozilla::TimeStamp aStart, mozilla::TimeDuration aDuration,
                           float aIterations, int aDirection,
                           nsCSSProperty aProperty, const AnimationData& aData);
@@ -781,7 +843,31 @@ public:
    * same position when compositing the layer tree with a transformation
    * (such as when asynchronously scrolling and zooming).
    */
-  void SetFixedPositionAnchor(const gfxPoint& aAnchor) { mAnchor = aAnchor; }
+  void SetFixedPositionAnchor(const gfxPoint& aAnchor)
+  {
+    if (mAnchor != aAnchor) {
+      MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) FixedPositionAnchor", this));
+      mAnchor = aAnchor;
+      Mutated();
+    }
+  }
+
+  /**
+   * CONSTRUCTION PHASE ONLY
+   * If a layer represents a fixed position element or elements that are on
+   * a document that has had fixed position element margins set on it, these
+   * will be mirrored here. This allows for asynchronous animation of the
+   * margins by reconciling the difference between this value and a value that
+   * is updated more frequently.
+   */
+  void SetFixedPositionMargins(const gfx::Margin& aMargins)
+  {
+    if (mMargins != aMargins) {
+      MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) FixedPositionMargins", this));
+      mMargins = aMargins;
+      Mutated();
+    }
+  }
 
   // These getters can be used anytime.
   float GetOpacity() { return mOpacity; }
@@ -799,10 +885,16 @@ public:
   float GetPostYScale() { return mPostYScale; }
   bool GetIsFixedPosition() { return mIsFixedPosition; }
   gfxPoint GetFixedPositionAnchor() { return mAnchor; }
+  const gfx::Margin& GetFixedPositionMargins() { return mMargins; }
   Layer* GetMaskLayer() { return mMaskLayer; }
 
+  // Note that all lengths in animation data are either in CSS pixels or app
+  // units and must be converted to device pixels by the compositor.
   AnimationArray& GetAnimations() { return mAnimations; }
   InfallibleTArray<AnimData>& GetAnimationData() { return mAnimationData; }
+
+  uint64_t GetAnimationGeneration() { return mAnimationGeneration; }
+  void SetAnimationGeneration(uint64_t aCount) { mAnimationGeneration = aCount; }
 
   /**
    * DRAWING PHASE ONLY
@@ -1044,7 +1136,10 @@ public:
 protected:
   Layer(LayerManager* aManager, void* aImplData);
 
-  void Mutated() { mManager->Mutated(this); }
+  void Mutated()
+  {
+    mManager->Mutated(this);
+  }
 
   // Print interesting information about this into aTo.  Internally
   // used to implement Dump*() and Log*().  If subclasses have
@@ -1066,19 +1161,54 @@ protected:
   const float GetLocalOpacity();
 
   /**
-   * Computes a tweaked version of aTransform that snaps a point or a rectangle
-   * to pixel boundaries. Snapping is only performed if this layer's
-   * layer manager has enabled snapping (which is the default).
+   * We can snap layer transforms for two reasons:
+   * 1) To avoid unnecessary resampling when a transform is a translation
+   * by a non-integer number of pixels.
+   * Snapping the translation to an integer number of pixels avoids
+   * blurring the layer and can be faster to composite.
+   * 2) When a layer is used to render a rectangular object, we need to
+   * emulate the rendering of rectangular inactive content and snap the
+   * edges of the rectangle to pixel boundaries. This is both to ensure
+   * layer rendering is consistent with inactive content rendering, and to
+   * avoid seams.
+   * This function implements type 1 snapping. If aTransform is a 2D
+   * translation, and this layer's layer manager has enabled snapping
+   * (which is the default), return aTransform with the translation snapped
+   * to nearest pixels. Otherwise just return aTransform. Call this when the
+   * layer does not correspond to a single rectangular content object.
+   * This function does not try to snap if aTransform has a scale, because in
+   * that case resampling is inevitable and there's no point in trying to
+   * avoid it. In fact snapping can cause problems because pixel edges in the
+   * layer's content can be rendered unpredictably (jiggling) as the scale
+   * interacts with the snapping of the translation, especially with animated
+   * transforms.
+   * @param aResidualTransform a transform to apply before the result transform
+   * in order to get the results to completely match aTransform.
+   */
+  gfx3DMatrix SnapTransformTranslation(const gfx3DMatrix& aTransform,
+                                       gfxMatrix* aResidualTransform);
+  /**
+   * See comment for SnapTransformTranslation.
+   * This function implements type 2 snapping. If aTransform is a translation
+   * and/or scale, transform aSnapRect by aTransform, snap to pixel boundaries,
+   * and return the transform that maps aSnapRect to that rect. Otherwise
+   * just return aTransform.
    * @param aSnapRect a rectangle whose edges should be snapped to pixel
-   * boundaries in the destination surface. If the rectangle is empty,
-   * then the snapping process should preserve the scale factors of the
-   * transform matrix
-   * @param aResidualTransform a transform to apply before mEffectiveTransform
-   * in order to get the results to completely match aTransform
+   * boundaries in the destination surface.
+   * @param aResidualTransform a transform to apply before the result transform
+   * in order to get the results to completely match aTransform.
    */
   gfx3DMatrix SnapTransform(const gfx3DMatrix& aTransform,
                             const gfxRect& aSnapRect,
                             gfxMatrix* aResidualTransform);
+
+  /**
+   * Returns true if this layer's effective transform is not just
+   * a translation by integers, or if this layer or some ancestor layer
+   * is marked as having a transform that may change without a full layer
+   * transaction.
+   */
+  bool MayResample();
 
   LayerManager* mManager;
   ContainerLayer* mParent;
@@ -1107,7 +1237,11 @@ protected:
   bool mUseTileSourceRect;
   bool mIsFixedPosition;
   gfxPoint mAnchor;
+  gfx::Margin mMargins;
   DebugOnly<uint32_t> mDebugColorIndex;
+  // If this layer is used for OMTA, then this counter is used to ensure we
+  // stay in sync with the animation manager
+  uint64_t mAnimationGeneration;
 };
 
 /**
@@ -1155,14 +1289,12 @@ public:
 
   virtual void ComputeEffectiveTransforms(const gfx3DMatrix& aTransformToSurface)
   {
-    // The default implementation just snaps 0,0 to pixels.
     gfx3DMatrix idealTransform = GetLocalTransform()*aTransformToSurface;
     gfxMatrix residual;
-    mEffectiveTransform = SnapTransform(idealTransform, gfxRect(0, 0, 0, 0),
+    mEffectiveTransform = SnapTransformTranslation(idealTransform,
         mAllowResidualTranslation ? &residual : nullptr);
-    // The residual can only be a translation because ThebesLayer snapping
-    // only aligns a single point with the pixel grid; scale factors are always
-    // preserved exactly
+    // The residual can only be a translation because SnapTransformTranslation
+    // only changes the transform if it's a translation
     NS_ASSERTION(!residual.HasNonTranslation(),
                  "Residual transform can only be a translation");
     if (!residual.GetTranslation().WithinEpsilonOf(mResidualTranslation, 1e-3f)) {
@@ -1254,6 +1386,7 @@ public:
   void SetFrameMetrics(const FrameMetrics& aFrameMetrics)
   {
     if (mFrameMetrics != aFrameMetrics) {
+      MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) FrameMetrics", this));
       mFrameMetrics = aFrameMetrics;
       Mutated();
     }
@@ -1264,8 +1397,22 @@ public:
     if (mPreXScale == aXScale && mPreYScale == aYScale) {
       return;
     }
+
+    MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) PreScale", this));
     mPreXScale = aXScale;
     mPreYScale = aYScale;
+    Mutated();
+  }
+
+  void SetInheritedScale(float aXScale, float aYScale)
+  { 
+    if (mInheritedXScale == aXScale && mInheritedYScale == aYScale) {
+      return;
+    }
+
+    MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) InheritedScale", this));
+    mInheritedXScale = aXScale;
+    mInheritedYScale = aYScale;
     Mutated();
   }
 
@@ -1282,6 +1429,8 @@ public:
   const FrameMetrics& GetFrameMetrics() { return mFrameMetrics; }
   float GetPreXScale() { return mPreXScale; }
   float GetPreYScale() { return mPreYScale; }
+  float GetInheritedXScale() { return mInheritedXScale; }
+  float GetInheritedYScale() { return mInheritedYScale; }
 
   MOZ_LAYER_DECL_NAME("ContainerLayer", TYPE_CONTAINER)
 
@@ -1334,6 +1483,8 @@ protected:
       mLastChild(nullptr),
       mPreXScale(1.0f),
       mPreYScale(1.0f),
+      mInheritedXScale(1.0f),
+      mInheritedYScale(1.0f),
       mUseIntermediateSurface(false),
       mSupportsComponentAlphaChildren(false),
       mMayHaveReadbackChild(false)
@@ -1359,6 +1510,10 @@ protected:
   FrameMetrics mFrameMetrics;
   float mPreXScale;
   float mPreYScale;
+  // The resolution scale inherited from the parent layer. This will already
+  // be part of mTransform.
+  float mInheritedXScale;
+  float mInheritedYScale;
   bool mUseIntermediateSurface;
   bool mSupportsComponentAlphaChildren;
   bool mMayHaveReadbackChild;
@@ -1379,7 +1534,11 @@ public:
    */
   virtual void SetColor(const gfxRGBA& aColor)
   {
-    mColor = aColor;
+    if (mColor != aColor) {
+      MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) Color", this));
+      mColor = aColor;
+      Mutated();
+    }
   }
 
   // This getter can be used anytime.
@@ -1389,9 +1548,8 @@ public:
 
   virtual void ComputeEffectiveTransforms(const gfx3DMatrix& aTransformToSurface)
   {
-    // Snap 0,0 to pixel boundaries, no extra internal transform.
     gfx3DMatrix idealTransform = GetLocalTransform()*aTransformToSurface;
-    mEffectiveTransform = SnapTransform(idealTransform, gfxRect(0, 0, 0, 0), nullptr);
+    mEffectiveTransform = SnapTransformTranslation(idealTransform, nullptr);
     ComputeEffectiveTransformForMaskLayer(aTransformToSurface);
   }
 
@@ -1420,22 +1578,25 @@ class THEBES_API CanvasLayer : public Layer {
 public:
   struct Data {
     Data()
-      : mSurface(nullptr), mGLContext(nullptr)
-      , mDrawTarget(nullptr), mGLBufferIsPremultiplied(false)
+      : mSurface(nullptr)
+      , mDrawTarget(nullptr)
+      , mGLContext(nullptr)
+      , mSize(0,0)
+      , mIsGLAlphaPremult(false)
     { }
 
-    /* One of these two must be specified, but never both */
+    // One of these two must be specified for Canvas2D, but never both
     gfxASurface* mSurface;  // a gfx Surface for the canvas contents
-    mozilla::gl::GLContext* mGLContext; // a GL PBuffer Context
     mozilla::gfx::DrawTarget *mDrawTarget; // a DrawTarget for the canvas contents
 
-    /* The size of the canvas content */
+    // Or this, for GL.
+    mozilla::gl::GLContext* mGLContext;
+
+    // The size of the canvas content
     nsIntSize mSize;
 
-    /* Whether the GLContext contains premultiplied alpha
-     * values in the framebuffer or not.  Defaults to FALSE.
-     */
-    bool mGLBufferIsPremultiplied;
+    // Whether mGLContext contains data that is alpha-premultiplied.
+    bool mIsGLAlphaPremult;
   };
 
   /**
@@ -1475,20 +1636,46 @@ public:
   }
 
   /**
+   * Register a callback to be called at the start of each transaction.
+   */
+  typedef void PreTransactionCallback(void* closureData);
+  void SetPreTransactionCallback(PreTransactionCallback* callback, void* closureData)
+  {
+    mPreTransCallback = callback;
+    mPreTransCallbackData = closureData;
+  }
+
+protected:
+  void FirePreTransactionCallback()
+  {
+    if (mPreTransCallback) {
+      mPreTransCallback(mPreTransCallbackData);
+    }
+  }
+
+public:
+  /**
    * Register a callback to be called at the end of each transaction.
    */
   typedef void (* DidTransactionCallback)(void* aClosureData);
   void SetDidTransactionCallback(DidTransactionCallback aCallback, void* aClosureData)
   {
-    mCallback = aCallback;
-    mCallbackData = aClosureData;
+    mPostTransCallback = aCallback;
+    mPostTransCallbackData = aClosureData;
   }
 
   /**
    * CONSTRUCTION PHASE ONLY
    * Set the filter used to resample this image (if necessary).
    */
-  void SetFilter(gfxPattern::GraphicsFilter aFilter) { mFilter = aFilter; }
+  void SetFilter(gfxPattern::GraphicsFilter aFilter)
+  {
+    if (mFilter != aFilter) {
+      MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) Filter", this));
+      mFilter = aFilter;
+      Mutated();
+    }
+  }
   gfxPattern::GraphicsFilter GetFilter() const { return mFilter; }
 
   MOZ_LAYER_DECL_NAME("CanvasLayer", TYPE_CANVAS)
@@ -1502,22 +1689,27 @@ public:
     mEffectiveTransform =
         SnapTransform(GetLocalTransform(), gfxRect(0, 0, mBounds.width, mBounds.height),
                       nullptr)*
-        SnapTransform(aTransformToSurface, gfxRect(0, 0, 0, 0), nullptr);
+        SnapTransformTranslation(aTransformToSurface, nullptr);
     ComputeEffectiveTransformForMaskLayer(aTransformToSurface);
   }
 
 protected:
   CanvasLayer(LayerManager* aManager, void* aImplData)
-    : Layer(aManager, aImplData),
-      mCallback(nullptr), mCallbackData(nullptr), mFilter(gfxPattern::FILTER_GOOD),
-      mDirty(false) {}
+    : Layer(aManager, aImplData)
+    , mPreTransCallback(nullptr)
+    , mPreTransCallbackData(nullptr)
+    , mPostTransCallback(nullptr)
+    , mPostTransCallbackData(nullptr)
+    , mFilter(gfxPattern::FILTER_GOOD)
+    , mDirty(false)
+  {}
 
   virtual nsACString& PrintInfo(nsACString& aTo, const char* aPrefix);
 
   void FireDidTransactionCallback()
   {
-    if (mCallback) {
-      mCallback(mCallbackData);
+    if (mPostTransCallback) {
+      mPostTransCallback(mPostTransCallbackData);
     }
   }
 
@@ -1525,8 +1717,10 @@ protected:
    * 0, 0, canvaswidth, canvasheight
    */
   nsIntRect mBounds;
-  DidTransactionCallback mCallback;
-  void* mCallbackData;
+  PreTransactionCallback* mPreTransCallback;
+  void* mPreTransCallbackData;
+  DidTransactionCallback mPostTransCallback;
+  void* mPostTransCallbackData;
   gfxPattern::GraphicsFilter mFilter;
 
 private:
@@ -1577,6 +1771,7 @@ public:
   {
     MOZ_ASSERT(aId != 0);
     if (mId != aId) {
+      MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) ReferentId", this));
       mId = aId;
       Mutated();
     }

@@ -86,7 +86,7 @@ public:
 
   // Returns the media type for the given |AdaptationSet|, audio/video.
   virtual AdaptationSetType
-          GetAdaptationSetType(uint32_t aAdaptSetIdx) const = 0;
+          GetAdaptationSetType(uint32_t const aAdaptSetIdx) const = 0;
 
   // Gets the number of media |Representation|s for the given |AdaptationSet|.
   // e.g how many bitrate encodings are there of the audio stream?
@@ -111,6 +111,13 @@ public:
   // Returns the duration of the presentation in seconds.
   virtual double GetDuration() const = 0;
 
+  // Gets index of the |Representation| with next highest bitrate to the
+  // estimated bandwidth passed in. Returns true if there is at least one
+  // |Representation| with a bitrate lower than |aBandwidth|; otherwise returns
+  // false. Depends on |mRepresentations| being an ordered list.
+  virtual bool GetBestRepForBandwidth(uint32_t aAdaptSetIdx,
+                                      uint64_t aBandwidth,
+                                      uint32_t &aRepIdx) const = 0;
 public:
   // Factory method.
   static IMPDManager* Create(DASHMPDProfile Profile, nsIDOMElement* aRoot);

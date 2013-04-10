@@ -11,7 +11,7 @@
 namespace js {
 namespace ion {
 
-static inline int32
+static inline int32_t
 ToInt32(const LAllocation *a)
 {
     if (a->isConstantValue())
@@ -20,6 +20,11 @@ ToInt32(const LAllocation *a)
         return a->toConstantIndex()->index();
     JS_NOT_REACHED("this is not a constant!");
     return -1;
+}
+static inline double
+ToDouble(const LAllocation *a)
+{
+    return a->toConstant()->toNumber();
 }
 
 static inline Register

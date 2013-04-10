@@ -14,6 +14,7 @@
 #include "ion/IonCompartment.h"
 #include "assembler/jit/ExecutableAllocator.h"
 #include "ion/IonMacroAssembler.h"
+#include "jsgcinlines.h"
 
 namespace js {
 namespace ion {
@@ -28,11 +29,11 @@ class Linker
         return NULL;
     }
 
-    IonCode *newCode(JSContext *cx, IonCompartment *comp) {
-        AssertCanGC();
-#ifndef JS_CPU_ARM
-        masm.flush();
-#endif
+    IonCode *newCode(JSContext *cx, IonCompartment *comp, JSC::CodeKind kind) {
+        JS_ASSERT(kind == JSC::ION_CODE ||
+                  kind == JSC::BASELINE_CODE ||
+                  kind == JSC::OTHER_CODE);
+        gc::AutoSuppressGC suppressGC(cx);
         if (masm.oom())
             return fail(cx);
 
@@ -41,20 +42,22 @@ class Linker
         if (bytesNeeded >= MAX_BUFFER_SIZE)
             return fail(cx);
 
-        uint8 *result = (uint8 *)comp->execAlloc()->alloc(bytesNeeded, &pool, JSC::ION_CODE);
+        uint8_t *result = (uint8_t *)comp->execAlloc()->alloc(bytesNeeded, &pool, kind);
         if (!result)
             return fail(cx);
 
         // The IonCode pointer will be stored right before the code buffer.
-        uint8 *codeStart = result + sizeof(IonCode *);
+        uint8_t *codeStart = result + sizeof(IonCode *);
 
         // Bump the code up to a nice alignment.
-        codeStart = (uint8 *)AlignBytes((uintptr_t)codeStart, CodeAlignment);
-        uint32 headerSize = codeStart - result;
+        codeStart = (uint8_t *)AlignBytes((uintptr_t)codeStart, CodeAlignment);
+        uint32_t headerSize = codeStart - result;
         IonCode *code = IonCode::New(cx, codeStart,
                                      bytesNeeded - headerSize, pool);
         if (!code)
             return NULL;
+        if (masm.oom())
+            return fail(cx);
         code->copyFrom(masm);
         masm.link(code);
         return code;
@@ -67,8 +70,8 @@ class Linker
         masm.finish();
     }
 
-    IonCode *newCode(JSContext *cx) {
-        return newCode(cx, cx->compartment->ionCompartment());
+    IonCode *newCode(JSContext *cx, JSC::CodeKind kind) {
+        return newCode(cx, cx->compartment->ionCompartment(), kind);
     }
 };
 

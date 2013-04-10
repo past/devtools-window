@@ -120,12 +120,17 @@ extern nsresult nsStringInputStreamConstructor(nsISupports *, REFNSIID, void **)
 #include "mozilla/AvailableMemoryTracker.h"
 #include "mozilla/ClearOnShutdown.h"
 
+#ifdef MOZ_VISUAL_EVENT_TRACER
 #include "mozilla/VisualEventTracer.h"
+#endif
 
-#include "sampler.h"
+#include "GeckoProfiler.h"
 
 using base::AtExitManager;
 using mozilla::ipc::BrowserProcessSubThread;
+#ifdef MOZ_VISUAL_EVENT_TRACER
+using mozilla::eventtracer::VisualEventTracer;
+#endif
 
 namespace {
 
@@ -177,6 +182,9 @@ NS_GENERIC_FACTORY_CONSTRUCTOR(nsBinaryInputStream)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsStorageStream)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsVersionComparatorImpl)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsScriptableBase64Encoder)
+#ifdef MOZ_VISUAL_EVENT_TRACER
+NS_GENERIC_FACTORY_CONSTRUCTOR(VisualEventTracer)
+#endif
 
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsVariant)
 
@@ -318,7 +326,7 @@ NS_InitXPCOM2(nsIServiceManager* *result,
               nsIFile* binDirectory,
               nsIDirectoryServiceProvider* appFileLocationProvider)
 {
-    SAMPLER_INIT();
+    profiler_init();
     nsresult rv = NS_OK;
 
      // We are not shutting down
@@ -439,8 +447,14 @@ NS_InitXPCOM2(nsIServiceManager* *result,
     // Create the Component/Service Manager
     nsComponentManagerImpl::gComponentManager = new nsComponentManagerImpl();
     NS_ADDREF(nsComponentManagerImpl::gComponentManager);
-    
-    rv = nsCycleCollector_startup();
+
+    // Global cycle collector initialization.
+    if (!nsCycleCollector_init()) {
+        return NS_ERROR_UNEXPECTED;
+    }
+
+    // And start it up for this thread too.
+    rv = nsCycleCollector_startup(CCSingleThread);
     if (NS_FAILED(rv)) return rv;
 
     rv = nsComponentManagerImpl::gComponentManager->Init();
@@ -480,7 +494,9 @@ NS_InitXPCOM2(nsIServiceManager* *result,
 
     mozilla::HangMonitor::Startup();
 
+#ifdef MOZ_VISUAL_EVENT_TRACER
     mozilla::eventtracer::Init();
+#endif
 
     return NS_OK;
 }
@@ -580,6 +596,11 @@ ShutdownXPCOM(nsIServiceManager* servMgr)
 
         HangMonitor::NotifyActivity();
 
+        // Write poisoning needs to find the profile directory, so it has to
+        // be initialized before mozilla::services::Shutdown or (because of
+        // xpcshell tests replacing the service) modules being unloaded.
+        InitWritePoisoning();
+
         // We save the "xpcom-shutdown-loaders" observers to notify after
         // the observerservice is gone.
         if (observerService) {
@@ -618,9 +639,6 @@ ShutdownXPCOM(nsIServiceManager* servMgr)
 
     nsCycleCollector_shutdown();
 
-    SAMPLE_MARKER("Shutdown xpcom");
-    mozilla::PoisonWrite();
-
     if (moduleLoaders) {
         bool more;
         nsCOMPtr<nsISupports> el;
@@ -632,6 +650,10 @@ ShutdownXPCOM(nsIServiceManager* servMgr)
             // no reason for weak-ref observers to register for
             // xpcom-shutdown-loaders
 
+            // FIXME: This can cause harmless writes from sqlite committing
+            // log files. We have to ignore them before we can move
+            // the mozilla::PoisonWrite call before this point. See bug
+            // 834945 for the details.
             nsCOMPtr<nsIObserver> obs(do_QueryInterface(el));
             if (obs)
                 (void) obs->Observe(nullptr,
@@ -640,6 +662,12 @@ ShutdownXPCOM(nsIServiceManager* servMgr)
         }
 
         moduleLoaders = nullptr;
+    }
+
+    PROFILER_MARKER("Shutdown xpcom");
+    // If we are doing any shutdown checks, poison writes.
+    if (gShutdownChecks != SCM_NOTHING) {
+        mozilla::PoisonWrite();
     }
 
     // Shutdown nsLocalFile string conversion
@@ -697,7 +725,9 @@ ShutdownXPCOM(nsIServiceManager* servMgr)
 
     HangMonitor::Shutdown();
 
+#ifdef MOZ_VISUAL_EVENT_TRACER
     eventtracer::Shutdown();
+#endif
 
     NS_LogTerm();
 

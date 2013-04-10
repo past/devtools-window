@@ -65,7 +65,7 @@ public:
   }
 
   virtual bool
-  ParseSuccessfulReply(jsval* aValue) MOZ_OVERRIDE
+  ParseSuccessfulReply(JS::Value* aValue) MOZ_OVERRIDE
   {
     MOZ_NOT_REACHED("This should never be called!");
     return false;
@@ -189,8 +189,6 @@ BluetoothParent::RecvPBluetoothRequestConstructor(
       return actor->DoRequest(aRequest.get_DefaultAdapterPathRequest());
     case Request::TSetPropertyRequest:
       return actor->DoRequest(aRequest.get_SetPropertyRequest());
-    case Request::TGetPropertyRequest:
-      return actor->DoRequest(aRequest.get_GetPropertyRequest());
     case Request::TStartDiscoveryRequest:
       return actor->DoRequest(aRequest.get_StartDiscoveryRequest());
     case Request::TStopDiscoveryRequest:
@@ -311,22 +309,8 @@ BluetoothRequestParent::DoRequest(const SetPropertyRequest& aRequest)
   MOZ_ASSERT(mRequestType == Request::TSetPropertyRequest);
 
   nsresult rv =
-    mService->SetProperty(aRequest.type(), aRequest.path(), aRequest.value(),
+    mService->SetProperty(aRequest.type(), aRequest.value(),
                           mReplyRunnable.get());
-  NS_ENSURE_SUCCESS(rv, false);
-
-  return true;
-}
-
-bool
-BluetoothRequestParent::DoRequest(const GetPropertyRequest& aRequest)
-{
-  MOZ_ASSERT(mService);
-  MOZ_ASSERT(mRequestType == Request::TGetPropertyRequest);
-
-  nsresult rv =
-    mService->GetProperties(aRequest.type(), aRequest.path(),
-                            mReplyRunnable.get());
   NS_ENSURE_SUCCESS(rv, false);
 
   return true;
@@ -339,7 +323,7 @@ BluetoothRequestParent::DoRequest(const StartDiscoveryRequest& aRequest)
   MOZ_ASSERT(mRequestType == Request::TStartDiscoveryRequest);
 
   nsresult rv =
-    mService->StartDiscoveryInternal(aRequest.path(), mReplyRunnable.get());
+    mService->StartDiscoveryInternal(mReplyRunnable.get());
   NS_ENSURE_SUCCESS(rv, false);
 
   return true;
@@ -352,7 +336,7 @@ BluetoothRequestParent::DoRequest(const StopDiscoveryRequest& aRequest)
   MOZ_ASSERT(mRequestType == Request::TStopDiscoveryRequest);
 
   nsresult rv =
-    mService->StopDiscoveryInternal(aRequest.path(), mReplyRunnable.get());
+    mService->StopDiscoveryInternal(mReplyRunnable.get());
   NS_ENSURE_SUCCESS(rv, false);
 
   return true;
@@ -365,7 +349,7 @@ BluetoothRequestParent::DoRequest(const PairRequest& aRequest)
   MOZ_ASSERT(mRequestType == Request::TPairRequest);
 
   nsresult rv =
-    mService->CreatePairedDeviceInternal(aRequest.path(), aRequest.address(),
+    mService->CreatePairedDeviceInternal(aRequest.address(),
                                          aRequest.timeoutMS(),
                                          mReplyRunnable.get());
   NS_ENSURE_SUCCESS(rv, false);
@@ -380,7 +364,7 @@ BluetoothRequestParent::DoRequest(const UnpairRequest& aRequest)
   MOZ_ASSERT(mRequestType == Request::TUnpairRequest);
 
   nsresult rv =
-    mService->RemoveDeviceInternal(aRequest.path(), aRequest.address(),
+    mService->RemoveDeviceInternal(aRequest.address(),
                                    mReplyRunnable.get());
   NS_ENSURE_SUCCESS(rv, false);
 
@@ -393,9 +377,8 @@ BluetoothRequestParent::DoRequest(const DevicePropertiesRequest& aRequest)
   MOZ_ASSERT(mService);
   MOZ_ASSERT(mRequestType == Request::TDevicePropertiesRequest);
 
-  // Have to copy because our array types don't match up
   nsresult rv =
-    mService->GetPairedDevicePropertiesInternal(nsTArray<nsString>(aRequest.addresses()),
+    mService->GetPairedDevicePropertiesInternal(aRequest.addresses(),
                                                 mReplyRunnable.get());
   NS_ENSURE_SUCCESS(rv, false);
 
@@ -507,7 +490,6 @@ BluetoothRequestParent::DoRequest(const ConnectRequest& aRequest)
   MOZ_ASSERT(mRequestType == Request::TConnectRequest);
 
   mService->Connect(aRequest.address(),
-                    aRequest.adapterPath(),
                     aRequest.profileId(),
                     mReplyRunnable.get());
 

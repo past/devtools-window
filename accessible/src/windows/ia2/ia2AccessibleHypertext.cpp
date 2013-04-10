@@ -38,24 +38,19 @@ ia2AccessibleHypertext::get_hyperlink(long aLinkIndex,
 {
   A11Y_TRYBLOCK_BEGIN
 
-  *aHyperlink = NULL;
+  *aHyperlink = nullptr;
 
   HyperTextAccessibleWrap* hyperText = static_cast<HyperTextAccessibleWrap*>(this);
   if (hyperText->IsDefunct())
     return CO_E_OBJNOTCONNECTED;
 
   Accessible* hyperLink = hyperText->GetLinkAt(aLinkIndex);
-  nsCOMPtr<nsIWinAccessNode> winAccessNode(do_QueryObject(hyperLink));
-  if (!winAccessNode)
+  if (!hyperLink)
     return E_FAIL;
 
-  void *instancePtr = NULL;
-  nsresult rv =  winAccessNode->QueryNativeInterface(IID_IAccessibleHyperlink,
-                                                     &instancePtr);
-  if (NS_FAILED(rv))
-    return E_FAIL;
-
-  *aHyperlink = static_cast<IAccessibleHyperlink*>(instancePtr);
+  *aHyperlink =
+    static_cast<IAccessibleHyperlink*>(static_cast<AccessibleWrap*>(hyperLink));
+  (*aHyperlink)->AddRef();
   return S_OK;
 
   A11Y_TRYBLOCK_END

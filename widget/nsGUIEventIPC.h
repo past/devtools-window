@@ -7,11 +7,32 @@
 #define nsGUIEventIPC_h__
 
 #include "ipc/IPCMessageUtils.h"
-#include "nsDOMTouchEvent.h"
+#include "mozilla/dom/Touch.h"
 #include "nsGUIEvent.h"
 
 namespace IPC
 {
+
+template<>
+struct ParamTraits<mozilla::widget::BaseEventFlags>
+{
+  typedef mozilla::widget::BaseEventFlags paramType;
+
+  static void Write(Message* aMsg, const paramType& aParam)
+  {
+    aMsg->WriteBytes(&aParam, sizeof(aParam));
+  }
+
+  static bool Read(const Message* aMsg, void** aIter, paramType* aResult)
+  {
+    const char* outp;
+    if (!aMsg->ReadBytes(aIter, &outp, sizeof(*aResult))) {
+      return false;
+    }
+    *aResult = *reinterpret_cast<const paramType*>(outp);
+    return true;
+  }
+};
 
 template<>
 struct ParamTraits<nsEvent>
@@ -24,7 +45,7 @@ struct ParamTraits<nsEvent>
     WriteParam(aMsg, aParam.message);
     WriteParam(aMsg, aParam.refPoint);
     WriteParam(aMsg, aParam.time);
-    WriteParam(aMsg, aParam.flags);
+    WriteParam(aMsg, aParam.mFlags);
   }
 
   static bool Read(const Message* aMsg, void** aIter, paramType* aResult)
@@ -34,7 +55,7 @@ struct ParamTraits<nsEvent>
                ReadParam(aMsg, aIter, &aResult->message) &&
                ReadParam(aMsg, aIter, &aResult->refPoint) &&
                ReadParam(aMsg, aIter, &aResult->time) &&
-               ReadParam(aMsg, aIter, &aResult->flags);
+               ReadParam(aMsg, aIter, &aResult->mFlags);
     aResult->eventStructType = static_cast<nsEventStructType>(eventStructType);
     return ret;
   }
@@ -183,12 +204,12 @@ struct ParamTraits<nsTouchEvent>
   static void Write(Message* aMsg, const paramType& aParam)
   {
     WriteParam(aMsg, static_cast<const nsInputEvent&>(aParam));
-    // Sigh, nsDOMTouch bites us again!  We want to be able to do
+    // Sigh, Touch bites us again!  We want to be able to do
     //   WriteParam(aMsg, aParam.touches);
     const nsTArray<nsCOMPtr<nsIDOMTouch> >& touches = aParam.touches;
     WriteParam(aMsg, touches.Length());
     for (uint32_t i = 0; i < touches.Length(); ++i) {
-      nsDOMTouch* touch = static_cast<nsDOMTouch*>(touches[i].get());
+      mozilla::dom::Touch* touch = static_cast<mozilla::dom::Touch*>(touches[i].get());
       WriteParam(aMsg, touch->mIdentifier);
       WriteParam(aMsg, touch->mRefPoint);
       WriteParam(aMsg, touch->mRadius);
@@ -218,7 +239,7 @@ struct ParamTraits<nsTouchEvent>
           return false;
         }
         aResult->touches.AppendElement(
-          new nsDOMTouch(identifier, refPoint, radius, rotationAngle, force));
+          new mozilla::dom::Touch(identifier, refPoint, radius, rotationAngle, force));
     }
     return true;
   }

@@ -35,7 +35,7 @@
 #include "mozilla/Mutex.h"
 #include "mozilla/Services.h"
 #include "nsAppShell.h"
-#include "nsDOMTouchEvent.h"
+#include "mozilla/dom/Touch.h"
 #include "nsGkAtoms.h"
 #include "nsGUIEvent.h"
 #include "nsIObserverService.h"
@@ -50,7 +50,7 @@
 #include "libui/InputReader.h"
 #include "libui/InputDispatcher.h"
 
-#include "sampler.h"
+#include "GeckoProfiler.h"
 
 #define LOG(args...)                                            \
     __android_log_print(ANDROID_LOG_INFO, "Gonk" , ## args)
@@ -66,6 +66,7 @@ using namespace android;
 using namespace mozilla;
 using namespace mozilla::dom;
 using namespace mozilla::services;
+using namespace mozilla::widget;
 
 bool gDrawRequest = false;
 static nsAppShell *gAppShell = NULL;
@@ -86,7 +87,7 @@ void NotifyEvent()
     gAppShell->NotifyNativeEvent();
 }
 
-}
+} // namespace mozilla
 
 static void
 pipeHandler(int fd, FdHandler *data)
@@ -119,7 +120,7 @@ struct UserInputData {
         } key;
         struct {
             int32_t touchCount;
-            Touch touches[MAX_POINTERS];
+            ::Touch touches[MAX_POINTERS];
         } motion;
     };
 };
@@ -134,11 +135,11 @@ sendMouseEvent(uint32_t msg, uint64_t timeMs, int x, int y, bool forwardToChildr
     event.refPoint.y = y;
     event.time = timeMs;
     event.button = nsMouseEvent::eLeftButton;
+    event.inputSource = nsIDOMMouseEvent::MOZ_SOURCE_TOUCH;
     if (msg != NS_MOUSE_MOVE)
         event.clickCount = 1;
 
-    if (!forwardToChildren)
-        event.flags |= NS_EVENT_FLAG_DONT_FORWARD_CROSS_PROCESS;
+    event.mFlags.mNoCrossProcessBoundaryForwarding = !forwardToChildren;
 
     nsWindow::DispatchInputEvent(event);
 }
@@ -146,9 +147,9 @@ sendMouseEvent(uint32_t msg, uint64_t timeMs, int x, int y, bool forwardToChildr
 static void
 addDOMTouch(UserInputData& data, nsTouchEvent& event, int i)
 {
-    const Touch& touch = data.motion.touches[i];
+    const ::Touch& touch = data.motion.touches[i];
     event.touches.AppendElement(
-        new nsDOMTouch(touch.id,
+        new dom::Touch(touch.id,
                        nsIntPoint(touch.coords.getX(), touch.coords.getY()),
                        nsIntPoint(touch.coords.getAxisValue(AMOTION_EVENT_AXIS_SIZE),
                                   touch.coords.getAxisValue(AMOTION_EVENT_AXIS_SIZE)),
@@ -201,25 +202,27 @@ static nsEventStatus
 sendKeyEventWithMsg(uint32_t keyCode,
                     uint32_t msg,
                     uint64_t timeMs,
-                    uint32_t flags)
+                    const EventFlags& flags)
 {
     nsKeyEvent event(true, msg, NULL);
     event.keyCode = keyCode;
     event.location = nsIDOMKeyEvent::DOM_KEY_LOCATION_MOBILE;
     event.time = timeMs;
-    event.flags |= flags;
+    event.mFlags.Union(flags);
     return nsWindow::DispatchInputEvent(event);
 }
 
 static void
 sendKeyEvent(uint32_t keyCode, bool down, uint64_t timeMs)
 {
+    EventFlags extraFlags;
     nsEventStatus status =
-        sendKeyEventWithMsg(keyCode, down ? NS_KEY_DOWN : NS_KEY_UP, timeMs, 0);
+        sendKeyEventWithMsg(keyCode, down ? NS_KEY_DOWN : NS_KEY_UP, timeMs,
+                            extraFlags);
     if (down) {
-        sendKeyEventWithMsg(keyCode, NS_KEY_PRESS, timeMs,
-                            status == nsEventStatus_eConsumeNoDefault ?
-                            NS_EVENT_FLAG_NO_DEFAULT : 0);
+        extraFlags.mDefaultPrevented =
+            (status == nsEventStatus_eConsumeNoDefault);
+        sendKeyEventWithMsg(keyCode, NS_KEY_PRESS, timeMs, extraFlags);
     }
 }
 
@@ -521,7 +524,7 @@ GeckoInputDispatcher::notifyMotion(const NotifyMotionArgs* args)
     MOZ_ASSERT(args->pointerCount <= MAX_POINTERS);
     data.motion.touchCount = args->pointerCount;
     for (uint32_t i = 0; i < args->pointerCount; ++i) {
-        Touch& touch = data.motion.touches[i];
+        ::Touch& touch = data.motion.touches[i];
         touch.id = args->pointerProperties[i].id;
         memcpy(&touch.coords, &args->pointerCoords[i], sizeof(*args->pointerCoords));
     }
@@ -708,12 +711,12 @@ nsAppShell::ScheduleNativeEventCallback()
 bool
 nsAppShell::ProcessNextNativeEvent(bool mayWait)
 {
-    SAMPLE_LABEL("nsAppShell", "ProcessNextNativeEvent");
+    PROFILER_LABEL("nsAppShell", "ProcessNextNativeEvent");
     epoll_event events[16] = {{ 0 }};
 
     int event_count;
     {
-        SAMPLE_LABEL("nsAppShell", "ProcessNextNativeEvent::Wait");
+        PROFILER_LABEL("nsAppShell", "ProcessNextNativeEvent::Wait");
         if ((event_count = epoll_wait(epollfd, events, 16,  mayWait ? -1 : 0)) <= 0)
             return true;
     }

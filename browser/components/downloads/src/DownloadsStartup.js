@@ -31,16 +31,13 @@ XPCOMUtils.defineLazyModuleGetter(this, "DownloadsCommon",
 XPCOMUtils.defineLazyServiceGetter(this, "gSessionStartup",
                                    "@mozilla.org/browser/sessionstartup;1",
                                    "nsISessionStartup");
-XPCOMUtils.defineLazyServiceGetter(this, "gPrivateBrowsingService",
-                                   "@mozilla.org/privatebrowsing;1",
-                                   "nsIPrivateBrowsingService");
 
 const kObservedTopics = [
   "sessionstore-windows-restored",
   "sessionstore-browser-state-restored",
   "download-manager-initialized",
   "download-manager-change-retention",
-  "private-browsing-transition-complete",
+  "last-pb-context-exited",
   "browser-lastwindow-close-granted",
   "quit-application",
   "profile-change-teardown",
@@ -113,8 +110,8 @@ DownloadsStartup.prototype = {
         // Start receiving events for active and new downloads before we return
         // from this observer function.  We can't defer the execution of this
         // step, to ensure that we don't lose events raised in the meantime.
-        DownloadsCommon.data.initializeDataLink(
-                             aSubject.QueryInterface(Ci.nsIDownloadManager));
+        DownloadsCommon.initializeAllDataLinks(
+                        aSubject.QueryInterface(Ci.nsIDownloadManager));
 
         this._downloadsServiceInitialized = true;
 
@@ -126,23 +123,11 @@ DownloadsStartup.prototype = {
         break;
 
       case "download-manager-change-retention":
-        // When the panel interface is enabled, we use a different preference to
-        // determine whether downloads should be removed from view as soon as
-        // they are finished.  We do this to allow proper migration to the new
-        // feature when using the same profile on multiple versions of the
-        // product (bug 697678).
+        // If we're using the Downloads Panel, we override the retention
+        // preference to always retain downloads on completion.
         if (!DownloadsCommon.useToolkitUI) {
-          let removeFinishedDownloads = Services.prefs.getBoolPref(
-                            "browser.download.panel.removeFinishedDownloads");
-          aSubject.QueryInterface(Ci.nsISupportsPRInt32)
-                  .data = removeFinishedDownloads ? 0 : 2;
+          aSubject.QueryInterface(Ci.nsISupportsPRInt32).data = 2;
         }
-        break;
-
-      case "private-browsing-transition-complete":
-        // Ensure that persistent data is reloaded only when the database
-        // connection is available again.
-        this._ensureDataLoaded();
         break;
 
       case "browser-lastwindow-close-granted":
@@ -158,6 +143,14 @@ DownloadsStartup.prototype = {
         }
         break;
 
+      case "last-pb-context-exited":
+        // Similar to the above notification, but for private downloads.
+        if (this._downloadsServiceInitialized &&
+            !DownloadsCommon.useToolkitUI) {
+          Services.downloads.cleanUpPrivate();
+        }
+        break;
+
       case "quit-application":
         // When the application is shutting down, we must free all resources in
         // addition to cleaning up completed downloads.  If the Download Manager
@@ -169,7 +162,7 @@ DownloadsStartup.prototype = {
           break;
         }
 
-        DownloadsCommon.data.terminateDataLink();
+        DownloadsCommon.terminateAllDataLinks();
 
         // When using the panel interface, downloads that are already completed
         // should be removed when quitting the application.
@@ -258,15 +251,14 @@ DownloadsStartup.prototype = {
    */
   _ensureDataLoaded: function DS_ensureDataLoaded()
   {
-    if (!this._downloadsServiceInitialized ||
-        gPrivateBrowsingService.privateBrowsingEnabled) {
+    if (!this._downloadsServiceInitialized) {
       return;
     }
 
     // If the previous session has been already restored, then we ensure that
     // all the downloads are loaded.  Otherwise, we only ensure that the active
     // downloads from the previous session are loaded.
-    DownloadsCommon.data.ensurePersistentDataLoaded(!this._recoverAllDownloads);
+    DownloadsCommon.ensureAllPersistentDataLoaded(!this._recoverAllDownloads);
   }
 };
 

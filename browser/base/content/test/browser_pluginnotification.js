@@ -6,6 +6,7 @@ var gTestBrowser = null;
 var gNextTest = null;
 var gClickToPlayPluginActualEvents = 0;
 var gClickToPlayPluginExpectedEvents = 5;
+var gPluginHost = Components.classes["@mozilla.org/plugin/host;1"].getService(Components.interfaces.nsIPluginHost);
 
 Components.utils.import("resource://gre/modules/Services.jsm");
 
@@ -353,7 +354,7 @@ function test11b() {
 
 // Tests that the going back will reshow the notification for click-to-play plugins (part 3/4)
 function test11c() {
-  Services.obs.removeObserver(test11c, "PopupNotifications-updateNotShowing", false);
+  Services.obs.removeObserver(test11c, "PopupNotifications-updateNotShowing");
   var condition = function() PopupNotifications.getNotification("click-to-play-plugins", gTestBrowser);
   waitForCondition(condition, test11d, "Test 11c, waited too long for click-to-play-plugin notification");
 }
@@ -420,7 +421,7 @@ function test12d() {
   var objLoadingContent = secondtestB.QueryInterface(Ci.nsIObjectLoadingContent);
   ok(!objLoadingContent.activated, "Test 12d, Second Test plugin (B) should not be activated");
 
-  Services.perms.removeAll();
+  Services.perms.remove("127.0.0.1:8888", gPluginHost.getPermissionStringForType("application/x-test"));
   prepareTest(test13a, gHttpTestRoot + "plugin_clickToPlayDeny.html");
 }
 
@@ -510,7 +511,7 @@ function test13e() {
   var objLoadingContent = secondtestB.QueryInterface(Ci.nsIObjectLoadingContent);
   ok(objLoadingContent.activated, "Test 13e, Second Test plugin (B) should be activated");
 
-  Services.perms.removeAll();
+  Services.perms.remove("127.0.0.1:8888", gPluginHost.getPermissionStringForType("application/x-test"));
   Services.prefs.setBoolPref("plugins.click_to_play", false);
   prepareTest(test14, gTestRoot + "plugin_test2.html");
 }
@@ -524,7 +525,6 @@ function test14() {
   var plugin = getTestPlugin();
   plugin.disabled = false;
   plugin.blocklisted = false;
-  Services.perms.removeAll();
   Services.prefs.setBoolPref("plugins.click_to_play", true);
   prepareTest(test15, gTestRoot + "plugin_alternate_content.html");
 }
@@ -537,7 +537,7 @@ function test15() {
   var mainBox = doc.getAnonymousElementByAttribute(plugin, "class", "mainBox");
   ok(mainBox, "Test 15, Plugin with id=" + plugin.id + " overlay should exist");
 
-  prepareTest(test16a, gTestRoot + "plugin_bug743421.html");
+  prepareTest(test16a, gTestRoot + "plugin_add_dynamically.html");
 }
 
 // Tests that a plugin dynamically added to a page after one plugin is clicked
@@ -657,7 +657,7 @@ function test18c() {
   var updateLink = doc.getAnonymousElementByAttribute(plugin, "class", "checkForUpdatesLink");
   ok(updateLink.style.display != "block", "Test 18c, Plugin should not have an update link");
 
-  // check that click "Always allow" works with blocklisted plugins (for now)
+  // check that click "Always allow" works with blocklisted plugins
   clickToPlayNotification.secondaryActions[0].callback();
   var condition = function() objLoadingContent.activated;
   waitForCondition(condition, test18d, "Test 18d, Waited too long for plugin to activate");
@@ -682,7 +682,33 @@ function test18e() {
   var objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
   ok(objLoadingContent.activated, "Test 18e, Plugin should be activated");
 
-  Services.perms.removeAll();
+  Services.perms.remove("127.0.0.1:8888", gPluginHost.getPermissionStringForType("application/x-test"));
+  prepareTest(test18f, gHttpTestRoot + "plugin_test.html");
+}
+
+// clicking the in-content overlay of a vulnerable plugin should bring
+// up the notification and not directly activate the plugin
+function test18f() {
+  var notification = PopupNotifications.getNotification("click-to-play-plugins", gTestBrowser);
+  ok(notification, "Test 18f, Should have a click-to-play notification");
+  ok(notification.dismissed, "Test 18f, notification should start dismissed");
+  var plugin = gTestBrowser.contentDocument.getElementById("test");
+  var objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
+  ok(!objLoadingContent.activated, "Test 18f, Plugin should not be activated");
+
+  notification.options.eventCallback = function() { executeSoon(test18g); };
+  EventUtils.synthesizeMouseAtCenter(plugin, {}, gTestBrowser.contentWindow);
+}
+
+function test18g() {
+  var notification = PopupNotifications.getNotification("click-to-play-plugins", gTestBrowser);
+  ok(notification, "Test 18g, Should have a click-to-play notification");
+  ok(!notification.dismissed, "Test 18g, notification should be open");
+  notification.options.eventCallback = null;
+  var plugin = gTestBrowser.contentDocument.getElementById("test");
+  var objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
+  ok(!objLoadingContent.activated, "Test 18g, Plugin should not be activated");
+
   setAndUpdateBlocklist(gHttpTestRoot + "blockNoPlugins.xml",
   function() {
     resetBlocklist();
@@ -827,9 +853,8 @@ function test21a() {
   }
 
   // we have to actually show the panel to get the bindings to instantiate
-  notification.options.dismissed = false;
   notification.options.eventCallback = test21b;
-  PopupNotifications._showPanel([notification], notification.anchorElement);
+  notification.reshow();
 }
 
 function test21b() {
@@ -887,9 +912,8 @@ function test21c() {
   }
 
   // we have to actually show the panel to get the bindings to instantiate
-  notification.options.dismissed = false;
   notification.options.eventCallback = test21d;
-  PopupNotifications._showPanel([notification], notification.anchorElement);
+  notification.reshow();
 }
 
 function test21d() {
@@ -992,10 +1016,12 @@ function test23() {
 
   // Reload plugin (this may need RunSoon() in the future when plugins change state asynchronously)
   pluginNode.type = null;
-  pluginNode.src = pluginNode.src; // We currently don't properly change state just on type change, bug 767631
+  // We currently don't properly change state just on type change,
+  // so rebind the plugin to tree. bug 767631
+  pluginNode.parentNode.appendChild(pluginNode);
   is(objLoadingContent.displayedType, Ci.nsIObjectLoadingContent.TYPE_NULL, "Test 23, plugin should be unloaded");
   pluginNode.type = "application/x-test";
-  pluginNode.src = pluginNode.src;
+  pluginNode.parentNode.appendChild(pluginNode);
   is(objLoadingContent.displayedType, Ci.nsIObjectLoadingContent.TYPE_NULL, "Test 23, Plugin should not have activated");
   is(objLoadingContent.pluginFallbackType, Ci.nsIObjectLoadingContent.PLUGIN_CLICK_TO_PLAY, "Test 23, Plugin should be click-to-play");
   ok(!pluginNode.activated, "Test 23, plugin node should not be activated");
@@ -1058,9 +1084,12 @@ function test24d() {
   var objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
   ok(objLoadingContent.activated, "Test 24d, plugin should be activated");
 
-  Services.perms.removeAll();
+  // this resets the vulnerable plugin permission
+  Services.perms.remove("127.0.0.1:8888", gPluginHost.getPermissionStringForType("application/x-test"));
   setAndUpdateBlocklist(gHttpTestRoot + "blockNoPlugins.xml",
   function() {
+    // this resets the normal plugin permission
+    Services.perms.remove("127.0.0.1:8888", gPluginHost.getPermissionStringForType("application/x-test"));
     resetBlocklist();
     prepareTest(test25a, gHttpTestRoot + "plugin_test.html");
   });
@@ -1118,7 +1147,8 @@ function test25c() {
   var overlay = gTestBrowser.contentDocument.getAnonymousElementByAttribute(secondtest, "class", "mainBox");
   ok(overlay.style.visibility == "hidden", "Test 25c, second test plugin should not have visible overlay");
 
-  Services.perms.removeAll();
+  Services.perms.remove("127.0.0.1:8888", gPluginHost.getPermissionStringForType("application/x-test"));
+  Services.perms.remove("127.0.0.1:8888", gPluginHost.getPermissionStringForType("application/x-second-test"));
 
   finishTest();
 }

@@ -17,6 +17,7 @@
 #include "nsIStringBundle.h"
 #include "nsISecureBrowserUI.h"
 #include "nsIDocShell.h"
+#include "nsIDocShellTreeItem.h"
 #include "nsIWebProgressListener.h"
 #include "nsIFormSubmitObserver.h"
 #include "nsIURI.h"
@@ -60,12 +61,13 @@ public:
   NS_IMETHOD Notify(nsIDOMHTMLFormElement* formNode, nsIDOMWindow* window,
                     nsIURI *actionURL, bool* cancelSubmit);
   NS_IMETHOD NotifyInvalidSubmit(nsIDOMHTMLFormElement* formNode,
-                                 nsIArray* invalidElements) { return NS_OK; };
+                                 nsIArray* invalidElements) { return NS_OK; }
   
 protected:
   mozilla::ReentrantMonitor mReentrantMonitor;
   
   nsWeakPtr mWindow;
+  nsWeakPtr mDocShell;
   nsCOMPtr<nsINetUtil> mIOService;
   nsCOMPtr<nsIStringBundle> mStringBundle;
   nsCOMPtr<nsIURI> mCurrentURI;
@@ -99,7 +101,7 @@ protected:
 #endif
 
   static already_AddRefed<nsISupports> ExtractSecurityInfo(nsIRequest* aRequest);
-  static nsresult MapInternalToExternalState(uint32_t* aState, lockIconState lock, bool ev);
+  nsresult MapInternalToExternalState(uint32_t* aState, lockIconState lock, bool ev);
   nsresult UpdateSecurityState(nsIRequest* aRequest, bool withNewLocation,
                                bool withUpdateStatus, bool withUpdateTooltip);
   bool UpdateMyFlags(lockIconState &warnSecurityState);

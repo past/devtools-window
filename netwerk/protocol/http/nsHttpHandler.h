@@ -25,7 +25,6 @@
 #include "nsIStreamConverterService.h"
 #include "nsICacheSession.h"
 #include "nsICookieService.h"
-#include "nsIIDNService.h"
 #include "nsITimer.h"
 #include "nsIStrictTransportSecurityService.h"
 #include "nsISpeculativeConnect.h"
@@ -74,7 +73,6 @@ public:
     PRIntervalTime SpdyTimeout()             { return mSpdyTimeout; }
     uint16_t       MaxRequestAttempts()      { return mMaxRequestAttempts; }
     const char    *DefaultSocketType()       { return mDefaultSocketType.get(); /* ok to return null */ }
-    nsIIDNService *IDNConverter()            { return mIDNConverter; }
     uint32_t       PhishyUserPassLength()    { return mPhishyUserPassLength; }
     uint8_t        GetQoSBits()              { return mQoSBits; }
     uint16_t       GetIdleSynTimeout()       { return mIdleSynTimeout; }
@@ -92,11 +90,14 @@ public:
     bool           IsSpdyV3Enabled() { return mSpdyV3; }
     bool           CoalesceSpdy() { return mCoalesceSpdy; }
     bool           UseAlternateProtocol() { return mUseAlternateProtocol; }
+    bool           UseSpdyPersistentSettings() { return mSpdyPersistentSettings; }
     uint32_t       SpdySendingChunkSize() { return mSpdySendingChunkSize; }
     uint32_t       SpdySendBufferSize()      { return mSpdySendBufferSize; }
     PRIntervalTime SpdyPingThreshold() { return mSpdyPingThreshold; }
     PRIntervalTime SpdyPingTimeout() { return mSpdyPingTimeout; }
     uint32_t       ConnectTimeout()  { return mConnectTimeout; }
+    uint32_t       ParallelSpeculativeConnectLimit() { return mParallelSpeculativeConnectLimit; }
+    bool           CritialRequestPrioritization() { return mCritialRequestPrioritization; }
 
     bool           PromptTempRedirect()      { return mPromptTempRedirect; }
 
@@ -152,6 +153,11 @@ public:
     nsresult ProcessPendingQ(nsHttpConnectionInfo *cinfo)
     {
         return mConnMgr->ProcessPendingQ(cinfo);
+    }
+
+    nsresult ProcessPendingQ()
+    {
+        return mConnMgr->ProcessPendingQ();
     }
 
     nsresult GetSocketThreadTarget(nsIEventTarget **target)
@@ -246,6 +252,12 @@ public:
     // returns true in between Init and Shutdown states
     bool Active() { return mHandlerActive; }
 
+    static void GetCacheSessionNameForStoragePolicy(
+            nsCacheStoragePolicy storagePolicy,
+            bool isPrivate,
+            uint32_t appId,
+            bool inBrowser,
+            nsACString& sessionName);
 private:
 
     //
@@ -271,7 +283,6 @@ private:
     nsCOMPtr<nsIStreamConverterService> mStreamConvSvc;
     nsCOMPtr<nsIObserverService>        mObserverService;
     nsCOMPtr<nsICookieService>          mCookieService;
-    nsCOMPtr<nsIIDNService>             mIDNConverter;
     nsCOMPtr<nsIStrictTransportSecurityService> mSTSService;
 
     // the authentication credentials cache
@@ -363,9 +374,10 @@ private:
     // Persistent HTTPS caching flag
     bool           mEnablePersistentHttpsCaching;
 
-    // For broadcasting the preference to not be tracked
+    // For broadcasting tracking preference
     bool           mDoNotTrackEnabled;
-    
+    uint8_t        mDoNotTrackValue;
+
     // Whether telemetry is reported or not
     bool           mTelemetryEnabled;
 
@@ -382,6 +394,7 @@ private:
     bool           mSpdyV3;
     bool           mCoalesceSpdy;
     bool           mUseAlternateProtocol;
+    bool           mSpdyPersistentSettings;
     uint32_t       mSpdySendingChunkSize;
     uint32_t       mSpdySendBufferSize;
     PRIntervalTime mSpdyPingThreshold;
@@ -390,6 +403,14 @@ private:
     // The maximum amount of time to wait for socket transport to be
     // established. In milliseconds.
     uint32_t       mConnectTimeout;
+
+    // The maximum number of current global half open sockets allowable
+    // when starting a new speculative connection.
+    uint32_t       mParallelSpeculativeConnectLimit;
+
+    // Whether or not to block requests for non head js/css items (e.g. media)
+    // while those elements load.
+    bool           mCritialRequestPrioritization;
 };
 
 //-----------------------------------------------------------------------------

@@ -28,7 +28,11 @@ parent:
             nsCString aOrigin,
             nsCString aProtocol,
             bool aSecure,
-            SerializedLoadContext loadContext);
+            // ping values only meaningful if client set them
+            uint32_t aPingInterval,
+            bool aClientSetPingInterval,
+            uint32_t aPingTimeout,
+            bool aClientSetPingTimeout);
   Close(uint16_t code, nsCString reason);
   SendMsg(nsCString aMsg);
   SendBinaryMsg(nsCString aMsg);

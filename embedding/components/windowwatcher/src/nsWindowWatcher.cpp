@@ -61,10 +61,6 @@
 #include "nsSandboxFlags.h"
 #include "mozilla/Preferences.h"
 
-#ifndef MOZ_PER_WINDOW_PRIVATE_BROWSING
-#include "nsIPrivateBrowsingService.h"
-#endif
-
 #ifdef USEWEAKREFS
 #include "nsIWeakReference.h"
 #endif
@@ -199,7 +195,7 @@ nsWatcherWindowEnumerator::GetNext(nsISupports **retval)
   if (!retval)
     return NS_ERROR_INVALID_ARG;
 
-  *retval = NULL;
+  *retval = nullptr;
 
 #ifdef USEWEAKREFS
   while (mCurrentPosition) {
@@ -326,12 +322,12 @@ nsWindowWatcher::Init()
 }
 
 /**
- * Convert aArguments into either an nsIArray or NULL.
+ * Convert aArguments into either an nsIArray or nullptr.
  *
- *  - If aArguments is NULL, return NULL.
- *  - If aArguments is an nsArray, return NULL if it's empty, or otherwise
+ *  - If aArguments is nullptr, return nullptr.
+ *  - If aArguments is an nsArray, return nullptr if it's empty, or otherwise
  *    return the array.
- *  - If aArguments is an nsISupportsArray, return NULL if it's empty, or
+ *  - If aArguments is an nsISupportsArray, return nullptr if it's empty, or
  *    otherwise add its elements to an nsArray and return the new array.
  *  - Otherwise, return an nsIArray with one element: aArguments.
  */
@@ -339,7 +335,7 @@ static already_AddRefed<nsIArray>
 ConvertArgsToArray(nsISupports* aArguments)
 {
   if (!aArguments) {
-    return NULL;
+    return nullptr;
   }
 
   nsCOMPtr<nsIArray> array = do_QueryInterface(aArguments);
@@ -347,7 +343,7 @@ ConvertArgsToArray(nsISupports* aArguments)
     uint32_t argc = 0;
     array->GetLength(&argc);
     if (argc == 0)
-      return NULL;
+      return nullptr;
 
     return array.forget();
   }
@@ -357,17 +353,18 @@ ConvertArgsToArray(nsISupports* aArguments)
     uint32_t argc = 0;
     supArray->Count(&argc);
     if (argc == 0) {
-      return NULL;
+      return nullptr;
     }
 
     nsCOMPtr<nsIMutableArray> mutableArray =
       do_CreateInstance(NS_ARRAY_CONTRACTID);
-    NS_ENSURE_TRUE(mutableArray, NULL);
+    NS_ENSURE_TRUE(mutableArray, nullptr);
 
     for (uint32_t i = 0; i < argc; i++) {
-      nsCOMPtr<nsISupports> elt = dont_AddRef(supArray->ElementAt(i));
+      nsCOMPtr<nsISupports> elt;
+      supArray->GetElementAt(i, getter_AddRefs(elt));
       nsresult rv = mutableArray->AppendElement(elt, /* aWeak = */ false);
-      NS_ENSURE_SUCCESS(rv, NULL);
+      NS_ENSURE_SUCCESS(rv, nullptr);
     }
 
     return mutableArray.forget();
@@ -375,10 +372,10 @@ ConvertArgsToArray(nsISupports* aArguments)
 
   nsCOMPtr<nsIMutableArray> singletonArray =
     do_CreateInstance(NS_ARRAY_CONTRACTID);
-  NS_ENSURE_TRUE(singletonArray, NULL);
+  NS_ENSURE_TRUE(singletonArray, nullptr);
 
   nsresult rv = singletonArray->AppendElement(aArguments, /* aWeak = */ false);
-  NS_ENSURE_SUCCESS(rv, NULL);
+  NS_ENSURE_SUCCESS(rv, nullptr);
 
   return singletonArray.forget();
 }
@@ -808,11 +805,13 @@ nsWindowWatcher::OpenWindowInternal(nsIDOMWindow *aParent,
   /* allow a window that we found by name to keep its name (important for cases
      like _self where the given name is different (and invalid)).  Also, _blank
      is not a window name. */
-  if (windowNeedsName)
-    newDocShellItem->SetName(nameSpecified &&
-                             !name.LowerCaseEqualsLiteral("_blank") ?
-                             name.get() : nullptr);
-
+  if (windowNeedsName) {
+    if (nameSpecified && !name.LowerCaseEqualsLiteral("_blank")) {
+      newDocShellItem->SetName(name);
+    } else {
+      newDocShellItem->SetName(EmptyString());
+    }
+  }
 
   // Inherit the right character set into the new window to use as a fallback
   // in the event the document being loaded does not specify a charset.  When
@@ -902,37 +901,35 @@ nsWindowWatcher::OpenWindowInternal(nsIDOMWindow *aParent,
     }
   }
 
-  if (windowIsNew) {
-    // See if the caller has requested a private browsing window, or if all
-    // windows should be private.
-    bool isPrivateBrowsingWindow =
+  // If all windows should be private, make sure the new window is also
+  // private.  Otherwise, see if the caller has explicitly requested a
+  // private or non-private window.
+  bool isPrivateBrowsingWindow =
       Preferences::GetBool("browser.privatebrowsing.autostart") ||
-      !!(chromeFlags & nsIWebBrowserChrome::CHROME_PRIVATE_WINDOW);
+      (!!(chromeFlags & nsIWebBrowserChrome::CHROME_PRIVATE_WINDOW) &&
+       !(chromeFlags & nsIWebBrowserChrome::CHROME_NON_PRIVATE_WINDOW));
 
-#ifndef MOZ_PER_WINDOW_PRIVATE_BROWSING
-    nsCOMPtr<nsIPrivateBrowsingService> pbs =
-      do_GetService(NS_PRIVATE_BROWSING_SERVICE_CONTRACTID);
-    if (pbs) {
-      bool inPrivateBrowsing = false;
-      pbs->GetPrivateBrowsingEnabled(&inPrivateBrowsing);
-      isPrivateBrowsingWindow |= inPrivateBrowsing;
+  // Otherwise, propagate the privacy status of the parent window, if
+  // available, to the child.
+  if (!isPrivateBrowsingWindow &&
+      !(chromeFlags & nsIWebBrowserChrome::CHROME_NON_PRIVATE_WINDOW)) {
+    nsCOMPtr<nsIDocShellTreeItem> parentItem;
+    GetWindowTreeItem(aParent, getter_AddRefs(parentItem));
+    nsCOMPtr<nsILoadContext> parentContext = do_QueryInterface(parentItem);
+    if (parentContext) {
+      isPrivateBrowsingWindow = parentContext->UsePrivateBrowsing();
     }
-#endif
+  }
 
-    // Otherwise, propagate the privacy status of the parent window, if
-    // available, to the child.
-    if (!isPrivateBrowsingWindow) {
-      nsCOMPtr<nsIDocShellTreeItem> parentItem;
-      GetWindowTreeItem(aParent, getter_AddRefs(parentItem));
-      nsCOMPtr<nsILoadContext> parentContext = do_QueryInterface(parentItem);
-      if (parentContext) {
-        isPrivateBrowsingWindow = parentContext->UsePrivateBrowsing();
-      }
-    }
-
+  if (isNewToplevelWindow) {
     nsCOMPtr<nsIDocShellTreeItem> childRoot;
     newDocShellItem->GetRootTreeItem(getter_AddRefs(childRoot));
     nsCOMPtr<nsILoadContext> childContext = do_QueryInterface(childRoot);
+    if (childContext) {
+      childContext->SetPrivateBrowsing(isPrivateBrowsingWindow);
+    }
+  } else if (windowIsNew) {
+    nsCOMPtr<nsILoadContext> childContext = do_QueryInterface(newDocShellItem);
     if (childContext) {
       childContext->SetPrivateBrowsing(isPrivateBrowsingWindow);
     }
@@ -1452,8 +1449,8 @@ nsWindowWatcher::URIfromURL(const char *aURL,
 
 #define NS_CALCULATE_CHROME_FLAG_FOR(feature, flag)               \
     prefBranch->GetBoolPref(feature, &forceEnable);               \
-    if (forceEnable && !(aDialog && isChrome) &&                  \
-        !(isChrome && aHasChromeParent) && !aChromeURL) {         \
+    if (forceEnable && !(aDialog && isCallerChrome) &&            \
+        !(isCallerChrome && aHasChromeParent) && !aChromeURL) {   \
       chromeFlags |= flag;                                        \
     } else {                                                      \
       chromeFlags |= WinHasOption(aFeatures, feature,             \
@@ -1504,23 +1501,17 @@ uint32_t nsWindowWatcher::CalculateChromeFlags(nsIDOMWindow *aParent,
 
   /* Next, allow explicitly named options to override the initial settings */
 
-  nsCOMPtr<nsIScriptSecurityManager>
-    securityManager(do_GetService(NS_SCRIPTSECURITYMANAGER_CONTRACTID));
-
-  bool isChrome = false;
-  nsresult rv;
-  if (securityManager) {
-    rv = securityManager->SubjectPrincipalIsSystem(&isChrome);
-    if (NS_FAILED(rv)) {
-      isChrome = false;
-    }
-  }
+  bool isCallerChrome = nsContentUtils::IsCallerChrome();
 
   // Determine whether the window is a private browsing window
-  if (isChrome) {
+  if (isCallerChrome) {
     chromeFlags |= WinHasOption(aFeatures, "private", 0, &presenceFlag) ?
       nsIWebBrowserChrome::CHROME_PRIVATE_WINDOW : 0;
+    chromeFlags |= WinHasOption(aFeatures, "non-private", 0, &presenceFlag) ?
+      nsIWebBrowserChrome::CHROME_NON_PRIVATE_WINDOW : 0;
   }
+
+  nsresult rv;
 
   nsCOMPtr<nsIPrefBranch> prefBranch;
   nsCOMPtr<nsIPrefService> prefs = do_GetService(NS_PREFSERVICE_CONTRACTID, &rv);
@@ -1603,6 +1594,17 @@ uint32_t nsWindowWatcher::CalculateChromeFlags(nsIDOMWindow *aParent,
   bool disableDialogFeature = false;
   nsCOMPtr<nsIPrefBranch> branch = do_QueryInterface(prefs);
   branch->GetBoolPref("dom.disable_window_open_dialog_feature", &disableDialogFeature);
+
+  bool isFullScreen = false;
+  if (aParent) {
+    aParent->GetFullScreen(&isFullScreen);
+  }
+  if (isFullScreen && !isCallerChrome) {
+    // If the parent window is in fullscreen & the caller context is content,
+    // dialog feature is disabled. (see bug 803675)
+    disableDialogFeature = true;
+  }
+
   if (!disableDialogFeature) {
     chromeFlags |= WinHasOption(aFeatures, "dialog", 0, nullptr) ?
       nsIWebBrowserChrome::CHROME_OPENAS_DIALOG : 0;
@@ -1622,7 +1624,7 @@ uint32_t nsWindowWatcher::CalculateChromeFlags(nsIDOMWindow *aParent,
    */
 
   // Check security state for use in determing window dimensions
-  if (!nsContentUtils::IsCallerChrome() || (isChrome && !aHasChromeParent)) {
+  if (!isCallerChrome || !aHasChromeParent) {
     // If priv check fails (or if we're called from chrome, but the
     // parent is not a chrome window), set all elements to minimum
     // reqs., else leave them alone.

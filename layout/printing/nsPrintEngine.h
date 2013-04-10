@@ -14,12 +14,11 @@
 #include "nsFrameList.h"
 #include "mozilla/Attributes.h"
 #include "nsIWebProgress.h"
-#include "nsHTMLCanvasElement.h"
+#include "mozilla/dom/HTMLCanvasElement.h"
 #include "nsIWebProgressListener.h"
 #include "nsWeakReference.h"
 
 // Interfaces
-#include "nsIDocument.h"
 #include "nsIDOMWindow.h"
 #include "nsIObserver.h"
 
@@ -27,6 +26,7 @@
 class nsPagePrintTimer;
 class nsIDocShellTreeNode;
 class nsDeviceContext;
+class nsIDocument;
 class nsIDocumentViewerPrint;
 class nsPrintObject;
 class nsIDocShell;
@@ -204,6 +204,15 @@ public:
     return mIsCreatingPrintPreview;
   }
 
+  void SetDisallowSelectionPrint(bool aDisallowSelectionPrint)
+  {
+    mDisallowSelectionPrint = aDisallowSelectionPrint;
+  }
+
+  void SetNoMarginBoxes(bool aNoMarginBoxes) {
+    mNoMarginBoxes = aNoMarginBoxes;
+  }
+
 protected:
 
   nsresult CommonPrint(bool aIsPrintPreview, nsIPrintSettings* aPrintSettings,
@@ -280,6 +289,9 @@ protected:
 
   int32_t mLoadCounter;
   bool mDidLoadDataForPrinting;
+  bool mIsDestroying;
+  bool mDisallowSelectionPrint;
+  bool mNoMarginBoxes;
 
   nsresult AfterNetworkPrint(bool aHandleError);
 
@@ -287,7 +299,7 @@ protected:
                        bool& aDoReturn,
                        bool& aDocumentIsTopLevel,
                        nsSize& aAdjSize);
-  nsIView* GetParentViewForRoot();
+  nsView* GetParentViewForRoot();
   bool DoSetPixelScale();
   void UpdateZoomRatio(nsPrintObject* aPO, bool aSetPixelScale);
   nsresult ReconstructAndReflow(bool aDoSetPixelScale);

@@ -18,9 +18,9 @@
 
 extern "C" {
 struct JSContext;
-struct JSFunction;
-struct JSObject;
-struct JSScript;
+class JSFunction;
+class JSObject;
+class JSScript;
 }
 
 class JSAtom;
@@ -32,7 +32,7 @@ class ArgumentsObject;
 class BaseShape;
 class GlobalObject;
 class UnownedBaseShape;
-struct Shape;
+class Shape;
 
 template<class, typename> class HeapPtr;
 
@@ -98,6 +98,7 @@ DeclMarker(Object, GlobalObject)
 DeclMarker(Object, JSObject)
 DeclMarker(Object, JSFunction)
 DeclMarker(Object, ScopeObject)
+DeclMarker(Object, ArrayBufferObject)
 DeclMarker(Script, JSScript)
 DeclMarker(Shape, Shape)
 DeclMarker(String, JSAtom)
@@ -106,11 +107,15 @@ DeclMarker(String, JSFlatString)
 DeclMarker(String, JSLinearString)
 DeclMarker(String, PropertyName)
 DeclMarker(TypeObject, types::TypeObject)
-#if JS_HAS_XML_SUPPORT
-DeclMarker(XML, JSXML)
-#endif
 
 #undef DeclMarker
+
+/* Return true if the pointer is NULL, or if it is a tagged pointer to NULL. */
+JS_ALWAYS_INLINE bool
+IsNullTaggedPointer(void *p)
+{
+    return uintptr_t(p) < 32;
+}
 
 /*** Externally Typed Marking ***/
 
@@ -175,6 +180,9 @@ MarkValueRootRange(JSTracer *trc, Value *begin, Value *end, const char *name)
 }
 
 void
+MarkValueRootRangeMaybeNullPayload(JSTracer *trc, size_t len, Value *vec, const char *name);
+
+void
 MarkTypeRoot(JSTracer *trc, types::Type *v, const char *name);
 
 bool
@@ -236,7 +244,7 @@ MarkChildren(JSTracer *trc, JSObject *obj);
  * JS_TraceShapeCycleCollectorChildren.
  */
 void
-MarkCycleCollectorChildren(JSTracer *trc, Shape *shape);
+MarkCycleCollectorChildren(JSTracer *trc, RawShape shape);
 
 void
 PushArena(GCMarker *gcmarker, ArenaHeader *aheader);
@@ -266,18 +274,16 @@ Mark(JSTracer *trc, EncapsulatedPtrScript *o, const char *name)
     MarkScript(trc, o, name);
 }
 
-#if JS_HAS_XML_SUPPORT
-inline void
-Mark(JSTracer *trc, HeapPtr<JSXML> *xml, const char *name)
-{
-    MarkXML(trc, xml, name);
-}
-#endif
-
 inline void
 Mark(JSTracer *trc, HeapPtr<ion::IonCode> *code, const char *name)
 {
     MarkIonCode(trc, code, name);
+}
+
+inline void
+Mark(JSTracer *trc, JSObject **objp, const char *name)
+{
+    MarkObjectUnbarriered(trc, objp, name);
 }
 
 bool
@@ -385,9 +391,6 @@ TraceKind(JSScript *script)
 
 void
 TraceChildren(JSTracer *trc, void *thing, JSGCTraceKind kind);
-
-void
-CallTracer(JSTracer *trc, void *thing, JSGCTraceKind kind);
 
 } /* namespace js */
 

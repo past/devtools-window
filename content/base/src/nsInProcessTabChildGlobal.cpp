@@ -50,7 +50,7 @@ public:
   nsAsyncMessageToParent(nsInProcessTabChildGlobal* aTabChild,
                          const nsAString& aMessage,
                          const StructuredCloneData& aData)
-    : mTabChild(aTabChild), mMessage(aMessage)
+    : mTabChild(aTabChild), mMessage(aMessage), mRun(false)
   {
     if (aData.mDataLength && !mData.copy(aData.mData, aData.mDataLength)) {
       NS_RUNTIMEABORT("OOM");
@@ -60,6 +60,11 @@ public:
 
   NS_IMETHOD Run()
   {
+    if (mRun) {
+      return NS_OK;
+    }
+
+    mRun = true;
     mTabChild->mASyncMessages.RemoveElement(this);
     if (mTabChild->mChromeMessageManager) {
       StructuredCloneData data;
@@ -77,6 +82,9 @@ public:
   nsString mMessage;
   JSAutoStructuredCloneBuffer mData;
   StructuredCloneClosure mClosure;
+  // True if this runnable has already been called. This can happen if DoSendSyncMessage
+  // is called while waiting for an asynchronous message send.
+  bool mRun;
 };
 
 bool
@@ -135,24 +143,14 @@ nsInProcessTabChildGlobal::Init()
                                               nullptr,
                                               mCx,
                                               mozilla::dom::ipc::MM_CHILD);
-
-  // Set the location information for the new global, so that tools like
-  // about:memory may use that information.
-  JSObject *global;
-  nsIURI* docURI = mOwner->OwnerDoc()->GetDocumentURI();
-  if (mGlobal && NS_SUCCEEDED(mGlobal->GetJSObject(&global)) && docURI) {
-    xpc::SetLocationForGlobal(global, docURI);
-  }
-
   return NS_OK;
 }
-
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsInProcessTabChildGlobal)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(nsInProcessTabChildGlobal,
                                                 nsDOMEventTargetHelper)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mMessageManager)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mGlobal)
+  nsFrameScriptExecutor::Unlink(tmp);
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsInProcessTabChildGlobal,
@@ -169,6 +167,8 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION_INHERITED(nsInProcessTabChildGlobal)
   NS_INTERFACE_MAP_ENTRY(nsIInProcessContentFrameMessageManager)
   NS_INTERFACE_MAP_ENTRY(nsIScriptContextPrincipal)
   NS_INTERFACE_MAP_ENTRY(nsIScriptObjectPrincipal)
+  NS_INTERFACE_MAP_ENTRY(nsIGlobalObject)
+  NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(ContentFrameMessageManager)
 NS_INTERFACE_MAP_END_INHERITING(nsDOMEventTargetHelper)
 
@@ -300,10 +300,18 @@ nsInProcessTabChildGlobal::PreHandleEvent(nsEventChainPreVisitor& aVisitor)
 nsresult
 nsInProcessTabChildGlobal::InitTabChildGlobal()
 {
-
+  nsAutoCString id;
+  id.AssignLiteral("inProcessTabChildGlobal");
+  nsIURI* uri = mOwner->OwnerDoc()->GetDocumentURI();
+  if (uri) {
+    nsAutoCString u;
+    uri->GetSpec(u);
+    id.AppendLiteral("?ownedBy=");
+    id.Append(u);
+  }
   nsISupports* scopeSupports =
     NS_ISUPPORTS_CAST(nsIDOMEventTarget*, this);
-  NS_ENSURE_STATE(InitTabChildGlobalInternal(scopeSupports));
+  NS_ENSURE_STATE(InitTabChildGlobalInternal(scopeSupports, id));
   return NS_OK;
 }
 

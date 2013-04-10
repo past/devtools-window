@@ -11,40 +11,36 @@
 
 #include <algorithm>
 
+#include "mozilla/Assertions.h"
+#include "mozilla/DebugOnly.h"
+#include "mozilla/Likely.h"
+#include "mozilla/Util.h"
+
 #include "nsRuleNode.h"
 #include "nscore.h"
-#include "nsIServiceManager.h"
 #include "nsIWidget.h"
 #include "nsIPresShell.h"
 #include "nsFontMetrics.h"
 #include "gfxFont.h"
-#include "nsStyleUtil.h"
 #include "nsCSSPseudoElements.h"
 #include "nsThemeConstants.h"
-#include "nsITheme.h"
 #include "pldhash.h"
 #include "nsStyleContext.h"
 #include "nsStyleSet.h"
+#include "nsStyleStruct.h"
 #include "nsSize.h"
-#include "imgIRequest.h"
 #include "nsRuleData.h"
 #include "nsIStyleRule.h"
 #include "nsBidiUtils.h"
-#include "nsUnicharUtils.h"
 #include "nsStyleStructInlines.h"
-#include "nsStyleTransformMatrix.h"
-#include "nsCSSKeywords.h"
 #include "nsCSSProps.h"
 #include "nsTArray.h"
 #include "nsContentUtils.h"
 #include "CSSCalc.h"
 #include "nsPrintfCString.h"
+#include "nsRenderingContext.h"
 
-#include "mozilla/Assertions.h"
-#include "mozilla/dom/Element.h"
-#include "mozilla/Likely.h"
 #include "mozilla/LookAndFeel.h"
-#include "mozilla/Util.h"
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
 #include <malloc.h>
@@ -65,7 +61,7 @@ using namespace mozilla::dom;
   if ((context_)->PresContext()->IsDynamic()) {                               \
     method_(request_);                                                      \
   } else {                                                                  \
-    nsCOMPtr<imgIRequest> req = nsContentUtils::GetStaticRequest(request_); \
+    nsRefPtr<imgRequestProxy> req = nsContentUtils::GetStaticRequest(request_); \
     method_(req);                                                           \
   }
 
@@ -234,6 +230,51 @@ GetMetricsFor(nsPresContext* aPresContext,
   return fm.forget();
 }
 
+
+static nsSize CalcViewportUnitsScale(nsPresContext* aPresContext)
+{
+  // The caller is making use of viewport units, so notify the pres context
+  // that it will need to rebuild the rule tree if the size of the viewport
+  // changes.
+  aPresContext->SetUsesViewportUnits(true);
+
+  // The default (when we have 'overflow: auto' on the root element, or
+  // trivially for 'overflow: hidden' since we never have scrollbars in that
+  // case) is to define the scale of the viewport units without considering
+  // scrollbars.
+  nsSize viewportSize(aPresContext->GetVisibleArea().Size());
+
+  // Check for 'overflow: scroll' styles on the root scroll frame. If we find
+  // any, the standard requires us to take scrollbars into account.
+  nsIScrollableFrame* scrollFrame =
+    aPresContext->PresShell()->GetRootScrollFrameAsScrollable();
+  if (scrollFrame) {
+    nsPresContext::ScrollbarStyles styles(scrollFrame->GetScrollbarStyles());
+
+    if (styles.mHorizontal == NS_STYLE_OVERFLOW_SCROLL ||
+        styles.mVertical == NS_STYLE_OVERFLOW_SCROLL) {
+      // Gather scrollbar size information.
+      nsRefPtr<nsRenderingContext> context =
+        aPresContext->PresShell()->GetReferenceRenderingContext();
+      nsMargin sizes(scrollFrame->GetDesiredScrollbarSizes(aPresContext, context));
+
+      if (styles.mHorizontal == NS_STYLE_OVERFLOW_SCROLL) {
+        // 'overflow-x: scroll' means we must consider the horizontal scrollbar,
+        // which affects the scale of viewport height units.
+        viewportSize.height -= sizes.TopBottom();
+      }
+
+      if (styles.mVertical == NS_STYLE_OVERFLOW_SCROLL) {
+        // 'overflow-y: scroll' means we must consider the vertical scrollbar,
+        // which affects the scale of viewport width units.
+        viewportSize.width -= sizes.LeftRight();
+      }
+    }
+  }
+
+  return viewportSize;
+}
+
 static nscoord CalcLengthWith(const nsCSSValue& aValue,
                               nscoord aFontSize,
                               const nsStyleFont* aStyleFont,
@@ -291,22 +332,18 @@ static nscoord CalcLengthWith(const nsCSSValue& aValue,
     // for an increased cost to dynamic changes to the viewport size
     // when viewport units are in use.
     case eCSSUnit_ViewportWidth: {
-      aPresContext->SetUsesViewportUnits(true);
-      return ScaleCoord(aValue, 0.01f * aPresContext->GetVisibleArea().width);
+      return ScaleCoord(aValue, 0.01f * CalcViewportUnitsScale(aPresContext).width);
     }
     case eCSSUnit_ViewportHeight: {
-      aPresContext->SetUsesViewportUnits(true);
-      return ScaleCoord(aValue, 0.01f * aPresContext->GetVisibleArea().height);
+      return ScaleCoord(aValue, 0.01f * CalcViewportUnitsScale(aPresContext).height);
     }
     case eCSSUnit_ViewportMin: {
-      aPresContext->SetUsesViewportUnits(true);
-      nsSize viewportSize = aPresContext->GetVisibleArea().Size();
-      return ScaleCoord(aValue, 0.01f * min(viewportSize.width, viewportSize.height));
+      nsSize vuScale(CalcViewportUnitsScale(aPresContext));
+      return ScaleCoord(aValue, 0.01f * min(vuScale.width, vuScale.height));
     }
     case eCSSUnit_ViewportMax: {
-      aPresContext->SetUsesViewportUnits(true);
-      nsSize viewportSize = aPresContext->GetVisibleArea().Size();
-      return ScaleCoord(aValue, 0.01f * max(viewportSize.width, viewportSize.height));
+      nsSize vuScale(CalcViewportUnitsScale(aPresContext));
+      return ScaleCoord(aValue, 0.01f * max(vuScale.width, vuScale.height));
     }
     // While we could deal with 'rem' units correctly by simply not
     // caching any data that uses them in the rule tree, it's valuable
@@ -319,34 +356,42 @@ static nscoord CalcLengthWith(const nsCSSValue& aValue,
       aPresContext->SetUsesRootEMUnits(true);
       nscoord rootFontSize;
 
+      // NOTE: Be very careful with |styleFont|, since we haven't set
+      // aCanStoreInRuleTree to false yet, so we don't want to introduce
+      // any dependencies on aStyleContext's data here.
+      const nsStyleFont *styleFont =
+        aStyleFont ? aStyleFont : aStyleContext->StyleFont();
+
       if (aUseProvidedRootEmSize) {
         // We should use the provided aFontSize as the reference length to
         // scale. This only happens when we are calculating font-size or
         // an equivalent (scriptminsize or CalcLengthWithInitialFont) on
         // the root element, in which case aFontSize is already the
         // value we want.
+        if (aFontSize == -1) {
+          // XXX Should this be styleFont->mSize instead to avoid taking
+          // minfontsize prefs into account?
+          aFontSize = styleFont->mFont.size;
+        }
         rootFontSize = aFontSize;
       } else if (aStyleContext && !aStyleContext->GetParent()) {
         // This is the root element (XXX we don't really know this, but
         // nsRuleNode::SetFont makes the same assumption!), so we should
-        // use GetStyleFont on this context to get the root element's
+        // use StyleFont on this context to get the root element's
         // font size.
-        const nsStyleFont *styleFont =
-          aStyleFont ? aStyleFont : aStyleContext->GetStyleFont();
         rootFontSize = styleFont->mFont.size;
       } else {
         // This is not the root element or we are calculating something other
         // than font size, so rem is relative to the root element's font size.
         nsRefPtr<nsStyleContext> rootStyle;
-        const nsStyleFont *rootStyleFont =
-          aStyleFont ? aStyleFont : aStyleContext->GetStyleFont();
+        const nsStyleFont *rootStyleFont = styleFont;
         Element* docElement = aPresContext->Document()->GetRootElement();
 
         if (docElement) {
           rootStyle = aPresContext->StyleSet()->ResolveStyleFor(docElement,
                                                                 nullptr);
           if (rootStyle) {
-            rootStyleFont = rootStyle->GetStyleFont();
+            rootStyleFont = rootStyle->StyleFont();
           }
         }
 
@@ -364,7 +409,7 @@ static nscoord CalcLengthWith(const nsCSSValue& aValue,
   // thus can't be stored in the rule tree:
   aCanStoreInRuleTree = false;
   const nsStyleFont *styleFont =
-    aStyleFont ? aStyleFont : aStyleContext->GetStyleFont();
+    aStyleFont ? aStyleFont : aStyleContext->StyleFont();
   if (aFontSize == -1) {
     // XXX Should this be styleFont->mSize instead to avoid taking minfontsize
     // prefs into account?
@@ -832,7 +877,7 @@ static bool SetColor(const nsCSSValue& aValue, const nscolor aParentColor,
           // because they could be used on a node with a different color
           aCanStoreInRuleTree = false;
           if (aContext) {
-            aResult = aContext->GetStyleColor()->mColor;
+            aResult = aContext->StyleColor()->mColor;
             result = true;
           }
           break;
@@ -1297,9 +1342,16 @@ nsRuleNode::nsRuleNode(nsPresContext* aContext, nsRuleNode* aParent,
     mNoneBits(0),
     mRefCnt(0)
 {
+  MOZ_ASSERT(aContext);
+  NS_ABORT_IF_FALSE(IsRoot() == !aRule,
+                    "non-root rule nodes must have a rule");
+
   mChildren.asVoid = nullptr;
   MOZ_COUNT_CTOR(nsRuleNode);
-  NS_IF_ADDREF(mRule);
+
+  if (mRule) {
+    mRule->AddRef();
+  }
 
   NS_ASSERTION(IsRoot() || GetLevel() == aLevel, "not enough bits");
   NS_ASSERTION(IsRoot() || IsImportantRule() == aIsImportant, "yikes");
@@ -1324,7 +1376,9 @@ nsRuleNode::~nsRuleNode()
   MOZ_COUNT_DTOR(nsRuleNode);
   if (mStyleData.mResetData || mStyleData.mInheritedData)
     mStyleData.Destroy(mDependentBits, mPresContext);
-  NS_IF_RELEASE(mRule);
+  if (mRule) {
+    mRule->Release();
+  }
 }
 
 nsRuleNode*
@@ -1714,7 +1768,7 @@ static const uint32_t gColumnFlags[] = {
 
 static const uint32_t* gFlagsByStruct[] = {
 
-#define STYLE_STRUCT(name, checkdata_cb, ctor_args) \
+#define STYLE_STRUCT(name, checkdata_cb) \
   g##name##Flags,
 #include "nsStyleStructList.h"
 #undef STYLE_STRUCT
@@ -1723,7 +1777,7 @@ static const uint32_t* gFlagsByStruct[] = {
 
 static const CheckCallbackFn gCheckCallbacks[] = {
 
-#define STYLE_STRUCT(name, checkdata_cb, ctor_args) \
+#define STYLE_STRUCT(name, checkdata_cb) \
   checkdata_cb,
 #include "nsStyleStructList.h"
 #undef STYLE_STRUCT
@@ -2003,7 +2057,7 @@ nsRuleNode::WalkRuleTree(const nsStyleStructID aSID,
     detail = eRulePartialMixed; // Treat as though some data is specified to avoid
                                 // the optimizations and force data computation.
 
-  if (detail == eRuleNone && startStruct && !ruleData.mPostResolveCallback) {
+  if (detail == eRuleNone && startStruct) {
     // We specified absolutely no rule information, but a parent rule in the tree
     // specified all the rule information.  We set a bit along the branch from our
     // node in the tree to the node that specified the data that tells nodes on that
@@ -2012,7 +2066,6 @@ nsRuleNode::WalkRuleTree(const nsStyleStructID aSID,
     PropagateDependentBit(aSID, ruleNode, startStruct);
     return startStruct;
   }
-  // FIXME Do we need to check for mPostResolveCallback?
   if ((!startStruct && !isReset &&
        (detail == eRuleNone || detail == eRulePartialInherited)) ||
       detail == eRuleFullInherited) {
@@ -2046,7 +2099,7 @@ nsRuleNode::WalkRuleTree(const nsStyleStructID aSID,
       // Set the inherit bits on our context.  These bits tell the style context that
       // it never has to go back to the rule tree for data.  Instead the style context tree
       // should be walked to find the data.
-      const void* parentStruct = parentContext->GetStyleData(aSID);
+      const void* parentStruct = parentContext->StyleData(aSID);
       aContext->AddStyleBit(bit); // makes const_cast OK.
       aContext->SetStyle(aSID, const_cast<void*>(parentStruct));
       return parentStruct;
@@ -2060,16 +2113,12 @@ nsRuleNode::WalkRuleTree(const nsStyleStructID aSID,
   // We need to compute the data from the information that the rules specified.
   const void* res;
 #define STYLE_STRUCT_TEST aSID
-#define STYLE_STRUCT(name, checkdata_cb, ctor_args)                           \
+#define STYLE_STRUCT(name, checkdata_cb)                                      \
   res = Compute##name##Data(startStruct, &ruleData, aContext,                 \
                             highestNode, detail, ruleData.mCanStoreInRuleTree);
 #include "nsStyleStructList.h"
 #undef STYLE_STRUCT
 #undef STYLE_STRUCT_TEST
-
-  // If we have a post-resolve callback, handle that now.
-  if (ruleData.mPostResolveCallback && (MOZ_LIKELY(res != nullptr)))
-    (*ruleData.mPostResolveCallback)(const_cast<void*>(res), &ruleData);
 
   // Now return the result.
   return res;
@@ -2085,7 +2134,7 @@ nsRuleNode::SetDefaultOnRoot(const nsStyleStructID aSID, nsStyleContext* aContex
       nscoord minimumFontSize = mPresContext->MinFontSize(fontData->mLanguage);
 
       if (minimumFontSize > 0 && !mPresContext->IsChrome()) {
-        fontData->mFont.size = NS_MAX(fontData->mSize, minimumFontSize);
+        fontData->mFont.size = std::max(fontData->mSize, minimumFontSize);
       }
       else {
         fontData->mFont.size = fontData->mSize;
@@ -2281,7 +2330,7 @@ nsRuleNode::AdjustLogicalBoxProp(nsStyleContext* aContext,
     // the style context, since data cached in the rule tree could be
     // used with a style context with a different value.
     aCanStoreInRuleTree = false;
-    uint8_t dir = aContext->GetStyleVisibility()->mDirection;
+    uint8_t dir = aContext->StyleVisibility()->mDirection;
 
     if (dir == NS_STYLE_DIRECTION_LTR) {
       if (LTRlogical)
@@ -2321,13 +2370,13 @@ nsRuleNode::AdjustLogicalBoxProp(nsStyleContext* aContext,
   bool canStoreInRuleTree = aCanStoreInRuleTree;                              \
                                                                               \
   /* If |canStoreInRuleTree| might be true by the time we're done, we */      \
-  /* can't call parentContext->GetStyle##type_() since it could recur into */ \
+  /* can't call parentContext->Style##type_() since it could recur into */    \
   /* setting the same struct on the same rule node, causing a leak. */        \
   if (aRuleDetail != eRuleFullReset &&                                        \
       (!aStartStruct || (aRuleDetail != eRulePartialReset &&                  \
                          aRuleDetail != eRuleNone))) {                        \
     if (parentContext) {                                                      \
-      parentdata_ = parentContext->GetStyle##type_();                         \
+      parentdata_ = parentContext->Style##type_();                            \
     } else {                                                                  \
       maybeFakeParentData.construct ctorargs_;                                \
       parentdata_ = maybeFakeParentData.addr();                               \
@@ -2387,7 +2436,7 @@ nsRuleNode::AdjustLogicalBoxProp(nsStyleContext* aContext,
     data_ = new (mPresContext) nsStyle##type_ ctorargs_;                      \
                                                                               \
   /* If |canStoreInRuleTree| might be true by the time we're done, we */      \
-  /* can't call parentContext->GetStyle##type_() since it could recur into */ \
+  /* can't call parentContext->Style##type_() since it could recur into */    \
   /* setting the same struct on the same rule node, causing a leak. */        \
   mozilla::Maybe<nsStyle##type_> maybeFakeParentData;                         \
   const nsStyle##type_* parentdata_ = data_;                                  \
@@ -2395,7 +2444,7 @@ nsRuleNode::AdjustLogicalBoxProp(nsStyleContext* aContext,
       aRuleDetail != eRulePartialReset &&                                     \
       aRuleDetail != eRuleNone) {                                             \
     if (parentContext) {                                                      \
-      parentdata_ = parentContext->GetStyle##type_();                         \
+      parentdata_ = parentContext->Style##type_();                            \
     } else {                                                                  \
       maybeFakeParentData.construct ctorargs_;                                \
       parentdata_ = maybeFakeParentData.addr();                               \
@@ -2509,11 +2558,11 @@ ComputeScriptLevelSize(const nsStyleFont* aFont, const nsStyleFont* aParentFont,
   // Compute the size we would have had if minscriptsize had never been
   // applied, also prevent overflow (bug 413274)
   *aUnconstrainedSize =
-    NSToCoordRound(NS_MIN(aParentFont->mScriptUnconstrainedSize*scriptLevelScale,
+    NSToCoordRound(std::min(aParentFont->mScriptUnconstrainedSize*scriptLevelScale,
                           double(nscoord_MAX)));
   // Compute the size we could get via scriptlevel change
   nscoord scriptLevelSize =
-    NSToCoordRound(NS_MIN(aParentFont->mSize*scriptLevelScale,
+    NSToCoordRound(std::min(aParentFont->mSize*scriptLevelScale,
                           double(nscoord_MAX)));
   if (scriptLevelScale <= 1.0) {
     if (aParentFont->mSize <= minScriptSize) {
@@ -2523,12 +2572,12 @@ ComputeScriptLevelSize(const nsStyleFont* aFont, const nsStyleFont* aParentFont,
       return aParentFont->mSize;
     }
     // We can decrease, so apply constraint #1
-    return NS_MAX(minScriptSize, scriptLevelSize);
+    return std::max(minScriptSize, scriptLevelSize);
   } else {
     // scriptminsize can only make sizes larger than the unconstrained size
     NS_ASSERTION(*aUnconstrainedSize <= scriptLevelSize, "How can this ever happen?");
     // Apply constraint #2
-    return NS_MIN(scriptLevelSize, NS_MAX(*aUnconstrainedSize, minScriptSize));
+    return std::min(scriptLevelSize, std::max(*aUnconstrainedSize, minScriptSize));
   }
 }
 
@@ -2723,7 +2772,7 @@ nsRuleNode::FindNextSmallerFontSize(nscoord aFontSize, int32_t aBasePointSize,
     }
   }
   else { // smaller than HTML table, drop by 1px
-    smallerSize = NS_MAX(aFontSize - onePx, onePx);
+    smallerSize = std::max(aFontSize - onePx, onePx);
   }
   return smallerSize;
 }
@@ -3050,25 +3099,23 @@ nsRuleNode::SetFont(nsPresContext* aPresContext, nsStyleContext* aContext,
       // XXXzw Should we even still *have* this code?  It looks to be making
       // old, probably obsolete assumptions.
 
-      // As far as I can tell the system default fonts and sizes
-      // on MS-Windows for Buttons, Listboxes/Comboxes and Text Fields are
-      // all pre-determined and cannot be changed by either the control panel
-      // or programmtically.
-      switch (fontID) {
+      if (fontID == LookAndFeel::eFont_Field ||
+          fontID == LookAndFeel::eFont_Button ||
+          fontID == LookAndFeel::eFont_List) {
+        // As far as I can tell the system default fonts and sizes
+        // on MS-Windows for Buttons, Listboxes/Comboxes and Text Fields are
+        // all pre-determined and cannot be changed by either the control panel
+        // or programmatically.
         // Fields (text fields)
         // Button and Selects (listboxes/comboboxes)
         //    We use whatever font is defined by the system. Which it appears
         //    (and the assumption is) it is always a proportional font. Then we
         //    always use 2 points smaller than what the browser has defined as
         //    the default proportional font.
-      case LookAndFeel::eFont_Field:
-      case LookAndFeel::eFont_Button:
-      case LookAndFeel::eFont_List:
         // Assumption: system defined font is proportional
         systemFont.size =
-          NS_MAX(defaultVariableFont->size -
+          std::max(defaultVariableFont->size -
                  nsPresContext::CSSPointsToAppUnits(2), 0);
-        break;
       }
 #endif
     }
@@ -3377,7 +3424,7 @@ nsRuleNode::SetGenericFont(nsPresContext* aPresContext,
   contextPath.AppendElement(aContext);
   nsStyleContext* higherContext = aContext->GetParent();
   while (higherContext) {
-    if (higherContext->GetStyleFont()->mGenericID == aGenericFontID) {
+    if (higherContext->StyleFont()->mGenericID == aGenericFontID) {
       // done walking up the higher contexts
       break;
     }
@@ -3394,7 +3441,7 @@ nsRuleNode::SetGenericFont(nsPresContext* aPresContext,
     aPresContext->GetDefaultFont(aGenericFontID, aFont->mLanguage);
   nsStyleFont parentFont(*defaultFont, aPresContext);
   if (higherContext) {
-    const nsStyleFont* tmpFont = higherContext->GetStyleFont();
+    const nsStyleFont* tmpFont = higherContext->StyleFont();
     parentFont = *tmpFont;
   }
   *aFont = parentFont;
@@ -3420,7 +3467,7 @@ nsRuleNode::SetGenericFont(nsPresContext* aPresContext,
     // Note that we *do* need to do this for our own data, since what is
     // in |fontData| in ComputeFontData is only for the rules below
     // aStartStruct.
-    for (nsRuleNode* ruleNode = context->GetRuleNode(); ruleNode;
+    for (nsRuleNode* ruleNode = context->RuleNode(); ruleNode;
          ruleNode = ruleNode->GetParent()) {
       if (ruleNode->mNoneBits & fontBit)
         // no more font rules on this branch, get out
@@ -3444,11 +3491,6 @@ nsRuleNode::SetGenericFont(nsPresContext* aPresContext,
     nsRuleNode::SetFont(aPresContext, context,
                         aGenericFontID, &ruleData, &parentFont, aFont,
                         false, dummy);
-
-    // XXX Not sure if we need to do this here
-    // If we have a post-resolve callback, handle that now.
-    if (ruleData.mPostResolveCallback)
-      (ruleData.mPostResolveCallback)(aFont, &ruleData);
 
     parentFont = *aFont;
   }
@@ -3691,7 +3733,7 @@ nsRuleNode::ComputeTextData(void* aStartStruct,
     canStoreInRuleTree = false;
     // Use |mFont.size| to pick up minimum font size.
     text->mLineHeight.SetCoordValue(
-        NSToCoordRound(float(aContext->GetStyleFont()->mFont.size) *
+        NSToCoordRound(float(aContext->StyleFont()->mFont.size) *
                        lineHeightValue->GetPercentValue()));
   }
   else if (eCSSUnit_Initial == lineHeightValue->GetUnit() ||
@@ -3708,7 +3750,7 @@ nsRuleNode::ComputeTextData(void* aStartStruct,
                                          text->mLineHeight.GetCoordValue());
 
       canStoreInRuleTree = false;
-      const nsStyleFont *font = aContext->GetStyleFont();
+      const nsStyleFont *font = aContext->StyleFont();
       nscoord minimumFontSize = mPresContext->MinFontSize(font->mLanguage);
 
       if (minimumFontSize > 0 && !mPresContext->IsChrome()) {
@@ -3868,7 +3910,7 @@ nsRuleNode::ComputeTextResetData(void* aStartStruct,
       bool isForeground;
       parentText->GetDecorationColor(decorationColor, isForeground);
       if (isForeground) {
-        text->SetDecorationColor(parentContext->GetStyleColor()->mColor);
+        text->SetDecorationColor(parentContext->StyleColor()->mColor);
       } else {
         text->SetDecorationColor(decorationColor);
       }
@@ -3933,10 +3975,10 @@ nsRuleNode::ComputeTextResetData(void* aStartStruct,
   } else if (eCSSUnit_Pair == textOverflowValue->GetUnit()) {
     // Two values were specified.
     text->mTextOverflow.mLogicalDirections = false;
-    const nsCSSValuePair& textOverflowValue =
-      aRuleData->ValueForTextOverflow()->GetPairValue();
+    const nsCSSValuePair& textOverflowValuePair =
+      textOverflowValue->GetPairValue();
 
-    const nsCSSValue *textOverflowLeftValue = &textOverflowValue.mXValue;
+    const nsCSSValue *textOverflowLeftValue = &textOverflowValuePair.mXValue;
     if (eCSSUnit_Enumerated == textOverflowLeftValue->GetUnit()) {
       SetDiscrete(*textOverflowLeftValue, text->mTextOverflow.mLeft.mType,
                   canStoreInRuleTree,
@@ -3948,7 +3990,7 @@ nsRuleNode::ComputeTextResetData(void* aStartStruct,
       text->mTextOverflow.mLeft.mType = NS_STYLE_TEXT_OVERFLOW_STRING;
     }
 
-    const nsCSSValue *textOverflowRightValue = &textOverflowValue.mYValue;
+    const nsCSSValue *textOverflowRightValue = &textOverflowValuePair.mYValue;
     if (eCSSUnit_Enumerated == textOverflowRightValue->GetUnit()) {
       SetDiscrete(*textOverflowRightValue, text->mTextOverflow.mRight.mType,
                   canStoreInRuleTree,
@@ -4393,24 +4435,28 @@ nsRuleNode::ComputeDisplayData(void* aStartStruct,
       NS_ABORT_IF_FALSE(!canStoreInRuleTree,
                         "should have made canStoreInRuleTree false above");
       transition->CopyPropertyFrom(parentDisplay->mTransitions[i]);
-    } else if (property.unit == eCSSUnit_Initial ||
-               property.unit == eCSSUnit_All) {
+    } else if (property.unit == eCSSUnit_Initial) {
       transition->SetProperty(eCSSPropertyExtra_all_properties);
     } else if (property.unit == eCSSUnit_None) {
       transition->SetProperty(eCSSPropertyExtra_no_properties);
     } else if (property.list) {
-      NS_ABORT_IF_FALSE(property.list->mValue.GetUnit() == eCSSUnit_Ident,
-                        nsPrintfCString("Invalid transition property unit %d",
-                                        property.list->mValue.GetUnit()).get());
+      const nsCSSValue &val = property.list->mValue;
 
-      nsDependentString
-        propertyStr(property.list->mValue.GetStringBufferValue());
-      nsCSSProperty prop = nsCSSProps::LookupProperty(propertyStr,
-                                                      nsCSSProps::eEnabled);
-      if (prop == eCSSProperty_UNKNOWN) {
-        transition->SetUnknownProperty(propertyStr);
+      if (val.GetUnit() == eCSSUnit_Ident) {
+        nsDependentString
+          propertyStr(property.list->mValue.GetStringBufferValue());
+        nsCSSProperty prop = nsCSSProps::LookupProperty(propertyStr,
+                                                        nsCSSProps::eEnabled);
+        if (prop == eCSSProperty_UNKNOWN) {
+          transition->SetUnknownProperty(propertyStr);
+        } else {
+          transition->SetProperty(prop);
+        }
       } else {
-        transition->SetProperty(prop);
+        NS_ABORT_IF_FALSE(val.GetUnit() == eCSSUnit_All,
+                          nsPrintfCString("Invalid transition property unit %d",
+                                          val.GetUnit()).get());
+        transition->SetProperty(eCSSPropertyExtra_all_properties);
       }
     }
 
@@ -4777,7 +4823,7 @@ nsRuleNode::ComputeDisplayData(void* aStartStruct,
               NS_STYLE_PAGE_BREAK_AUTO, 0, 0, 0, 0);
 
   // float: enum, inherit, initial
-  SetDiscrete(*aRuleData->ValueForCssFloat(),
+  SetDiscrete(*aRuleData->ValueForFloat(),
               display->mFloats, canStoreInRuleTree,
               SETDSC_ENUMERATED, parentDisplay->mFloats,
               NS_STYLE_FLOAT_NONE, 0, 0, 0, 0);
@@ -5056,7 +5102,7 @@ nsRuleNode::ComputeDisplayData(void* aStartStruct,
   SetDiscrete(*aRuleData->ValueForOrient(),
               display->mOrient, canStoreInRuleTree,
               SETDSC_ENUMERATED, parentDisplay->mOrient,
-              NS_STYLE_ORIENT_HORIZONTAL, 0, 0, 0, 0);
+              NS_STYLE_ORIENT_AUTO, 0, 0, 0, 0);
 
   COMPUTE_END_RESET(Display, display)
 }
@@ -5073,7 +5119,7 @@ nsRuleNode::ComputeVisibilityData(void* aStartStruct,
                           visibility, parentVisibility)
 
   // IMPORTANT: No properties in this struct have lengths in them.  We
-  // depend on this since CalcLengthWith can call GetStyleVisibility()
+  // depend on this since CalcLengthWith can call StyleVisibility()
   // to get the language for resolving fonts!
 
   // direction: enum, inherit, initial
@@ -5442,10 +5488,7 @@ SetBackgroundList(nsStyleContext* aStyleContext,
   case eCSSUnit_Inherit:
     aRebuild = true;
     aCanStoreInRuleTree = false;
-    if (!aLayers.EnsureLengthAtLeast(aParentItemCount)) {
-      NS_WARNING("out of memory");
-      aParentItemCount = aLayers.Length();
-    }
+    aLayers.EnsureLengthAtLeast(aParentItemCount);
     aItemCount = aParentItemCount;
     for (uint32_t i = 0; i < aParentItemCount; ++i) {
       aLayers[i].*aResultLocation = aParentLayers[i].*aResultLocation;
@@ -5469,11 +5512,7 @@ SetBackgroundList(nsStyleContext* aStyleContext,
                    item->mValue.GetUnit() != eCSSUnit_Initial,
                    "unexpected unit");
       ++aItemCount;
-      if (!aLayers.EnsureLengthAtLeast(aItemCount)) {
-        NS_WARNING("out of memory");
-        --aItemCount;
-        break;
-      }
+      aLayers.EnsureLengthAtLeast(aItemCount);
       BackgroundItemComputer<nsCSSValueList, ComputedValueItem>
         ::ComputeValue(aStyleContext, item,
                        aLayers[aItemCount-1].*aResultLocation,
@@ -5516,10 +5555,7 @@ SetBackgroundPairList(nsStyleContext* aStyleContext,
   case eCSSUnit_Inherit:
     aRebuild = true;
     aCanStoreInRuleTree = false;
-    if (!aLayers.EnsureLengthAtLeast(aParentItemCount)) {
-      NS_WARNING("out of memory");
-      aParentItemCount = aLayers.Length();
-    }
+    aLayers.EnsureLengthAtLeast(aParentItemCount);
     aItemCount = aParentItemCount;
     for (uint32_t i = 0; i < aParentItemCount; ++i) {
       aLayers[i].*aResultLocation = aParentLayers[i].*aResultLocation;
@@ -5544,11 +5580,7 @@ SetBackgroundPairList(nsStyleContext* aStyleContext,
                    item->mYValue.GetUnit() != eCSSUnit_Initial,
                    "unexpected unit");
       ++aItemCount;
-      if (!aLayers.EnsureLengthAtLeast(aItemCount)) {
-        NS_WARNING("out of memory");
-        --aItemCount;
-        break;
-      }
+      aLayers.EnsureLengthAtLeast(aItemCount);
       BackgroundItemComputer<nsCSSValuePairList, ComputedValueItem>
         ::ComputeValue(aStyleContext, item,
                        aLayers[aItemCount-1].*aResultLocation,
@@ -5904,7 +5936,7 @@ nsRuleNode::ComputeBorderData(void* aStartStruct,
                         aContext, mPresContext, canStoreInRuleTree)) {
         NS_ASSERTION(coord.GetUnit() == eStyleUnit_Coord, "unexpected unit");
         // clamp negative calc() to 0.
-        border->SetBorderWidth(side, NS_MAX(coord.GetCoordValue(), 0));
+        border->SetBorderWidth(side, std::max(coord.GetCoordValue(), 0));
       }
       else if (eCSSUnit_Inherit == value.GetUnit()) {
         canStoreInRuleTree = false;
@@ -6051,7 +6083,7 @@ nsRuleNode::ComputeBorderData(void* aStartStruct,
             // used.  We can ensure that the data for the parent are fully
             // computed (unlike for the element where this will be used, for
             // which the color could be specified on a more specific rule).
-            border->SetBorderColor(side, parentContext->GetStyleColor()->mColor);
+            border->SetBorderColor(side, parentContext->StyleColor()->mColor);
           } else
             border->SetBorderColor(side, borderColor);
         } else {
@@ -6292,7 +6324,7 @@ nsRuleNode::ComputeOutlineData(void* aStartStruct,
         // used.  We can ensure that the data for the parent are fully
         // computed (unlike for the element where this will be used, for
         // which the color could be specified on a more specific rule).
-        outline->SetOutlineColor(parentContext->GetStyleColor()->mColor);
+        outline->SetOutlineColor(parentContext->StyleColor()->mColor);
       }
     } else {
       outline->SetOutlineInitialColor();
@@ -6473,7 +6505,7 @@ nsRuleNode::ComputePositionData(void* aStartStruct,
            SETCOORD_LPAEH | SETCOORD_INITIAL_AUTO | SETCOORD_STORE_CALC,
            aContext, mPresContext, canStoreInRuleTree);
   SetCoord(*aRuleData->ValueForMinWidth(), pos->mMinWidth, parentPos->mMinWidth,
-           SETCOORD_LPAEH | SETCOORD_INITIAL_AUTO | SETCOORD_STORE_CALC,
+           SETCOORD_LPEH | SETCOORD_INITIAL_ZERO | SETCOORD_STORE_CALC,
            aContext, mPresContext, canStoreInRuleTree);
   SetCoord(*aRuleData->ValueForMaxWidth(), pos->mMaxWidth, parentPos->mMaxWidth,
            SETCOORD_LPOEH | SETCOORD_INITIAL_NONE | SETCOORD_STORE_CALC,
@@ -6483,7 +6515,7 @@ nsRuleNode::ComputePositionData(void* aStartStruct,
            SETCOORD_LPAH | SETCOORD_INITIAL_AUTO | SETCOORD_STORE_CALC,
            aContext, mPresContext, canStoreInRuleTree);
   SetCoord(*aRuleData->ValueForMinHeight(), pos->mMinHeight, parentPos->mMinHeight,
-           SETCOORD_LPAH | SETCOORD_INITIAL_AUTO | SETCOORD_STORE_CALC,
+           SETCOORD_LPH | SETCOORD_INITIAL_ZERO | SETCOORD_STORE_CALC,
            aContext, mPresContext, canStoreInRuleTree);
   SetCoord(*aRuleData->ValueForMaxHeight(), pos->mMaxHeight, parentPos->mMaxHeight,
            SETCOORD_LPOH | SETCOORD_INITIAL_NONE | SETCOORD_STORE_CALC,
@@ -6535,7 +6567,7 @@ nsRuleNode::ComputePositionData(void* aStartStruct,
           // Normal case -- we have a grandparent.
           // Its "align-items" value is what we should end up inheriting.
           const nsStylePosition* grandparentPos =
-            grandparentContext->GetStylePosition();
+            grandparentContext->StylePosition();
           inheritedAlignSelf = grandparentPos->mAlignItems;
         }
       }
@@ -6617,12 +6649,6 @@ nsRuleNode::ComputeTableData(void* aStartStruct,
               table->mLayoutStrategy, canStoreInRuleTree,
               SETDSC_ENUMERATED, parentTable->mLayoutStrategy,
               NS_STYLE_TABLE_LAYOUT_AUTO, 0, 0, 0, 0);
-
-  // cols: enum, int (not a real CSS prop)
-  const nsCSSValue* colsValue = aRuleData->ValueForCols();
-  if (eCSSUnit_Enumerated == colsValue->GetUnit() ||
-      eCSSUnit_Integer == colsValue->GetUnit())
-    table->mCols = colsValue->GetIntValue();
 
   // span: pixels (not a real CSS prop)
   const nsCSSValue* spanValue = aRuleData->ValueForSpan();
@@ -7067,7 +7093,7 @@ nsRuleNode::ComputeColumnData(void* aStartStruct,
   // clamp negative calc() to 0
   if (column->mColumnGap.GetUnit() == eStyleUnit_Coord) {
     column->mColumnGap.SetCoordValue(
-      NS_MAX(column->mColumnGap.GetCoordValue(), 0));
+      std::max(column->mColumnGap.GetCoordValue(), 0));
   }
 
   // column-count: auto, integer, inherit
@@ -7078,7 +7104,7 @@ nsRuleNode::ComputeColumnData(void* aStartStruct,
   } else if (eCSSUnit_Integer == columnCountValue->GetUnit()) {
     column->mColumnCount = columnCountValue->GetIntValue();
     // Max 1000 columns - wallpaper for bug 345583.
-    column->mColumnCount = NS_MIN(column->mColumnCount, 1000U);
+    column->mColumnCount = std::min(column->mColumnCount, 1000U);
   } else if (eCSSUnit_Inherit == columnCountValue->GetUnit()) {
     canStoreInRuleTree = false;
     column->mColumnCount = parent->mColumnCount;
@@ -7137,7 +7163,12 @@ nsRuleNode::ComputeColumnData(void* aStartStruct,
     canStoreInRuleTree = false;
     column->mColumnRuleColorIsForeground = false;
     if (parent->mColumnRuleColorIsForeground) {
-      column->mColumnRuleColor = parentContext->GetStyleColor()->mColor;
+      if (parentContext) {
+        column->mColumnRuleColor = parentContext->StyleColor()->mColor;
+      } else {
+        nsStyleColor defaultColumnRuleColor(mPresContext);
+        column->mColumnRuleColor = defaultColumnRuleColor.mColor;
+      }
     } else {
       column->mColumnRuleColor = parent->mColumnRuleColor;
     }
@@ -7348,6 +7379,32 @@ nsRuleNode::ComputeSVGData(void* aStartStruct,
   } else if (eCSSUnit_Inherit == markerStartValue->GetUnit()) {
     canStoreInRuleTree = false;
     svg->mMarkerStart = parentSVG->mMarkerStart;
+  }
+
+  // paint-order: enum (bit field), inherit, initial
+  const nsCSSValue* paintOrderValue = aRuleData->ValueForPaintOrder();
+  switch (paintOrderValue->GetUnit()) {
+    case eCSSUnit_Null:
+      break;
+
+    case eCSSUnit_Enumerated:
+      MOZ_STATIC_ASSERT
+        (NS_STYLE_PAINT_ORDER_BITWIDTH * NS_STYLE_PAINT_ORDER_LAST_VALUE <= 8,
+         "SVGStyleStruct::mPaintOrder not big enough");
+      svg->mPaintOrder = static_cast<uint8_t>(paintOrderValue->GetIntValue());
+      break;
+
+    case eCSSUnit_Inherit:
+      canStoreInRuleTree = false;
+      svg->mPaintOrder = parentSVG->mPaintOrder;
+      break;
+
+    case eCSSUnit_Initial:
+      svg->mPaintOrder = NS_STYLE_PAINT_ORDER_NORMAL;
+      break;
+
+    default:
+      NS_NOTREACHED("unexpected unit");
   }
 
   // shape-rendering: enum, inherit
@@ -7615,6 +7672,13 @@ nsRuleNode::ComputeSVGResetData(void* aStartStruct,
     svgReset->mMask = parentSVGReset->mMask;
   }
 
+  // mask-type: enum, inherit, initial
+  SetDiscrete(*aRuleData->ValueForMaskType(),
+              svgReset->mMaskType,
+              canStoreInRuleTree, SETDSC_ENUMERATED,
+              parentSVGReset->mMaskType,
+              NS_STYLE_MASK_TYPE_LUMINANCE, 0, 0, 0, 0);
+
   COMPUTE_END_RESET(SVGReset, svgReset)
 }
 
@@ -7645,9 +7709,9 @@ nsRuleNode::GetStyleData(nsStyleStructID aSID,
 
 // See comments above in GetStyleData for an explanation of what the
 // code below does.
-#define STYLE_STRUCT(name_, checkdata_cb_, ctor_args_)                        \
+#define STYLE_STRUCT(name_, checkdata_cb_)                                    \
 const nsStyle##name_*                                                         \
-nsRuleNode::GetStyle##name_(nsStyleContext* aContext, bool aComputeData)    \
+nsRuleNode::GetStyle##name_(nsStyleContext* aContext, bool aComputeData)      \
 {                                                                             \
   NS_ASSERTION(IsUsedDirectly(),                                              \
                "if we ever call this on rule nodes that aren't used "         \
@@ -7904,7 +7968,7 @@ nsRuleNode::HasAuthorSpecifiedRules(nsStyleContext* aStyleContext,
   bool haveExplicitUAInherit;
   do {
     haveExplicitUAInherit = false;
-    for (nsRuleNode* ruleNode = styleContext->GetRuleNode(); ruleNode;
+    for (nsRuleNode* ruleNode = styleContext->RuleNode(); ruleNode;
          ruleNode = ruleNode->GetParent()) {
       nsIStyleRule *rule = ruleNode->GetRule();
       if (rule) {

@@ -5,7 +5,6 @@
 
 
 #include "nsIAppShellService.h"
-#include "nsISupportsArray.h"
 #include "nsIComponentManager.h"
 #include "nsIURL.h"
 #include "nsNetUtil.h"
@@ -22,9 +21,8 @@
 #include "nsPIDOMWindow.h"
 #include "nsWebShellWindow.h"
 
-#include "nsIEnumerator.h"
 #include "nsCRT.h"
-#include "prprf.h"    
+#include "prprf.h"
 
 #include "nsWidgetsCID.h"
 #include "nsIRequestObserver.h"
@@ -45,6 +43,10 @@
 
 #include "mozilla/Preferences.h"
 #include "mozilla/StartupTimeline.h"
+
+#include "nsEmbedCID.h"
+#include "nsIWebBrowser.h"
+#include "nsIDocShell.h"
 
 using namespace mozilla;
 
@@ -83,6 +85,20 @@ NS_IMPL_ISUPPORTS2(nsAppShellService,
 NS_IMETHODIMP
 nsAppShellService::CreateHiddenWindow()
 {
+  return CreateHiddenWindowHelper(false);
+}
+
+void
+nsAppShellService::EnsurePrivateHiddenWindow()
+{
+  if (!mHiddenPrivateWindow) {
+    CreateHiddenWindowHelper(true);
+  }
+}
+
+nsresult
+nsAppShellService::CreateHiddenWindowHelper(bool aIsPrivate)
+{
   nsresult rv;
   int32_t initialHeight = 100, initialWidth = 100;
 
@@ -91,7 +107,11 @@ nsAppShellService::CreateHiddenWindow()
   nsAdoptingCString prefVal =
       Preferences::GetCString("browser.hiddenWindowChromeURL");
   const char* hiddenWindowURL = prefVal.get() ? prefVal.get() : DEFAULT_HIDDENWINDOW_URL;
-  mApplicationProvidedHiddenWindow = prefVal.get() ? true : false;
+  if (aIsPrivate) {
+    hiddenWindowURL = DEFAULT_HIDDENWINDOW_URL;
+  } else {
+    mApplicationProvidedHiddenWindow = prefVal.get() ? true : false;
+  }
 #else
   static const char hiddenWindowURL[] = DEFAULT_HIDDENWINDOW_URL;
   uint32_t    chromeMask =  nsIWebBrowserChrome::CHROME_ALL;
@@ -102,12 +122,30 @@ nsAppShellService::CreateHiddenWindow()
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsRefPtr<nsWebShellWindow> newWindow;
-  rv = JustCreateTopWindow(nullptr, url,
-                           chromeMask, initialWidth, initialHeight,
-                           true, getter_AddRefs(newWindow));
-  NS_ENSURE_SUCCESS(rv, rv);
+  if (!aIsPrivate) {
+    rv = JustCreateTopWindow(nullptr, url,
+                             chromeMask, initialWidth, initialHeight,
+                             true, getter_AddRefs(newWindow));
+    NS_ENSURE_SUCCESS(rv, rv);
 
-  mHiddenWindow.swap(newWindow);
+    mHiddenWindow.swap(newWindow);
+  } else {
+    // Create the hidden private window
+    chromeMask |= nsIWebBrowserChrome::CHROME_PRIVATE_WINDOW;
+
+    rv = JustCreateTopWindow(nullptr, url,
+                             chromeMask, initialWidth, initialHeight,
+                             true, getter_AddRefs(newWindow));
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    nsCOMPtr<nsIDocShell> docShell;
+    newWindow->GetDocShell(getter_AddRefs(docShell));
+    if (docShell) {
+      docShell->SetAffectPrivateSessionLifetime(false);
+    }
+
+    mHiddenPrivateWindow.swap(newWindow);
+  }
 
   // RegisterTopLevelWindow(newWindow); -- Mac only
 
@@ -121,6 +159,12 @@ nsAppShellService::DestroyHiddenWindow()
     mHiddenWindow->Destroy();
 
     mHiddenWindow = nullptr;
+  }
+
+  if (mHiddenPrivateWindow) {
+    mHiddenPrivateWindow->Destroy();
+
+    mHiddenPrivateWindow = nullptr;
   }
 
   return NS_OK;
@@ -159,6 +203,162 @@ nsAppShellService::CreateTopLevelWindow(nsIXULWindow *aParent,
   }
 
   return rv;
+}
+
+/*
+ * This class provides a stub implementation of nsIWebBrowserChrome2, as needed
+ * by nsAppShellService::CreateWindowlessBrowser
+ */
+class WebBrowserChrome2Stub : public nsIWebBrowserChrome2,
+                              public nsIInterfaceRequestor {
+public:
+    virtual ~WebBrowserChrome2Stub() {}
+    NS_DECL_ISUPPORTS
+    NS_DECL_NSIWEBBROWSERCHROME
+    NS_DECL_NSIWEBBROWSERCHROME2
+    NS_DECL_NSIINTERFACEREQUESTOR
+};
+
+NS_INTERFACE_MAP_BEGIN(WebBrowserChrome2Stub)
+  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIWebBrowserChrome)
+  NS_INTERFACE_MAP_ENTRY(nsIWebBrowserChrome)
+  NS_INTERFACE_MAP_ENTRY(nsIWebBrowserChrome2)
+  NS_INTERFACE_MAP_ENTRY(nsIInterfaceRequestor)
+NS_INTERFACE_MAP_END
+
+NS_IMPL_ADDREF(WebBrowserChrome2Stub)
+NS_IMPL_RELEASE(WebBrowserChrome2Stub)
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::SetStatus(uint32_t aStatusType, const PRUnichar* aStatus)
+{
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::GetWebBrowser(nsIWebBrowser** aWebBrowser)
+{
+  NS_NOTREACHED("WebBrowserChrome2Stub::GetWebBrowser is not supported");
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::SetWebBrowser(nsIWebBrowser* aWebBrowser)
+{
+  NS_NOTREACHED("WebBrowserChrome2Stub::SetWebBrowser is not supported");
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::GetChromeFlags(uint32_t* aChromeFlags)
+{
+  *aChromeFlags = 0;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::SetChromeFlags(uint32_t aChromeFlags)
+{
+  NS_NOTREACHED("WebBrowserChrome2Stub::SetChromeFlags is not supported");
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::DestroyBrowserWindow()
+{
+  NS_NOTREACHED("WebBrowserChrome2Stub::DestroyBrowserWindow is not supported");
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::SizeBrowserTo(int32_t aCX, int32_t aCY)
+{
+  NS_NOTREACHED("WebBrowserChrome2Stub::SizeBrowserTo is not supported");
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::ShowAsModal()
+{
+  NS_NOTREACHED("WebBrowserChrome2Stub::ShowAsModal is not supported");
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::IsWindowModal(bool* aResult)
+{
+  *aResult = false;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::ExitModalEventLoop(nsresult aStatus)
+{
+  NS_NOTREACHED("WebBrowserChrome2Stub::ExitModalEventLoop is not supported");
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::SetStatusWithContext(uint32_t aStatusType,
+                                            const nsAString& aStatusText,
+                                            nsISupports* aStatusContext)
+{
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebBrowserChrome2Stub::GetInterface(const nsIID & aIID, void **aSink)
+{
+    return QueryInterface(aIID, aSink);
+}
+
+NS_IMETHODIMP
+nsAppShellService::CreateWindowlessBrowser(nsIWebNavigation **aResult)
+{
+  /* First, we create an instance of nsWebBrowser. Instances of this class have
+   * an associated doc shell, which is what we're interested in.
+   */
+  nsCOMPtr<nsIWebBrowser> browser = do_CreateInstance(NS_WEBBROWSER_CONTRACTID);
+  if (!browser) {
+    NS_ERROR("Couldn't create instance of nsWebBrowser!");
+    return NS_ERROR_FAILURE;
+  }
+
+  /* Next, we set the container window for our instance of nsWebBrowser. Since
+   * we don't actually have a window, we instead set the container window to be
+   * an instance of WebBrowserChrome2Stub, which provides a stub implementation
+   * of nsIWebBrowserChrome2.
+   */
+  nsRefPtr<WebBrowserChrome2Stub> stub = new WebBrowserChrome2Stub();
+  if (!stub) {
+    NS_ERROR("Couldn't create instance of WebBrowserChrome2Stub!");
+    return NS_ERROR_FAILURE;
+  }
+  browser->SetContainerWindow(stub);
+
+  nsCOMPtr<nsIWebNavigation> navigation = do_QueryInterface(browser);
+
+  nsCOMPtr<nsIDocShellTreeItem> item = do_QueryInterface(navigation);
+  item->SetItemType(nsIDocShellTreeItem::typeContentWrapper);
+
+  /* A windowless web browser doesn't have an associated OS level window. To
+   * accomplish this, we initialize the window associated with our instance of
+   * nsWebBrowser with an instance of PuppetWidget, which provides a stub
+   * implementation of nsIWidget.
+   */
+  nsCOMPtr<nsIWidget> widget = nsIWidget::CreatePuppetWidget(nullptr);
+  if (!widget) {
+    NS_ERROR("Couldn't create instance of PuppetWidget");
+    return NS_ERROR_FAILURE;
+  }
+  widget->Create(nullptr, 0, nsIntRect(nsIntPoint(0, 0), nsIntSize(0, 0)),
+                 nullptr, nullptr);
+  nsCOMPtr<nsIBaseWindow> window = do_QueryInterface(navigation);
+  window->InitWindow(0, widget, 0, 0, 0, 0);
+  window->Create();
+
+  navigation.forget(aResult);
+  return NS_OK;
 }
 
 uint32_t
@@ -357,6 +557,10 @@ nsAppShellService::JustCreateTopWindow(nsIXULWindow *aParent,
   // Enforce the Private Browsing autoStart pref first.
   bool isPrivateBrowsingWindow =
     Preferences::GetBool("browser.privatebrowsing.autostart");
+  if (aChromeMask & nsIWebBrowserChrome::CHROME_PRIVATE_WINDOW) {
+    // Caller requested a private window
+    isPrivateBrowsingWindow = true;
+  }
   if (!isPrivateBrowsingWindow) {
     // Ensure that we propagate any existing private browsing status
     // from the parent, even if it will not actually be used
@@ -411,6 +615,47 @@ nsAppShellService::GetHiddenDOMWindow(nsIDOMWindow **aWindow)
 
   *aWindow = hiddenDOMWindow;
   NS_IF_ADDREF(*aWindow);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsAppShellService::GetHiddenPrivateWindow(nsIXULWindow **aWindow)
+{
+  NS_ENSURE_ARG_POINTER(aWindow);
+
+  EnsurePrivateHiddenWindow();
+
+  *aWindow = mHiddenPrivateWindow;
+  NS_IF_ADDREF(*aWindow);
+  return *aWindow ? NS_OK : NS_ERROR_FAILURE;
+}
+
+NS_IMETHODIMP
+nsAppShellService::GetHiddenPrivateDOMWindow(nsIDOMWindow **aWindow)
+{
+  EnsurePrivateHiddenWindow();
+
+  nsresult rv;
+  nsCOMPtr<nsIDocShell> docShell;
+  NS_ENSURE_TRUE(mHiddenPrivateWindow, NS_ERROR_FAILURE);
+
+  rv = mHiddenPrivateWindow->GetDocShell(getter_AddRefs(docShell));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsIDOMWindow> hiddenPrivateDOMWindow(do_GetInterface(docShell, &rv));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  *aWindow = hiddenPrivateDOMWindow;
+  NS_IF_ADDREF(*aWindow);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsAppShellService::GetHasHiddenPrivateWindow(bool* aHasPrivateWindow)
+{
+  NS_ENSURE_ARG_POINTER(aHasPrivateWindow);
+
+  *aHasPrivateWindow = !!mHiddenPrivateWindow;
   return NS_OK;
 }
 
@@ -531,6 +776,10 @@ nsAppShellService::UnregisterTopLevelWindow(nsIXULWindow* aWindow)
     // CreateHiddenWindow() does not register the window, so we're done.
     return NS_OK;
   }
+  if (aWindow == mHiddenPrivateWindow) {
+    // CreateHiddenWindow() does not register the window, so we're done.
+    return NS_OK;
+  }
 
   // tell the window mediator
   nsCOMPtr<nsIWindowMediator> mediator
@@ -567,6 +816,9 @@ nsAppShellService::Observe(nsISupports* aSubject, const char *aTopic,
     mXPCOMShuttingDown = true;
     if (mHiddenWindow) {
       mHiddenWindow->Destroy();
+    }
+    if (mHiddenPrivateWindow) {
+      mHiddenPrivateWindow->Destroy();
     }
   } else {
     NS_ERROR("Unexpected observer topic!");

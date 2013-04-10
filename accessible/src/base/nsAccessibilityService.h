@@ -10,6 +10,7 @@
 
 #include "mozilla/a11y/DocManager.h"
 #include "mozilla/a11y/FocusManager.h"
+#include "mozilla/a11y/SelectionManager.h"
 
 #include "nsIObserver.h"
 
@@ -27,44 +28,22 @@ class ApplicationAccessible;
  */
 FocusManager* FocusMgr();
 
-enum EPlatformDisabledState {
-  ePlatformIsForceEnabled = -1,
-  ePlatformIsEnabled = 0,
-  ePlatformIsDisabled = 1
-};
-
 /**
- * Return the platform disabled state.
+ * Return selection manager.
  */
-EPlatformDisabledState PlatformDisabledState();
+SelectionManager* SelectionMgr();
 
 /**
  * Returns the application accessible.
  */
 ApplicationAccessible* ApplicationAcc();
 
-#ifdef MOZ_ACCESSIBILITY_ATK
-/**
- * Perform initialization that should be done as soon as possible, in order
- * to minimize startup time.
- * XXX: this function and the next defined in ApplicationAccessibleWrap.cpp
- */
-void PreInit();
-#endif
-
-#if defined(MOZ_ACCESSIBILITY_ATK) || defined(XP_MACOSX)
-/**
- * Is platform accessibility enabled.
- * Only used on linux with atk and MacOS for now.
- */
-bool ShouldA11yBeEnabled();
-#endif
-
 } // namespace a11y
 } // namespace mozilla
 
 class nsAccessibilityService : public mozilla::a11y::DocManager,
                                public mozilla::a11y::FocusManager,
+                               public mozilla::a11y::SelectionManager,
                                public nsIAccessibilityService,
                                public nsIObserver
 {
@@ -82,8 +61,8 @@ public:
   virtual Accessible* GetRootDocumentAccessible(nsIPresShell* aPresShell,
                                                 bool aCanCreate);
   already_AddRefed<Accessible>
-    CreateHTMLObjectFrameAccessible(nsObjectFrame* aFrame, nsIContent* aContent,
-                                    Accessible* aContext);
+    CreatePluginAccessible(nsObjectFrame* aFrame, nsIContent* aContent,
+                           Accessible* aContext);
 
   /**
    * Adds/remove ATK root accessible for gtk+ native window to/from children
@@ -91,6 +70,13 @@ public:
    */
   virtual Accessible* AddNativeRootAccessible(void* aAtkAccessible);
   virtual void RemoveNativeRootAccessible(Accessible* aRootAccessible);
+
+  /**
+   * Notification used to update the accessible tree when deck panel is
+   * switched.
+   */
+  void DeckPanelSwitched(nsIPresShell* aPresShell, nsIContent* aDeckNode,
+                         nsIFrame* aPrevBoxFrame, nsIFrame* aCurrentBoxFrame);
 
   /**
    * Notification used to update the accessible tree when new content is
@@ -124,6 +110,12 @@ public:
    * Update the image map.
    */
   void UpdateImageMap(nsImageFrame* aImageFrame);
+
+  /**
+   * Update the label accessible tree when rendered @value is changed.
+   */
+  void UpdateLabelValue(nsIPresShell* aPresShell, nsIContent* aLabelElm,
+                        const nsString& aNewValue);
 
   /**
    * Notify accessibility that anchor jump has been accomplished to the given
@@ -201,13 +193,6 @@ private:
     CreateAccessibleByFrameType(nsIFrame* aFrame, nsIContent* aContent,
                                 Accessible* aContext);
 
-  /**
-   * Create accessible if parent is a deck frame.
-   */
-  already_AddRefed<Accessible>
-    CreateAccessibleForDeckChild(nsIFrame* aFrame, nsIContent* aContent,
-                                 DocAccessible* aDoc);
-
 #ifdef MOZ_XUL
   /**
    * Create accessible for XUL tree element.
@@ -233,6 +218,7 @@ private:
 
   friend nsAccessibilityService* GetAccService();
   friend mozilla::a11y::FocusManager* mozilla::a11y::FocusMgr();
+  friend mozilla::a11y::SelectionManager* mozilla::a11y::SelectionMgr();
   friend mozilla::a11y::ApplicationAccessible* mozilla::a11y::ApplicationAcc();
 
   friend nsresult NS_GetAccessibilityService(nsIAccessibilityService** aResult);
@@ -346,22 +332,22 @@ static const char kEventTypeNames[][40] = {
  * nsIAccessibleRetrieval::getStringRelationType() method.
  */
 static const char kRelationTypeNames[][20] = {
-  "unknown",             // RELATION_NUL
+  "labelled by",         // RELATION_LABELLED_BY
+  "label for",           // RELATION_LABEL_FOR
+  "described by",        // RELATION_DESCRIBED_BY
+  "description for",     // RELATION_DESCRIPTION_FOR
+  "node child of",       // RELATION_NODE_CHILD_OF
+  "node parent of",      // RELATION_NODE_PARENT_OF
   "controlled by",       // RELATION_CONTROLLED_BY
   "controller for",      // RELATION_CONTROLLER_FOR
-  "label for",           // RELATION_LABEL_FOR
-  "labelled by",         // RELATION_LABELLED_BY
-  "member of",           // RELATION_MEMBER_OF
-  "node child of",       // RELATION_NODE_CHILD_OF
   "flows to",            // RELATION_FLOWS_TO
   "flows from",          // RELATION_FLOWS_FROM
+  "member of",           // RELATION_MEMBER_OF
   "subwindow of",        // RELATION_SUBWINDOW_OF
   "embeds",              // RELATION_EMBEDS
   "embedded by",         // RELATION_EMBEDDED_BY
   "popup for",           // RELATION_POPUP_FOR
   "parent window of",    // RELATION_PARENT_WINDOW_OF
-  "described by",        // RELATION_DESCRIBED_BY
-  "description for",     // RELATION_DESCRIPTION_FOR
   "default button"       // RELATION_DEFAULT_BUTTON
 };
 

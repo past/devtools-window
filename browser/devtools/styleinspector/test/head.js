@@ -13,6 +13,12 @@ let CssHtmlTree = tempScope.CssHtmlTree;
 let gDevTools = tempScope.gDevTools;
 Cu.import("resource:///modules/devtools/Target.jsm", tempScope);
 let TargetFactory = tempScope.TargetFactory;
+let {
+  editableField,
+  getInplaceEditorForSpan: inplaceEditor
+} = Cu.import("resource:///modules/devtools/InplaceEditor.jsm", {});
+Components.utils.import("resource://gre/modules/devtools/Console.jsm", tempScope);
+let console = tempScope.console;
 
 let browser, hudId, hud, hudBox, filterBox, outputNode, cs;
 
@@ -26,16 +32,9 @@ function addTab(aURL)
 function openInspector(callback)
 {
   let target = TargetFactory.forTab(gBrowser.selectedTab);
-  let inspector = gDevTools.getPanelForTarget("inspector", target);
-  if (inspector && inspector.isReady) {
-    callback(inspector);
-  } else {
-    let toolbox = gDevTools.openToolboxForTab(target, "inspector");
-    toolbox.once("inspector-ready", function(event, panel) {
-      let inspector = gDevTools.getPanelForTarget("inspector", target);
-      callback(inspector);
-    });
-  }
+  gDevTools.showToolbox(target, "inspector").then(function(toolbox) {
+    callback(toolbox.getCurrentPanel());
+  });
 }
 
 function addStyle(aDocument, aString)
@@ -98,6 +97,12 @@ function waitForEditorBlur(aEditor, aCallback)
       aCallback();
     });
   }, false);
+}
+
+function fireCopyEvent(element) {
+  let evt = element.ownerDocument.createEvent("Event");
+  evt.initEvent("copy", true, true);
+  element.dispatchEvent(evt);
 }
 
 function contextMenuClick(element) {

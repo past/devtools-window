@@ -94,6 +94,10 @@ public:
    */
   virtual nsPoint GetScrollPosition() const = 0;
   /**
+   * As GetScrollPosition(), but uses the top-right as origin for RTL frames. 
+   */
+  virtual nsPoint GetLogicalScrollPosition() const = 0;
+  /**
    * Get the area that must contain the scroll position. Typically
    * (but not always, e.g. for RTL content) x and y will be 0, and
    * width or height will be nonzero if the content can be scrolled in
@@ -229,6 +233,16 @@ public:
    * completely redrawn.
    */
   virtual void ResetScrollPositionForLayerPixelAlignment() = 0;
+  /**
+   * Was the current presentation state for this frame restored from history?
+   */
+  virtual bool DidHistoryRestore() = 0;
+  /**
+   * Clear the flag so that DidHistoryRestore() returns false until the next
+   * RestoreState call.
+   * @see nsIStatefulFrame::RestoreState
+   */
+  virtual void ClearDidHistoryRestore() = 0;
 };
 
 #endif

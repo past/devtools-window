@@ -10,16 +10,12 @@ import java.net.URI;
 import java.util.List;
 import java.util.Locale;
 
-import org.mozilla.gecko.background.BackgroundConstants;
-import org.mozilla.gecko.sync.Logger;
+import org.mozilla.gecko.background.BackgroundService;
+import org.mozilla.gecko.background.common.GlobalConstants;
+import org.mozilla.gecko.background.common.log.Logger;
 
-import android.app.IntentService;
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
-import android.os.Build;
 import android.os.IBinder;
 
 /**
@@ -52,7 +48,7 @@ import android.os.IBinder;
  * * Persisting of multiple announcements.
  * * Prioritization.
  */
-public class AnnouncementsService extends IntentService implements AnnouncementsFetchDelegate {
+public class AnnouncementsService extends BackgroundService implements AnnouncementsFetchDelegate {
   private static final String WORKER_THREAD_NAME = "AnnouncementsServiceWorker";
   private static final String LOG_TAG = "AnnounceService";
 
@@ -141,28 +137,12 @@ public class AnnouncementsService extends IntentService implements Announcements
     return null;
   }
 
-  /**
-   * Returns true if the OS will allow us to perform background
-   * data operations. This logic varies by OS version.
-   */
-  protected boolean backgroundDataIsEnabled() {
-    ConnectivityManager connectivity = (ConnectivityManager) this.getSystemService(Context.CONNECTIVITY_SERVICE);
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {
-      return connectivity.getBackgroundDataSetting();
-    }
-    NetworkInfo networkInfo = connectivity.getActiveNetworkInfo();
-    if (networkInfo == null) {
-      return false;
-    }
-    return networkInfo.isAvailable();
-  }
-
   protected long getLastLaunch() {
     return getSharedPreferences().getLong(AnnouncementsConstants.PREF_LAST_LAUNCH, 0);
   }
 
   private SharedPreferences getSharedPreferences() {
-    return this.getSharedPreferences(AnnouncementsConstants.PREFS_BRANCH, BackgroundConstants.SHARED_PREFERENCES_MODE);
+    return this.getSharedPreferences(AnnouncementsConstants.PREFS_BRANCH, GlobalConstants.SHARED_PREFERENCES_MODE);
   }
 
   @Override
@@ -184,12 +164,25 @@ public class AnnouncementsService extends IntentService implements Announcements
   }
 
   protected void setLastFetch(final long fetch) {
-    this.getSharedPreferences().edit().putLong(AnnouncementsConstants.PREF_LAST_FETCH, fetch).commit();
+    this.getSharedPreferences().edit().putLong(AnnouncementsConstants.PREF_LAST_FETCH_LOCAL_TIME, fetch).commit();
+  }
+
+  public long getLastFetch() {
+    return this.getSharedPreferences().getLong(AnnouncementsConstants.PREF_LAST_FETCH_LOCAL_TIME, 0L);
+  }
+
+  protected String setLastDate(final String fetch) {
+    if (fetch == null) {
+      this.getSharedPreferences().edit().remove(AnnouncementsConstants.PREF_LAST_FETCH_SERVER_DATE).commit();
+      return null;
+    }
+    this.getSharedPreferences().edit().putString(AnnouncementsConstants.PREF_LAST_FETCH_SERVER_DATE, fetch).commit();
+    return fetch;
   }
 
   @Override
-  public long getLastFetch() {
-    return getSharedPreferences().getLong(AnnouncementsConstants.PREF_LAST_FETCH, 0L);
+  public String getLastDate() {
+    return this.getSharedPreferences().getString(AnnouncementsConstants.PREF_LAST_FETCH_SERVER_DATE, null);
   }
 
   /**
@@ -235,16 +228,23 @@ public class AnnouncementsService extends IntentService implements Announcements
     return AnnouncementsConstants.ANNOUNCE_USER_AGENT;
   }
 
-  @Override
-  public void onNoNewAnnouncements(long fetched) {
-    Logger.info(LOG_TAG, "No new announcements to display.");
+  protected void persistTimes(long fetched, String date) {
     setLastFetch(fetched);
+    if (date != null) {
+      setLastDate(date);
+    }
   }
 
   @Override
-  public void onNewAnnouncements(List<Announcement> announcements, long fetched) {
+  public void onNoNewAnnouncements(long fetched, String date) {
+    Logger.info(LOG_TAG, "No new announcements to display.");
+    persistTimes(fetched, date);
+  }
+
+  @Override
+  public void onNewAnnouncements(List<Announcement> announcements, long fetched, String date) {
     Logger.info(LOG_TAG, "Processing announcements: " + announcements.size());
-    setLastFetch(fetched);
+    persistTimes(fetched, date);
     processAnnouncements(announcements);
   }
 

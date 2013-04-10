@@ -680,10 +680,8 @@ SinkContext::OpenContainer(const nsIParserNode& aNode)
       break;
 
     case eHTMLTag_button:
-#ifdef MOZ_MEDIA
     case eHTMLTag_audio:
     case eHTMLTag_video:
-#endif
       content->DoneCreatingElement();
       break;
 
@@ -792,10 +790,8 @@ SinkContext::CloseContainer(const nsHTMLTag aTag)
     MOZ_NOT_REACHED("Must not use HTMLContentSink for forms.");
     break;
 
-#ifdef MOZ_MEDIA
   case eHTMLTag_video:
   case eHTMLTag_audio:
-#endif
   case eHTMLTag_select:
   case eHTMLTag_textarea:
   case eHTMLTag_object:
@@ -1288,8 +1284,6 @@ HTMLContentSink::~HTMLContentSink()
   }
 }
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(HTMLContentSink)
-
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(HTMLContentSink, nsContentSink)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mHTMLDocument)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mRoot)
@@ -1343,8 +1337,7 @@ IsScriptEnabled(nsIDocument *aDoc, nsIDocShell *aContainer)
 
   nsIScriptContext *scriptContext = globalObject->GetContext();
   NS_ENSURE_TRUE(scriptContext, true);
-
-  JSContext* cx = scriptContext->GetNativeContext();
+  JSContext *cx = scriptContext->GetNativeContext();
   NS_ENSURE_TRUE(cx, true);
 
   bool enabled = true;
@@ -2071,12 +2064,10 @@ HTMLContentSink::SetDocumentCharset(nsACString& aCharset)
       // it but if we get a null pointer, that's perfectly legal for
       // parent and parentContentViewer
 
-      nsCOMPtr<nsIDocShellTreeItem> docShellAsItem =
-        do_QueryInterface(mDocShell);
-      NS_ENSURE_TRUE(docShellAsItem, NS_ERROR_FAILURE);
+      NS_ENSURE_TRUE(mDocShell, NS_ERROR_FAILURE);
 
       nsCOMPtr<nsIDocShellTreeItem> parentAsItem;
-      docShellAsItem->GetSameTypeParent(getter_AddRefs(parentAsItem));
+      mDocShell->GetSameTypeParent(getter_AddRefs(parentAsItem));
 
       nsCOMPtr<nsIDocShell> parent(do_QueryInterface(parentAsItem));
       if (parent) {

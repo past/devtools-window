@@ -19,20 +19,16 @@ class DynamicsCompressorNode : public AudioNode
 {
 public:
   explicit DynamicsCompressorNode(AudioContext* aContext);
+  ~DynamicsCompressorNode();
 
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(DynamicsCompressorNode, AudioNode)
 
-  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope,
-                               bool* aTriedToWrap);
+  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope);
 
-  virtual uint32_t MaxNumberOfInputs() const MOZ_FINAL MOZ_OVERRIDE
+  virtual bool SupportsMediaStreams() const MOZ_OVERRIDE
   {
-    return 1;
-  }
-  virtual uint32_t MaxNumberOfOutputs() const MOZ_FINAL MOZ_OVERRIDE
-  {
-    return 1;
+    return true;
   }
 
   AudioParam* Threshold() const
@@ -65,6 +61,14 @@ public:
   {
     return mRelease;
   }
+
+private:
+  static void SendThresholdToStream(AudioNode* aNode);
+  static void SendKneeToStream(AudioNode* aNode);
+  static void SendRatioToStream(AudioNode* aNode);
+  static void SendReductionToStream(AudioNode* aNode);
+  static void SendAttackToStream(AudioNode* aNode);
+  static void SendReleaseToStream(AudioNode* aNode);
 
 private:
   nsRefPtr<AudioParam> mThreshold;

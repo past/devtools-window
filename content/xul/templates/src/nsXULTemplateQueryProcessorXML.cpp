@@ -21,6 +21,7 @@
 #include "nsArrayUtils.h"
 #include "nsPIDOMWindow.h"
 #include "nsXULContentUtils.h"
+#include "nsXMLHttpRequest.h"
 
 #include "nsXULTemplateQueryProcessorXML.h"
 #include "nsXULTemplateResultXML.h"
@@ -84,7 +85,6 @@ TraverseRuleToBindingsMap(nsISupports* aKey, nsXMLBindingSet* aMatch, void* aCon
     return PL_DHASH_NEXT;
 }
   
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsXULTemplateQueryProcessorXML)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsXULTemplateQueryProcessorXML)
     if (tmp->mRuleToBindingsMap.IsInitialized()) {
         tmp->mRuleToBindingsMap.Clear();
@@ -175,9 +175,10 @@ nsXULTemplateQueryProcessorXML::GetDatasource(nsIArray* aDataSources,
         do_CreateInstance(NS_XMLHTTPREQUEST_CONTRACTID, &rv);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    nsCOMPtr<nsPIDOMWindow> owner = do_QueryInterface(scriptObject);
-    req->Init(docPrincipal, context, owner ? owner->GetOuterWindow() : nullptr,
-              nullptr);
+    rv = req->Init(docPrincipal, context, 
+                   scriptObject ? scriptObject : doc->GetScopeObject(),
+                   nullptr);
+    NS_ENSURE_SUCCESS(rv, rv);
 
     rv = req->Open(NS_LITERAL_CSTRING("GET"), uriStr, true,
                    EmptyString(), EmptyString());

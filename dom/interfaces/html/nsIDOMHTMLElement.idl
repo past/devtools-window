@@ -7,7 +7,6 @@
 #include "nsIVariant.idl"
 
 interface nsIDOMHTMLMenuElement;
-interface nsIDOMHTMLPropertiesCollection;
 
 /**
  * The nsIDOMHTMLElement interface is the primary [X]HTML element
@@ -20,7 +19,7 @@ interface nsIDOMHTMLPropertiesCollection;
  * with changes from the work-in-progress WHATWG HTML specification:
  * http://www.whatwg.org/specs/web-apps/current-work/
  */
-[scriptable, uuid(9a677a5b-e6f7-4e2e-9ef9-22c2ac9967b3)]
+[scriptable, uuid(56d50046-31af-4cdc-af51-217fb2fd0a4d)]
 interface nsIDOMHTMLElement : nsIDOMElement
 {
   // metadata attributes
@@ -34,7 +33,7 @@ interface nsIDOMHTMLElement : nsIDOMElement
            attribute boolean                        itemScope;
            attribute nsIVariant                     itemType;
            attribute DOMString                      itemId;
-  readonly attribute nsIDOMHTMLPropertiesCollection properties; 
+  readonly attribute nsISupports                    properties;
   // The following attributes are really nsDOMSettableTokenList, which has
   // PutForwards, so we express them as nsIVariants to deal with this.
            attribute nsIVariant                     itemValue;

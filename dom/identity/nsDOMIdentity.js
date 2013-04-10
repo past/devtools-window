@@ -9,6 +9,11 @@ const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 const PREF_DEBUG = "toolkit.identity.debug";
 const PREF_ENABLED = "dom.identity.enabled";
 
+// Bug 822450: Workaround for Bug 821740.  When testing with marionette,
+// relax navigator.id.request's requirement that it be handling native
+// events.  Synthetic marionette events are ok.
+const PREF_SYNTHETIC_EVENTS_OK = "dom.identity.syntheticEventsOk";
+
 // Maximum length of a string that will go through IPC
 const MAX_STRING_LENGTH = 2048;
 // Maximum number of times navigator.id.request can be called for a document
@@ -16,7 +21,7 @@ const MAX_RP_CALLS = 100;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/IdentityUtils.jsm");
+Cu.import("resource://gre/modules/identity/IdentityUtils.jsm");
 
 // This is the child process corresponding to nsIDOMIdentity
 XPCOMUtils.defineLazyServiceGetter(this, "cpmm",
@@ -44,10 +49,17 @@ nsDOMIdentity.prototype = {
     // Authentication
     beginAuthentication: 'r',
     completeAuthentication: 'r',
-    raiseAuthenticationFailure: 'r',
+    raiseAuthenticationFailure: 'r'
   },
 
-  // nsIDOMIdentity
+  // require native events unless syntheticEventsOk is set
+  get nativeEventsRequired() {
+    if (Services.prefs.prefHasUserValue(PREF_SYNTHETIC_EVENTS_OK)) {
+      return !Services.prefs.getBoolPref(PREF_SYNTHETIC_EVENTS_OK);
+    }
+    return true;
+  },
+
   /**
    * Relying Party (RP) APIs
    */
@@ -93,7 +105,7 @@ nsDOMIdentity.prototype = {
       }
 
       // TODO: Bug 767610 - check email format.
-      // See nsHTMLInputElement::IsValidEmailAddress
+      // See HTMLInputElement::IsValidEmailAddress
       if (aOptions["loggedInUser"].indexOf("@") == -1
           || aOptions["loggedInUser"].length > MAX_STRING_LENGTH) {
         throw new Error("loggedInUser is not valid");
@@ -115,7 +127,8 @@ nsDOMIdentity.prototype = {
     // input handler is when we are handling the (deprecated) get() or
     // getVerifiedEmail() calls, which make use of an RP context
     // marked as _internal.
-    if (!util.isHandlingUserInput && !aOptions._internal) {
+    if (this.nativeEventsRequired && !util.isHandlingUserInput && !aOptions._internal) {
+      this._log("request: rejecting non-native event");
       return;
     }
 
@@ -392,7 +405,7 @@ nsDOMIdentity.prototype = {
       case "Identity:RP:Watch:OnLogin":
         // Do we have a watcher?
         if (!this._rpWatcher) {
-          dump("WARNING: Received OnLogin message, but there is no RP watcher\n");
+          this._log("WARNING: Received OnLogin message, but there is no RP watcher");
           return;
         }
 
@@ -407,7 +420,7 @@ nsDOMIdentity.prototype = {
       case "Identity:RP:Watch:OnLogout":
         // Do we have a watcher?
         if (!this._rpWatcher) {
-          dump("WARNING: Received OnLogout message, but there is no RP watcher\n");
+          this._log("WARNING: Received OnLogout message, but there is no RP watcher");
           return;
         }
 
@@ -418,7 +431,7 @@ nsDOMIdentity.prototype = {
       case "Identity:RP:Watch:OnReady":
         // Do we have a watcher?
         if (!this._rpWatcher) {
-          dump("WARNING: Received OnReady message, but there is no RP watcher\n");
+          this._log("WARNING: Received OnReady message, but there is no RP watcher");
           return;
         }
 
@@ -426,10 +439,10 @@ nsDOMIdentity.prototype = {
           this._rpWatcher.onready();
         }
         break;
-      case "Identity:RP:Request:OnCancel":
+      case "Identity:RP:Watch:OnCancel":
         // Do we have a watcher?
         if (!this._rpWatcher) {
-          dump("WARNING: Received OnCancel message, but there is no RP watcher\n");
+          this._log("WARNING: Received OnCancel message, but there is no RP watcher");
           return;
         }
 
@@ -511,6 +524,14 @@ nsDOMIdentity.prototype = {
     return message;
   },
 
+  uninit: function DOMIdentity_uninit() {
+    this._log("nsDOMIdentity uninit()");
+    this._identityInternal._mm.sendAsyncMessage(
+      "Identity:RP:Unwatch",
+      { id: this._id }
+    );
+  }
+
 };
 
 /**
@@ -536,6 +557,8 @@ nsDOMIdentityInternal.prototype = {
     if (wId != this._innerWindowID) {
       return;
     }
+
+    this._identity.uninit();
 
     Services.obs.removeObserver(this, "inner-window-destroyed");
     this._identity._initializeState();
@@ -585,14 +608,14 @@ nsDOMIdentityInternal.prototype = {
       "Identity:RP:Watch:OnLogin",
       "Identity:RP:Watch:OnLogout",
       "Identity:RP:Watch:OnReady",
-      "Identity:RP:Request:OnCancel",
+      "Identity:RP:Watch:OnCancel",
       "Identity:IDP:CallBeginProvisioningCallback",
       "Identity:IDP:CallGenKeyPairCallback",
-      "Identity:IDP:CallBeginAuthenticationCallback",
+      "Identity:IDP:CallBeginAuthenticationCallback"
     ];
-    this._messages.forEach((function(msgName) {
+    this._messages.forEach(function(msgName) {
       this._mm.addMessageListener(msgName, this);
-    }).bind(this));
+    }, this);
 
     // Setup observers so we can remove message listeners.
     Services.obs.addObserver(this, "inner-window-destroyed", false);
@@ -609,14 +632,14 @@ nsDOMIdentityInternal.prototype = {
   },
 
   // Component setup.
-  classID: Components.ID("{8bcac6a3-56a4-43a4-a44c-cdf42763002f}"),
+  classID: Components.ID("{210853d9-2c97-4669-9761-b1ab9cbf57ef}"),
 
   QueryInterface: XPCOMUtils.generateQI(
     [Ci.nsIDOMGlobalPropertyInitializer, Ci.nsIMessageListener]
   ),
 
   classInfo: XPCOMUtils.generateCI({
-    classID: Components.ID("{8bcac6a3-56a4-43a4-a44c-cdf42763002f}"),
+    classID: Components.ID("{210853d9-2c97-4669-9761-b1ab9cbf57ef}"),
     contractID: "@mozilla.org/dom/identity;1",
     interfaces: [],
     classDescription: "Identity DOM Implementation"

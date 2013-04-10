@@ -14,7 +14,6 @@
 
 #include "nsContainerFrame.h"
 #include "nsHTMLParts.h"
-#include "nsAbsoluteContainingBlock.h"
 #include "nsLineBox.h"
 #include "nsCSSPseudoElements.h"
 #include "nsStyleSet.h"
@@ -136,9 +135,9 @@ public:
   NS_DECL_QUERYFRAME
 
   // nsIFrame
-  NS_IMETHOD Init(nsIContent*      aContent,
-                  nsIFrame*        aParent,
-                  nsIFrame*        aPrevInFlow);
+  virtual void Init(nsIContent*      aContent,
+                    nsIFrame*        aParent,
+                    nsIFrame*        aPrevInFlow) MOZ_OVERRIDE;
   NS_IMETHOD SetInitialChildList(ChildListID     aListID,
                                  nsFrameList&    aChildList);
   NS_IMETHOD  AppendFrames(ChildListID     aListID,
@@ -150,14 +149,14 @@ public:
                           nsIFrame*       aOldFrame);
   virtual const nsFrameList& GetChildList(ChildListID aListID) const;
   virtual void GetChildLists(nsTArray<ChildList>* aLists) const;
-  virtual nscoord GetBaseline() const;
-  virtual nscoord GetCaretBaseline() const;
+  virtual nscoord GetBaseline() const MOZ_OVERRIDE;
+  virtual nscoord GetCaretBaseline() const MOZ_OVERRIDE;
   virtual void DestroyFrom(nsIFrame* aDestructRoot);
   virtual nsSplittableType GetSplittableType() const;
   virtual bool IsFloatContainingBlock() const;
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists);
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
   virtual nsIAtom* GetType() const;
   virtual bool IsFrameOfType(uint32_t aFlags) const
   {
@@ -165,6 +164,9 @@ public:
              ~(nsIFrame::eCanContainOverflowContainers |
                nsIFrame::eBlockFrame));
   }
+
+  virtual void InvalidateFrame(uint32_t aDisplayItemKey = 0);
+  virtual void InvalidateFrameWithRect(const nsRect& aRect, uint32_t aDisplayItemKey = 0);
 
 #ifdef DEBUG
   NS_IMETHOD List(FILE* out, int32_t aIndent, uint32_t aFlags = 0) const;
@@ -382,6 +384,11 @@ protected:
     }
     aLine->Destroy(PresContext()->PresShell());
   }
+  /**
+   * Helper method for StealFrame.
+   */
+  void RemoveFrameFromLine(nsIFrame* aChild, nsLineList::iterator aLine,
+                           nsFrameList& aFrameList, nsLineList& aLineList);
 
   void TryAllLines(nsLineList::iterator* aIterator,
                    nsLineList::iterator* aStartIterator,
@@ -400,7 +407,7 @@ protected:
   void SlideLine(nsBlockReflowState& aState,
                  nsLineBox* aLine, nscoord aDY);
 
-  virtual int GetSkipSides() const;
+  virtual int GetSkipSides() const MOZ_OVERRIDE;
 
   virtual void ComputeFinalSize(const nsHTMLReflowState& aReflowState,
                                 nsBlockReflowState&      aState,
@@ -412,14 +419,15 @@ protected:
                             nscoord               aBottomEdgeOfChildren,
                             nsOverflowAreas&      aOverflowAreas);
 
-  /** add the frames in aFrameList to this block after aPrevSibling
-    * this block thinks in terms of lines, but the frame construction code
-    * knows nothing about lines at all. So we need to find the line that
-    * contains aPrevSibling and add aFrameList after aPrevSibling on that line.
-    * new lines are created as necessary to handle block data in aFrameList.
-    * This function will clear aFrameList.
-    */
-  virtual nsresult AddFrames(nsFrameList& aFrameList, nsIFrame* aPrevSibling);
+  /**
+   * Add the frames in aFrameList to this block after aPrevSibling.
+   * This block thinks in terms of lines, but the frame construction code
+   * knows nothing about lines at all so we need to find the line that
+   * contains aPrevSibling and add aFrameList after aPrevSibling on that line.
+   * New lines are created as necessary to handle block data in aFrameList.
+   * This function will clear aFrameList.
+   */
+  void AddFrames(nsFrameList& aFrameList, nsIFrame* aPrevSibling);
 
 #ifdef IBMBIDI
   /**
@@ -455,8 +463,7 @@ public:
   };
   nsresult DoRemoveFrame(nsIFrame* aDeletedFrame, uint32_t aFlags);
 
-  void ReparentFloats(nsIFrame* aFirstFrame,
-                      nsBlockFrame* aOldParent, bool aFromOverflow,
+  void ReparentFloats(nsIFrame* aFirstFrame, nsBlockFrame* aOldParent,
                       bool aReparentSiblings);
 
   virtual bool UpdateOverflow();
@@ -469,6 +476,33 @@ public:
   static void RecoverFloatsFor(nsIFrame*       aFrame,
                                nsFloatManager& aFloatManager);
 
+  /**
+   * Determine if we have any pushed floats from a previous continuation.
+   *
+   * @returns true, if any of the floats at the beginning of our mFloats list
+   *          have the NS_FRAME_IS_PUSHED_FLOAT bit set; false otherwise.
+   */
+  bool HasPushedFloatsFromPrevContinuation() const {
+    if (!mFloats.IsEmpty()) {
+      // If we have pushed floats, then they should be at the beginning of our
+      // float list.
+      if (mFloats.FirstChild()->GetStateBits() & NS_FRAME_IS_PUSHED_FLOAT) {
+        return true;
+      }
+    }
+
+#ifdef DEBUG
+    // Double-check the above assertion that pushed floats should be at the
+    // beginning of our floats list.
+    for (nsFrameList::Enumerator e(mFloats); !e.AtEnd(); e.Next()) {
+      nsIFrame* f = e.get();
+      NS_ASSERTION(!(f->GetStateBits() & NS_FRAME_IS_PUSHED_FLOAT),
+        "pushed floats must be at the beginning of the float list");
+    }
+#endif
+    return false;
+  }
+
 protected:
 
   /** grab overflow lines from this block's prevInFlow, and make them
@@ -476,6 +510,25 @@ protected:
     * @return true if any lines were drained.
     */
   bool DrainOverflowLines();
+
+  /**
+   * @return false iff this block does not have a float on any child list.
+   * This function is O(1).
+   */
+  bool MaybeHasFloats() const {
+    if (!mFloats.IsEmpty()) {
+      return true;
+    }
+    // XXX this could be replaced with HasPushedFloats() if we enforced
+    // removing the property when the frame list becomes empty.
+    nsFrameList* list = GetPushedFloats();
+    if (list && !list->IsEmpty()) {
+      return true;
+    }
+    // For the OverflowOutOfFlowsProperty I think we do enforce that, but it's
+    // a mix of out-of-flow frames, so that's why the method name has "Maybe".
+    return GetStateBits() & NS_BLOCK_HAS_OVERFLOW_OUT_OF_FLOWS;
+  }
 
   /** grab pushed floats from this block's prevInFlow, and splice
     * them into this block's mFloats list.
@@ -498,13 +551,23 @@ protected:
   uint8_t FindTrailingClear();
 
   /**
-    * Remove a float from our float list and also the float cache
-    * for the line its placeholder is on.
-    */
-  line_iterator RemoveFloat(nsIFrame* aFloat);
+   * Remove a float from our float list.
+   */
+  void RemoveFloat(nsIFrame* aFloat);
+  /**
+   * Remove a float from the float cache for the line its placeholder is on.
+   */
+  void RemoveFloatFromFloatCache(nsIFrame* aFloat);
 
   void CollectFloats(nsIFrame* aFrame, nsFrameList& aList,
-                     bool aFromOverflow, bool aCollectFromSiblings);
+                     bool aCollectFromSiblings) {
+    if (MaybeHasFloats()) {
+      DoCollectFloats(aFrame, aList, aCollectFromSiblings);
+    }
+  }
+  void DoCollectFloats(nsIFrame* aFrame, nsFrameList& aList,
+                       bool aCollectFromSiblings);
+
   // Remove a float, abs, rel positioned frame from the appropriate block's list
   static void DoRemoveOutOfFlowFrame(nsIFrame* aFrame);
 
@@ -666,11 +729,8 @@ protected:
    *
    * @return the pulled frame or nullptr
    */
-  nsIFrame* PullFrameFrom(nsBlockReflowState&  aState,
-                          nsLineBox*           aLine,
+  nsIFrame* PullFrameFrom(nsLineBox*           aLine,
                           nsBlockFrame*        aFromContainer,
-                          bool                 aFromOverflowLine,
-                          nsFrameList&         aFromFrameList,
                           nsLineList::iterator aFromLine);
 
   /**
@@ -784,7 +844,9 @@ protected:
     return 0 != (GetStateBits() & NS_BLOCK_HAS_PUSHED_FLOATS);
   }
 
-  // Get the pushed floats list
+  // Get the pushed floats list, which is used for *temporary* storage
+  // of floats during reflow, between when we decide they don't fit in
+  // this block until our next continuation takes them.
   nsFrameList* GetPushedFloats() const;
   // Get the pushed floats list, or if there is not currently one,
   // make a new empty one.

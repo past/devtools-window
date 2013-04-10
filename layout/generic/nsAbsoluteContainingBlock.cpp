@@ -8,17 +8,32 @@
  * object that is a containing block for them
  */
 
-#include "nsCOMPtr.h"
 #include "nsAbsoluteContainingBlock.h"
+
 #include "nsContainerFrame.h"
+#include "nsGkAtoms.h"
 #include "nsIPresShell.h"
 #include "nsHTMLParts.h"
+#include "nsHTMLReflowState.h"
 #include "nsPresContext.h"
 #include "nsFrameManager.h"
 #include "nsCSSFrameConstructor.h"
 
 #ifdef DEBUG
 #include "nsBlockFrame.h"
+
+static void PrettyUC(nscoord aSize, char* aBuf)
+{
+  if (NS_UNCONSTRAINEDSIZE == aSize) {
+    strcpy(aBuf, "UC");
+  } else {
+    if((int32_t)0xdeadbeef == aSize) {
+      strcpy(aBuf, "deadbeef");
+    } else {
+      sprintf(aBuf, "%d", aSize);
+    }
+  }
+}
 #endif
 
 nsresult
@@ -26,7 +41,7 @@ nsAbsoluteContainingBlock::SetInitialChildList(nsIFrame*       aDelegatingFrame,
                                                ChildListID     aListID,
                                                nsFrameList&    aChildList)
 {
-  NS_PRECONDITION(GetChildListID() == aListID, "unexpected child list name");
+  NS_PRECONDITION(mChildListID == aListID, "unexpected child list name");
 #ifdef DEBUG
   nsFrame::VerifyDirtyBitSet(aChildList);
 #endif
@@ -39,7 +54,7 @@ nsAbsoluteContainingBlock::AppendFrames(nsIFrame*      aDelegatingFrame,
                                         ChildListID    aListID,
                                         nsFrameList&   aFrameList)
 {
-  NS_ASSERTION(GetChildListID() == aListID, "unexpected child list");
+  NS_ASSERTION(mChildListID == aListID, "unexpected child list");
 
   // Append the frames to our list of absolutely positioned frames
 #ifdef DEBUG
@@ -62,7 +77,7 @@ nsAbsoluteContainingBlock::InsertFrames(nsIFrame*      aDelegatingFrame,
                                         nsIFrame*      aPrevFrame,
                                         nsFrameList&   aFrameList)
 {
-  NS_ASSERTION(GetChildListID() == aListID, "unexpected child list");
+  NS_ASSERTION(mChildListID == aListID, "unexpected child list");
   NS_ASSERTION(!aPrevFrame || aPrevFrame->GetParent() == aDelegatingFrame,
                "inserting after sibling frame with different parent");
 
@@ -85,7 +100,7 @@ nsAbsoluteContainingBlock::RemoveFrame(nsIFrame*       aDelegatingFrame,
                                        ChildListID     aListID,
                                        nsIFrame*       aOldFrame)
 {
-  NS_ASSERTION(GetChildListID() == aListID, "unexpected child list");
+  NS_ASSERTION(mChildListID == aListID, "unexpected child list");
   nsIFrame* nif = aOldFrame->GetNextInFlow();
   if (nif) {
     static_cast<nsContainerFrame*>(nif->GetParent())
@@ -127,9 +142,9 @@ nsAbsoluteContainingBlock::Reflow(nsContainerFrame*        aDelegatingFrame,
       if (!NS_FRAME_IS_FULLY_COMPLETE(kidStatus)) {
         // Need a continuation
         if (!nextFrame) {
-          nsresult rv = aPresContext->PresShell()->FrameConstructor()->
-            CreateContinuingFrame(aPresContext, kidFrame, aDelegatingFrame, &nextFrame);
-          NS_ENSURE_SUCCESS(rv, rv);
+          nextFrame =
+            aPresContext->PresShell()->FrameConstructor()->
+              CreateContinuingFrame(aPresContext, kidFrame, aDelegatingFrame);
         }
         // Add it as an overflow container.
         //XXXfr This is a hack to fix some of our printing dataloss.
@@ -196,7 +211,7 @@ nsAbsoluteContainingBlock::FrameDependsOnContainer(nsIFrame* f,
                                                    bool aCBWidthChanged,
                                                    bool aCBHeightChanged)
 {
-  const nsStylePosition* pos = f->GetStylePosition();
+  const nsStylePosition* pos = f->StylePosition();
   // See if f's position might have changed because it depends on a
   // placeholder's position
   // This can happen in the following cases:
@@ -218,8 +233,8 @@ nsAbsoluteContainingBlock::FrameDependsOnContainer(nsIFrame* f,
     // skip getting style data
     return false;
   }
-  const nsStylePadding* padding = f->GetStylePadding();
-  const nsStyleMargin* margin = f->GetStyleMargin();
+  const nsStylePadding* padding = f->StylePadding();
+  const nsStyleMargin* margin = f->StyleMargin();
   if (aCBWidthChanged) {
     // See if f's width might have changed.
     // If border-left, border-right, padding-left, padding-right,
@@ -242,7 +257,7 @@ nsAbsoluteContainingBlock::FrameDependsOnContainer(nsIFrame* f,
         !IsFixedMarginSize(margin->mMargin.GetRight())) {
       return true;
     }
-    if (f->GetStyleVisibility()->mDirection == NS_STYLE_DIRECTION_RTL) {
+    if (f->StyleVisibility()->mDirection == NS_STYLE_DIRECTION_RTL) {
       // Note that even if 'left' is a length, our position can
       // still depend on the containing block width, because if
       // 'right' is also a length we will discard 'left' and be
@@ -328,7 +343,7 @@ nsAbsoluteContainingBlock::DoMarkFramesDirty(bool aMarkAllDirty)
 // reflow...
 
 // When bug 154892 is checked in, make sure that when 
-// GetChildListID() == kFixedList, the height is unconstrained.
+// mChildListID == kFixedList, the height is unconstrained.
 // since we don't allow replicated frames to split.
 
 nsresult
@@ -366,7 +381,17 @@ nsAbsoluteContainingBlock::ReflowAbsoluteFrame(nsIFrame*                aDelegat
 
   nsresult  rv;
   // Get the border values
-  const nsMargin& border = aReflowState.mStyleBorder->GetComputedBorder();
+  nsMargin border = aReflowState.mStyleBorder->GetComputedBorder();
+
+  // Respect fixed position margins.
+  if (aDelegatingFrame->GetAbsoluteListID() == nsIFrame::kFixedList) {
+    const nsMargin& fixedMargins = aPresContext->PresShell()->
+      GetContentDocumentFixedPositionMargins();
+
+    border += fixedMargins;
+    aContainingBlockWidth -= fixedMargins.left + fixedMargins.right;
+    aContainingBlockHeight -= fixedMargins.top + fixedMargins.bottom;
+  }
 
   nscoord availWidth = aContainingBlockWidth;
   if (availWidth == -1) {
@@ -440,7 +465,7 @@ nsAbsoluteContainingBlock::ReflowAbsoluteFrame(nsIFrame*                aDelegat
                kidDesiredSize.width, kidDesiredSize.height);
   aKidFrame->SetRect(rect);
 
-  nsIView* view = aKidFrame->GetView();
+  nsView* view = aKidFrame->GetView();
   if (view) {
     // Size and position the view and set its opacity, visibility, content
     // transparency, and clip
@@ -472,22 +497,3 @@ nsAbsoluteContainingBlock::ReflowAbsoluteFrame(nsIFrame*                aDelegat
 
   return rv;
 }
-
-#ifdef DEBUG
- void nsAbsoluteContainingBlock::PrettyUC(nscoord aSize,
-                        char*   aBuf)
-{
-  if (NS_UNCONSTRAINEDSIZE == aSize) {
-    strcpy(aBuf, "UC");
-  }
-  else {
-    if((int32_t)0xdeadbeef == aSize)
-    {
-      strcpy(aBuf, "deadbeef");
-    }
-    else {
-      sprintf(aBuf, "%d", aSize);
-    }
-  }
-}
-#endif

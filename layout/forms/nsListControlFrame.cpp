@@ -17,7 +17,7 @@
 #include "nsIDOMHTMLSelectElement.h"
 #include "nsIDOMHTMLOptionElement.h"
 #include "nsComboboxControlFrame.h"
-#include "nsIViewManager.h"
+#include "nsViewManager.h"
 #include "nsIDOMHTMLOptGroupElement.h"
 #include "nsWidgetsCID.h"
 #include "nsIPresShell.h"
@@ -36,15 +36,16 @@
 #include "nsGUIEvent.h"
 #include "nsIServiceManager.h"
 #include "nsINodeInfo.h"
-#include "nsHTMLSelectElement.h"
 #include "nsCSSRendering.h"
 #include "nsITheme.h"
 #include "nsIDOMEventListener.h"
 #include "nsLayoutUtils.h"
 #include "nsDisplayList.h"
 #include "nsContentUtils.h"
-#include "mozilla/LookAndFeel.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/dom/HTMLSelectElement.h"
+#include "mozilla/LookAndFeel.h"
+#include <algorithm>
 
 using namespace mozilla;
 
@@ -155,7 +156,7 @@ nsListControlFrame::DestroyFrom(nsIFrame* aDestructRoot)
   nsHTMLScrollFrame::DestroyFrom(aDestructRoot);
 }
 
-NS_IMETHODIMP
+void
 nsListControlFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
                                      const nsRect&           aDirtyRect,
                                      const nsDisplayListSet& aLists)
@@ -166,7 +167,7 @@ nsListControlFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   // XXX why do we need this here? we should never reach this. Maybe
   // because these can have widgets? Hmm
   if (aBuilder->IsBackgroundOnly())
-    return NS_OK;
+    return;
 
   DO_GLOBAL_REFLOW_COUNT_DSP("nsListControlFrame");
 
@@ -182,12 +183,7 @@ nsListControlFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
         mLastDropdownBackstopColor));
   }
 
-  // REVIEW: The selection visibility code that used to be here is what
-  // we already do by default.
-  // REVIEW: There was code here to paint the theme background. But as far
-  // as I can tell, we'd just paint the theme background twice because
-  // it was redundant with nsCSSRendering::PaintBackground
-  return nsHTMLScrollFrame::BuildDisplayList(aBuilder, aDirtyRect, aLists);
+  nsHTMLScrollFrame::BuildDisplayList(aBuilder, aDirtyRect, aLists);
 }
 
 /**
@@ -267,7 +263,7 @@ NS_QUERYFRAME_TAIL_INHERITING(nsHTMLScrollFrame)
 a11y::AccType
 nsListControlFrame::AccessibleType()
 {
-  return a11y::eHTMLSelectListAccessible;
+  return a11y::eHTMLSelectListType;
 }
 #endif
 
@@ -439,7 +435,7 @@ nsListControlFrame::Reflow(nsPresContext*           aPresContext,
         // Just pick something
         mNumDisplayRows = 1;
       } else {
-        mNumDisplayRows = NS_MAX(1, state.ComputedHeight() / rowHeight);
+        mNumDisplayRows = std::max(1, state.ComputedHeight() / rowHeight);
       }
     }
 
@@ -570,7 +566,7 @@ nsListControlFrame::ReflowAsDropdown(nsPresContext*           aPresContext,
       mDropdownCanGrow = GetNumberOfRows() > 1;
     } else {
       nscoord bp = aReflowState.mComputedBorderPadding.TopBottom();
-      nscoord availableHeight = NS_MAX(above, below) - bp;
+      nscoord availableHeight = std::max(above, below) - bp;
       nscoord newHeight;
       uint32_t rows;
       if (visibleHeight <= availableHeight) {
@@ -934,7 +930,7 @@ nsListControlFrame::HandleEvent(nsPresContext* aPresContext,
 
   // do we have style that affects how we are selected?
   // do we have user-input style?
-  const nsStyleUserInterface* uiStyle = GetStyleUserInterface();
+  const nsStyleUserInterface* uiStyle = StyleUserInterface();
   if (uiStyle->mUserInput == NS_STYLE_USER_INPUT_NONE || uiStyle->mUserInput == NS_STYLE_USER_INPUT_DISABLED)
     return nsFrame::HandleEvent(aPresContext, aEvent, aEventStatus);
 
@@ -988,23 +984,18 @@ nsListControlFrame::GetSizeAttribute(uint32_t *aSize) {
 
 
 //---------------------------------------------------------
-NS_IMETHODIMP  
+void
 nsListControlFrame::Init(nsIContent*     aContent,
                          nsIFrame*       aParent,
                          nsIFrame*       aPrevInFlow)
 {
-  nsresult result = nsHTMLScrollFrame::Init(aContent, aParent, aPrevInFlow);
-
-  // get the receiver interface from the browser button's content node
-  NS_ENSURE_STATE(mContent);
+  nsHTMLScrollFrame::Init(aContent, aParent, aPrevInFlow);
 
   // we shouldn't have to unregister this listener because when
   // our frame goes away all these content node go away as well
   // because our frame is the only one who references them.
   // we need to hook up our listeners before the editor is initialized
   mEventListener = new nsListEventListener(this);
-  if (!mEventListener) 
-    return NS_ERROR_OUT_OF_MEMORY;
 
   mContent->AddEventListener(NS_LITERAL_STRING("keypress"), mEventListener,
                              false, false);
@@ -1020,9 +1011,9 @@ nsListControlFrame::Init(nsIContent*     aContent,
 
   mLastDropdownBackstopColor = PresContext()->DefaultBackgroundColor();
 
-  AddStateBits(NS_FRAME_IN_POPUP);
-
-  return result;
+  if (IsInDropDownMode()) {
+    AddStateBits(NS_FRAME_IN_POPUP);
+  }
 }
 
 already_AddRefed<nsIContent> 
@@ -1114,13 +1105,6 @@ nsListControlFrame::OnOptionSelected(int32_t aIndex, bool aSelected)
     ScrollToIndex(aIndex);
   }
   return NS_OK;
-}
-
-int
-nsListControlFrame::GetSkipSides() const
-{    
-    // Don't skip any sides during border rendering
-  return 0;
 }
 
 void
@@ -1250,8 +1234,8 @@ nsListControlFrame::GetCurrentOption()
     return GetOptionContent(focusedIndex);
   }
 
-  nsRefPtr<nsHTMLSelectElement> selectElement =
-    nsHTMLSelectElement::FromContent(mContent);
+  nsRefPtr<dom::HTMLSelectElement> selectElement =
+    dom::HTMLSelectElement::FromContent(mContent);
   NS_ASSERTION(selectElement, "Can't be null");
 
   // There is no a selected item return the first non-disabled item and skip all
@@ -1378,7 +1362,7 @@ nsListControlFrame::AddOption(int32_t aIndex)
 static int32_t
 DecrementAndClamp(int32_t aSelectionIndex, int32_t aLength)
 {
-  return aLength == 0 ? kNothingSelected : NS_MAX(0, aSelectionIndex - 1);
+  return aLength == 0 ? kNothingSelected : std::max(0, aSelectionIndex - 1);
 }
 
 NS_IMETHODIMP
@@ -1426,8 +1410,8 @@ nsListControlFrame::SetOptionsSelectedFromFrame(int32_t aStartIndex,
                                                 bool aValue,
                                                 bool aClearAll)
 {
-  nsRefPtr<nsHTMLSelectElement> selectElement =
-    nsHTMLSelectElement::FromContent(mContent);
+  nsRefPtr<dom::HTMLSelectElement> selectElement =
+    dom::HTMLSelectElement::FromContent(mContent);
   bool wasChanged = false;
 #ifdef DEBUG
   nsresult rv = 
@@ -1464,8 +1448,8 @@ nsListControlFrame::ToggleOptionSelectedFromFrame(int32_t aIndex)
     option->GetSelected(&value);
 
   NS_ASSERTION(NS_SUCCEEDED(rv), "GetSelected failed");
-  nsRefPtr<nsHTMLSelectElement> selectElement =
-    nsHTMLSelectElement::FromContent(mContent);
+  nsRefPtr<dom::HTMLSelectElement> selectElement =
+    dom::HTMLSelectElement::FromContent(mContent);
   bool wasChanged = false;
 #ifdef DEBUG
   rv =
@@ -1588,29 +1572,6 @@ nsListControlFrame::SetFormProperty(nsIAtom* aName,
   return NS_OK;
 }
 
-nsresult 
-nsListControlFrame::GetFormProperty(nsIAtom* aName, nsAString& aValue) const
-{
-  // Get the selected value of option from local cache (optimization vs. widget)
-  if (nsGkAtoms::selected == aName) {
-    nsAutoString val(aValue);
-    nsresult error = NS_OK;
-    bool selected = false;
-    int32_t indx = val.ToInteger(&error, 10); // Get index from aValue
-    if (NS_SUCCEEDED(error))
-       selected = IsContentSelectedByIndex(indx); 
-  
-    aValue.Assign(selected ? NS_LITERAL_STRING("1") : NS_LITERAL_STRING("0"));
-    
-  // For selectedIndex, get the value from the widget
-  } else if (nsGkAtoms::selectedindex == aName) {
-    // You shouldn't be calling me for this!!!
-    return NS_ERROR_INVALID_ARG;
-  }
-
-  return NS_OK;
-}
-
 void
 nsListControlFrame::AboutToDropDown()
 {
@@ -1627,11 +1588,11 @@ nsListControlFrame::AboutToDropDown()
   // which is always opaque, in case we don't end up with an opaque color.
   // This gives us a very poor approximation of translucency.
   nsIFrame* comboboxFrame = do_QueryFrame(mComboboxFrame);
-  nsStyleContext* context = comboboxFrame->GetStyleContext()->GetParent();
+  nsStyleContext* context = comboboxFrame->StyleContext()->GetParent();
   mLastDropdownBackstopColor = NS_RGBA(0,0,0,0);
   while (NS_GET_A(mLastDropdownBackstopColor) < 255 && context) {
     mLastDropdownBackstopColor =
-      NS_ComposeColors(context->GetStyleBackground()->mBackgroundColor,
+      NS_ComposeColors(context->StyleBackground()->mBackgroundColor,
                        mLastDropdownBackstopColor);
     context = context->GetParent();
   }
@@ -1718,8 +1679,8 @@ nsListControlFrame::GetHeightOfARow()
 nsresult
 nsListControlFrame::IsOptionDisabled(int32_t anIndex, bool &aIsDisabled)
 {
-  nsRefPtr<nsHTMLSelectElement> sel =
-    nsHTMLSelectElement::FromContent(mContent);
+  nsRefPtr<dom::HTMLSelectElement> sel =
+    dom::HTMLSelectElement::FromContent(mContent);
   if (sel) {
     sel->IsOptionDisabled(anIndex, &aIsDisabled);
     return NS_OK;
@@ -1816,7 +1777,7 @@ nsListControlFrame::MouseUp(nsIDOMEvent* aMouseEvent)
     }
   }
 
-  const nsStyleVisibility* vis = GetStyleVisibility();
+  const nsStyleVisibility* vis = StyleVisibility();
       
   if (!vis->IsVisible()) {
     return NS_OK;
@@ -2385,13 +2346,13 @@ nsListControlFrame::KeyPress(nsIDOMEvent* aKeyEvent)
     case nsIDOMKeyEvent::DOM_VK_PAGE_UP: {
       AdjustIndexForDisabledOpt(mEndSelectionIndex, newIndex,
                                 (int32_t)numOptions,
-                                -NS_MAX(1, int32_t(mNumDisplayRows-1)), -1);
+                                -std::max(1, int32_t(mNumDisplayRows-1)), -1);
       } break;
 
     case nsIDOMKeyEvent::DOM_VK_PAGE_DOWN: {
       AdjustIndexForDisabledOpt(mEndSelectionIndex, newIndex,
                                 (int32_t)numOptions,
-                                NS_MAX(1, int32_t(mNumDisplayRows-1)), 1);
+                                std::max(1, int32_t(mNumDisplayRows-1)), 1);
       } break;
 
     case nsIDOMKeyEvent::DOM_VK_HOME: {
@@ -2481,28 +2442,32 @@ nsListControlFrame::KeyPress(nsIDOMEvent* aKeyEvent)
         startIndex++;
       }
 
-      uint32_t i;
-      for (i = 0; i < numOptions; i++) {
+      for (uint32_t i = 0; i < numOptions; ++i) {
         uint32_t index = (i + startIndex) % numOptions;
-        nsCOMPtr<nsIDOMHTMLOptionElement> optionElement =
-          GetOption(options, index);
-        if (optionElement) {
-          nsAutoString text;
-          if (NS_OK == optionElement->GetText(text)) {
-            if (StringBeginsWith(text, incrementalString,
-                                 nsCaseInsensitiveStringComparator())) {
-              bool wasChanged = PerformSelection(index, isShift, isControl);
-              if (wasChanged) {
-                // dispatch event, update combobox, etc.
-                if (!UpdateSelection()) {
-                  return NS_OK;
-                }
-              }
-              break;
-            }
-          }
+        nsCOMPtr<nsIDOMHTMLOptionElement> optionElement = GetOption(options, index);
+        if (!optionElement) {
+          continue;
         }
-      } // for
+
+        nsAutoString text;
+        if (NS_FAILED(optionElement->GetText(text)) ||
+            !StringBeginsWith(nsContentUtils::TrimWhitespace<nsContentUtils::IsHTMLWhitespaceOrNBSP>(text, false),
+                              incrementalString,
+                              nsCaseInsensitiveStringComparator())) {
+          continue;
+        }
+
+        if (!PerformSelection(index, isShift, isControl)) {
+          break;
+        }
+
+        // If UpdateSelection() returns false, that means the frame is no longer
+        // alive. We should stop doing anything.
+        if (!UpdateSelection()) {
+          return NS_OK;
+        }
+        break;
+      }
 
     } break;//case
   } // switch

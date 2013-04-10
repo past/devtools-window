@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-llvm_revision = "168596"
+llvm_revision = "170890"
 moz_version = "moz0"
 
 ##############################################
@@ -32,12 +32,13 @@ def patch(patch, plevel, srcdir):
     check_run(['patch', '-d', srcdir, '-p%s' % plevel, '-i', patch, '--fuzz=0',
                '-s'])
 
-def build_package(package_source_dir, package_build_dir, configure_args):
+def build_package(package_source_dir, package_build_dir, configure_args,
+                  make_args):
     if not os.path.exists(package_build_dir):
         os.mkdir(package_build_dir)
     run_in(package_build_dir,
            ["%s/configure" % package_source_dir] + configure_args)
-    run_in(package_build_dir, ["make", "-j8"])
+    run_in(package_build_dir, ["make", "-j8"] + make_args)
     run_in(package_build_dir, ["make", "install"])
 
 def with_env(env, f):
@@ -110,8 +111,9 @@ def build_one_stage_aux(stage_dir, is_stage_one):
                       "--enable-targets=x86,x86_64,arm",
                       "--disable-assertions",
                       "--prefix=%s" % inst_dir,
-                      "--with-gcc-toolchain=/tools/gcc-4.5-0moz3"]
-    build_package(llvm_source_dir, build_dir, configure_opts)
+                      "--with-gcc-toolchain=/tools/gcc-4.7.2-0moz1"]
+    build_package(llvm_source_dir, build_dir, configure_opts,
+                  [])
 
 if isDarwin:
     os.environ['MACOSX_DEPLOYMENT_TARGET'] = '10.7'

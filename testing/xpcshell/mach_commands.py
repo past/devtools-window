@@ -6,6 +6,7 @@
 
 from __future__ import unicode_literals
 
+import mozpack.path
 import os
 import sys
 
@@ -41,7 +42,7 @@ class XPCShellRunner(MozbuildObject):
         manifest = os.path.join(self.topobjdir, '_tests', 'xpcshell',
             'xpcshell.ini')
 
-        self._run_xpcshell_harness(manifest=manifest, **kwargs)
+        return self._run_xpcshell_harness(manifest=manifest, **kwargs)
 
     def run_test(self, test_file, debug=False, interactive=False,
         keep_going=False, shuffle=False):
@@ -52,38 +53,37 @@ class XPCShellRunner(MozbuildObject):
                 keep_going=keep_going, shuffle=shuffle)
             return
 
-        # dirname() gets confused if there isn't a trailing slash.
-        if os.path.isdir(test_file) and not test_file.endswith(os.path.sep):
-            test_file += os.path.sep
+        path_arg = self._wrap_path_argument(test_file)
 
-        relative_dir = test_file
+        test_obj_dir = os.path.join(self.topobjdir, '_tests', 'xpcshell',
+            path_arg.relpath())
+        if os.path.isfile(test_obj_dir):
+            test_obj_dir = mozpack.path.dirname(test_obj_dir)
 
-        if test_file.startswith(self.topsrcdir):
-            relative_dir = test_file[len(self.topsrcdir):]
+        xpcshell_dirs = []
+        for base, dirs, files in os.walk(test_obj_dir):
+          if os.path.exists(mozpack.path.join(base, 'xpcshell.ini')):
+            xpcshell_dirs.append(base)
 
-        test_dir = os.path.join(self.topobjdir, '_tests', 'xpcshell',
-                os.path.dirname(relative_dir))
-
-        xpcshell_ini_file = os.path.join(test_dir, 'xpcshell.ini')
-        if not os.path.exists(xpcshell_ini_file):
+        if not xpcshell_dirs:
             raise InvalidTestPathError('An xpcshell.ini could not be found '
                 'for the passed test path. Please select a path whose '
-                'directory contains an xpcshell.ini file. It is possible you '
-                'received this error because the tree is not built or tests '
-                'are not enabled.')
+                'directory or subdirectories contain an xpcshell.ini file. '
+                'It is possible you received this error because the tree is '
+                'not built or tests are not enabled.')
 
         args = {
             'debug': debug,
             'interactive': interactive,
             'keep_going': keep_going,
             'shuffle': shuffle,
-            'test_dirs': [test_dir],
+            'test_dirs': xpcshell_dirs,
         }
 
-        if os.path.isfile(test_file):
-            args['test_path'] = os.path.basename(test_file)
+        if os.path.isfile(path_arg.srcdir_path()):
+            args['test_path'] = mozpack.path.basename(path_arg.srcdir_path())
 
-        self._run_xpcshell_harness(**args)
+        return self._run_xpcshell_harness(**args)
 
     def _run_xpcshell_harness(self, test_dirs=None, manifest=None,
         test_path=None, debug=False, shuffle=False, interactive=False,
@@ -113,6 +113,7 @@ class XPCShellRunner(MozbuildObject):
             'verbose': test_path is not None,
             'xunitFilename': os.path.join(self.statedir, 'xpchsell.xunit.xml'),
             'xunitName': 'xpcshell',
+            'pluginsPath': os.path.join(self.distdir, 'plugins'),
         }
 
         if manifest is not None:
@@ -140,10 +141,11 @@ class XPCShellRunner(MozbuildObject):
 
             filtered_args[k] = v
 
-        # TODO do something with result.
-        xpcshell.runTests(**filtered_args)
+        result = xpcshell.runTests(**filtered_args)
 
         self.log_manager.disable_unstructured()
+
+        return int(not result)
 
 
 @CommandProvider
@@ -173,4 +175,3 @@ class MachCommands(MachCommandBase):
         except InvalidTestPathError as e:
             print(e.message)
             return 1
-

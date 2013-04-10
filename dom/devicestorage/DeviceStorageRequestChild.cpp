@@ -51,7 +51,7 @@ DeviceStorageRequestChild::Recv__delete__(const DeviceStorageResponseValue& aVal
 
     case DeviceStorageResponseValue::TSuccessResponse:
     {
-      jsval result = StringToJsval(mRequest->GetOwner(), mFile->mPath);
+      JS::Value result = StringToJsval(mRequest->GetOwner(), mFile->mPath);
       mRequest->FireSuccess(result);
       break;
     }
@@ -63,17 +63,32 @@ DeviceStorageRequestChild::Recv__delete__(const DeviceStorageResponseValue& aVal
       nsCOMPtr<nsIDOMBlob> blob = actor->GetBlob();
 
       nsCOMPtr<nsIDOMFile> file = do_QueryInterface(blob);
-      jsval result = InterfaceToJsval(mRequest->GetOwner(), file, &NS_GET_IID(nsIDOMFile));
+      JS::Value result = InterfaceToJsval(mRequest->GetOwner(), file,
+                                          &NS_GET_IID(nsIDOMFile));
       mRequest->FireSuccess(result);
       break;
     }
 
-    case DeviceStorageResponseValue::TStatStorageResponse:
+    case DeviceStorageResponseValue::TFreeSpaceStorageResponse:
     {
-      StatStorageResponse r = aValue;
+      FreeSpaceStorageResponse r = aValue;
+      JS::Value result = JS_NumberValue(double(r.freeBytes()));
+      mRequest->FireSuccess(result);
+      break;
+    }
 
-      nsRefPtr<nsIDOMDeviceStorageStat> domstat = new nsDOMDeviceStorageStat(r.freeBytes(), r.totalBytes(), r.mountState());
-      jsval result = InterfaceToJsval(mRequest->GetOwner(), domstat, &NS_GET_IID(nsIDOMDeviceStorageStat));
+    case DeviceStorageResponseValue::TUsedSpaceStorageResponse:
+    {
+      UsedSpaceStorageResponse r = aValue;
+      JS::Value result = JS_NumberValue(double(r.usedBytes()));
+      mRequest->FireSuccess(result);
+      break;
+    }
+
+    case DeviceStorageResponseValue::TAvailableStorageResponse:
+    {
+      AvailableStorageResponse r = aValue;
+      JS::Value result = StringToJsval(mRequest->GetOwner(), r.mountState());
       mRequest->FireSuccess(result);
       break;
     }

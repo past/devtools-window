@@ -6,6 +6,7 @@
 
 from __future__ import unicode_literals
 
+import errno
 import json
 import os
 import re
@@ -27,7 +28,7 @@ RE_CLANG_WARNING = re.compile(r"""
     (?P<column>\d+)
     :
     \swarning:\s
-    (?P<message>[^\[]+)
+    (?P<message>.+)
     \[(?P<flag>[^\]]+)
     """, re.X)
 
@@ -265,6 +266,12 @@ class WarningsDatabase(object):
 
     def save_to_file(self, filename):
         """Save the database to a file."""
+        try:
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(filename))
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise
         with open(filename, 'wb') as fh:
             self.serialize(fh)
 

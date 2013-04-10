@@ -6,8 +6,7 @@
 #ifndef nsAccUtils_h_
 #define nsAccUtils_h_
 
-#include "nsIAccessible.h"
-#include "nsIAccessibleRole.h"
+#include "mozilla/a11y/Accessible.h"
 #include "nsIAccessibleText.h"
 
 #include "nsAccessibilityService.h"
@@ -15,7 +14,6 @@
 
 #include "mozilla/dom/Element.h"
 #include "nsIDocShell.h"
-#include "nsIDocShellTreeItem.h"
 #include "nsIPersistentProperties2.h"
 #include "nsIPresShell.h"
 #include "nsPoint.h"
@@ -25,7 +23,6 @@ struct nsRoleMapEntry;
 namespace mozilla {
 namespace a11y {
 
-class nsAccessNode;
 class Accessible;
 class HyperTextAccessible;
 class DocAccessible;
@@ -118,9 +115,7 @@ public:
   static DocAccessible* GetDocAccessibleFor(nsIDocShellTreeItem* aContainer)
   {
     nsCOMPtr<nsIDocShell> docShell(do_QueryInterface(aContainer));
-    nsCOMPtr<nsIPresShell> presShell;
-    docShell->GetPresShell(getter_AddRefs(presShell));
-    return GetAccService()->GetDocAccessible(presShell);
+    return GetAccService()->GetDocAccessible(docShell->GetPresShell());
   }
 
   /**
@@ -166,14 +161,13 @@ public:
    * @param aY               [in] the given y coord
    * @param aCoordinateType  [in] specifies coordinates origin (refer to
    *                         nsIAccessibleCoordinateType)
-   * @param aAccessNode      [in] the accessible if coordinates are given
+   * @param aAccessible      [in] the accessible if coordinates are given
    *                         relative it.
-   * @param aCoords          [out] converted coordinates
+   * @return converted coordinates
    */
-  static nsresult ConvertToScreenCoords(int32_t aX, int32_t aY,
-                                        uint32_t aCoordinateType,
-                                        nsAccessNode *aAccessNode,
-                                        nsIntPoint *aCoords);
+  static nsIntPoint ConvertToScreenCoords(int32_t aX, int32_t aY,
+                                          uint32_t aCoordinateType,
+                                          Accessible* aAccessible);
 
   /**
    * Converts the given coordinates relative screen to another coordinate
@@ -183,38 +177,19 @@ public:
    * @param aY               [in, out] the given y coord
    * @param aCoordinateType  [in] specifies coordinates origin (refer to
    *                         nsIAccessibleCoordinateType)
-   * @param aAccessNode      [in] the accessible if coordinates are given
+   * @param aAccessible      [in] the accessible if coordinates are given
    *                         relative it
    */
-  static nsresult ConvertScreenCoordsTo(int32_t *aX, int32_t *aY,
-                                        uint32_t aCoordinateType,
-                                        nsAccessNode *aAccessNode);
-
-  /**
-   * Returns coordinates relative screen for the top level window.
-   *
-   * @param aAccessNode  the accessible hosted in the window
-   */
-  static nsIntPoint GetScreenCoordsForWindow(nsAccessNode *aAccessNode);
+  static void ConvertScreenCoordsTo(int32_t* aX, int32_t* aY,
+                                    uint32_t aCoordinateType,
+                                    Accessible* aAccessible);
 
   /**
    * Returns coordinates relative screen for the parent of the given accessible.
    *
-   * @param aAccessNode  the accessible
+   * @param [in] aAccessible  the accessible
    */
-  static nsIntPoint GetScreenCoordsForParent(nsAccessNode *aAccessNode);
-
-  /**
-   * Return the role of the given accessible.
-   */
-  static uint32_t Role(nsIAccessible *aAcc)
-  {
-    uint32_t role = nsIAccessibleRole::ROLE_NOTHING;
-    if (aAcc)
-      aAcc->GetRole(&role);
-
-    return role;
-  }
+  static nsIntPoint GetScreenCoordsForParent(Accessible* aAccessible);
 
   /**
    * Get the ARIA attribute characteristics for a given ARIA attribute.
@@ -245,16 +220,6 @@ public:
 #endif
 
   /**
-   * Return true if the given accessible has text role.
-   */
-  static bool IsText(nsIAccessible *aAcc)
-  {
-    uint32_t role = Role(aAcc);
-    return role == nsIAccessibleRole::ROLE_TEXT_LEAF ||
-           role == nsIAccessibleRole::ROLE_STATICTEXT;
-  }
-
-  /**
    * Return text length of the given accessible, return 0 on failure.
    */
   static uint32_t TextLength(Accessible* aAccessible);
@@ -262,12 +227,12 @@ public:
   /**
    * Return true if the given accessible is embedded object.
    */
-  static bool IsEmbeddedObject(nsIAccessible *aAcc)
+  static bool IsEmbeddedObject(Accessible* aAcc)
   {
-    uint32_t role = Role(aAcc);
-    return role != nsIAccessibleRole::ROLE_TEXT_LEAF &&
-           role != nsIAccessibleRole::ROLE_WHITESPACE &&
-           role != nsIAccessibleRole::ROLE_STATICTEXT;
+    uint32_t role = aAcc->Role();
+    return role != roles::TEXT_LEAF &&
+           role != roles::WHITESPACE &&
+           role != roles::STATICTEXT;
   }
 
   /**
@@ -288,6 +253,13 @@ public:
     *aState1 = aState64 & 0x7fffffff;
     if (aState2)
       *aState2 = static_cast<uint32_t>(aState64 >> 31);
+  }
+
+  static uint32_t To32States(uint64_t aState, bool* aIsExtra)
+  {
+    uint32_t extraState = aState >> 31;
+    *aIsExtra = !!extraState;
+    return aState | extraState;
   }
 
   /**

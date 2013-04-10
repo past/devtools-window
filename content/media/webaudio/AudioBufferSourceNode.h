@@ -7,34 +7,97 @@
 #ifndef AudioBufferSourceNode_h_
 #define AudioBufferSourceNode_h_
 
-#include "AudioSourceNode.h"
+#include "AudioNode.h"
 #include "AudioBuffer.h"
+#include "mozilla/dom/BindingUtils.h"
 
 namespace mozilla {
 namespace dom {
 
-class AudioBufferSourceNode : public AudioSourceNode
+class AudioBufferSourceNode : public AudioNode,
+                              public MainThreadMediaStreamListener
 {
 public:
   explicit AudioBufferSourceNode(AudioContext* aContext);
+  virtual ~AudioBufferSourceNode();
+
+  virtual void DestroyMediaStream() MOZ_OVERRIDE
+  {
+    if (mStream) {
+      mStream->RemoveMainThreadListener(this);
+    }
+    AudioNode::DestroyMediaStream();
+  }
+  virtual bool SupportsMediaStreams() const MOZ_OVERRIDE
+  {
+    return true;
+  }
+  virtual uint32_t NumberOfInputs() const MOZ_FINAL MOZ_OVERRIDE
+  {
+    return 0;
+  }
+
+  void JSBindingFinalized()
+  {
+    // If the JS binding goes away on a node which never received a start()
+    // call, then it can no longer produce output.
+    if (!mStartCalled) {
+      SetProduceOwnOutput(false);
+    }
+    AudioNode::JSBindingFinalized();
+  }
 
   NS_DECL_ISUPPORTS_INHERITED
-  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(AudioBufferSourceNode, AudioSourceNode)
+  NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(AudioBufferSourceNode, AudioNode)
 
-  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope,
-                               bool* aTriedToWrap);
+  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope);
 
-  void Start(double) { /* no-op for now */ }
-  void Stop(double) { /* no-op for now */ }
+  void Start(JSContext* aCx, double aWhen, double aOffset,
+             const Optional<double>& aDuration, ErrorResult& aRv);
+  void Stop(double aWhen, ErrorResult& aRv);
 
   AudioBuffer* GetBuffer() const
   {
     return mBuffer;
   }
-  void SetBuffer(AudioBuffer* aBuffer);
+  void SetBuffer(AudioBuffer* aBuffer)
+  {
+    mBuffer = aBuffer;
+  }
+
+  bool Loop() const
+  {
+    return mLoop;
+  }
+  void SetLoop(bool aLoop)
+  {
+    mLoop = aLoop;
+  }
+  double LoopStart() const
+  {
+    return mLoopStart;
+  }
+  void SetLoopStart(double aStart)
+  {
+    mLoopStart = aStart;
+  }
+  double LoopEnd() const
+  {
+    return mLoopEnd;
+  }
+  void SetLoopEnd(double aEnd)
+  {
+    mLoopEnd = aEnd;
+  }
+
+  virtual void NotifyMainThreadStateChanged() MOZ_OVERRIDE;
 
 private:
   nsRefPtr<AudioBuffer> mBuffer;
+  double mLoopStart;
+  double mLoopEnd;
+  bool mLoop;
+  bool mStartCalled;
 };
 
 }

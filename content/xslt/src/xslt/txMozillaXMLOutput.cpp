@@ -39,11 +39,12 @@
 #include "nsContentCreatorFunctions.h"
 #include "nsError.h"
 #include "nsIFrame.h"
+#include <algorithm>
 
 using namespace mozilla::dom;
 
 #define TX_ENSURE_CURRENTNODE                           \
-    NS_ASSERTION(mCurrentNode, "mCurrentNode is NULL"); \
+    NS_ASSERTION(mCurrentNode, "mCurrentNode is nullptr"); \
     if (!mCurrentNode)                                  \
         return NS_ERROR_UNEXPECTED
 
@@ -308,13 +309,9 @@ txMozillaXMLOutput::endElement()
         } else if (ns == kNameSpaceID_XHTML &&
                    (localName == nsGkAtoms::input ||
                     localName == nsGkAtoms::button ||
-                    localName == nsGkAtoms::menuitem
-#ifdef MOZ_MEDIA
-                     ||
+                    localName == nsGkAtoms::menuitem ||
                     localName == nsGkAtoms::audio ||
-                    localName == nsGkAtoms::video
-#endif
-                  )) {
+                    localName == nsGkAtoms::video)) {
           element->DoneCreatingElement();
         }   
     }
@@ -656,7 +653,7 @@ txMozillaXMLOutput::createTxWrapper()
             // The new documentElement should go after the document type.
             // This is needed for cases when there is no existing
             // documentElement in the document.
-            rootLocation = NS_MAX(rootLocation, j + 1);
+            rootLocation = std::max(rootLocation, j + 1);
 #endif
             ++j;
         }

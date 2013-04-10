@@ -35,8 +35,12 @@ case "$target" in
     ;;
 *-darwin*)
     # GCC on darwin is based on gcc 4.2 and we don't support it anymore.
-    MOZ_PATH_PROGS(CC, $CC clang)
-    MOZ_PATH_PROGS(CXX, $CXX clang++)
+    if test -z "$CC"; then
+        MOZ_PATH_PROGS(CC, clang)
+    fi
+    if test -z "$CXX"; then
+        MOZ_PATH_PROGS(CXX, clang++)
+    fi
     IS_GCC=$($CC -v 2>&1 | grep gcc)
     if test -n "$IS_GCC"
     then
@@ -88,6 +92,15 @@ if test "$CLANG_CXX"; then
     ## Worse, it's not supported by gcc, so it will cause tryserver bustage
     ## without any easy way for non-Clang users to check for it.
     _WARNINGS_CXXFLAGS="${_WARNINGS_CXXFLAGS} -Wno-unknown-warning-option -Wno-return-type-c-linkage -Wno-mismatched-tags"
+fi
+
+if test -z "$GNU_CC"; then
+    case "$target" in
+    *-mingw*)
+        ## Warning 4099 (equivalent of mismatched-tags) is disabled (bug 780474)
+        ## for the same reasons as above.
+        _WARNINGS_CXXFLAGS="${_WARNINGS_CXXFLAGS} -wd4099"
+    esac
 fi
 
 if test "$GNU_CC"; then

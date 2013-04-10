@@ -13,17 +13,18 @@
 namespace mozilla {
 namespace dom {
 
-NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_1(AudioParam, mContext)
+NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_1(AudioParam, mNode)
 
 NS_IMPL_CYCLE_COLLECTION_ROOT_NATIVE(AudioParam, AddRef)
 NS_IMPL_CYCLE_COLLECTION_UNROOT_NATIVE(AudioParam, Release)
 
-AudioParam::AudioParam(AudioContext* aContext,
-                       float aDefaultValue,
-                       float aMinValue,
-                       float aMaxValue)
-  : AudioParamTimeline(aDefaultValue, aMinValue, aMaxValue)
-  , mContext(aContext)
+AudioParam::AudioParam(AudioNode* aNode,
+                       AudioParam::CallbackType aCallback,
+                       float aDefaultValue)
+  : AudioParamTimeline(aDefaultValue)
+  , mNode(aNode)
+  , mCallback(aCallback)
+  , mDefaultValue(aDefaultValue)
 {
   SetIsDOMBinding();
 }
@@ -33,10 +34,9 @@ AudioParam::~AudioParam()
 }
 
 JSObject*
-AudioParam::WrapObject(JSContext* aCx, JSObject* aScope,
-                       bool* aTriedToWrap)
+AudioParam::WrapObject(JSContext* aCx, JSObject* aScope)
 {
-  return AudioParamBinding::Wrap(aCx, aScope, this, aTriedToWrap);
+  return AudioParamBinding::Wrap(aCx, aScope, this);
 }
 
 }

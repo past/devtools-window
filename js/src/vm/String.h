@@ -9,6 +9,8 @@
 #define String_h_
 
 #include "mozilla/Attributes.h"
+#include "mozilla/GuardObjects.h"
+#include "mozilla/PodOperations.h"
 
 #include "jsapi.h"
 #include "jsatom.h"
@@ -17,17 +19,20 @@
 
 #include "gc/Barrier.h"
 #include "gc/Heap.h"
+#include "js/CharacterEncoding.h"
+#include "js/RootingAPI.h"
 
-class JSString;
+ForwardDeclareJS(String);
 class JSDependentString;
 class JSUndependedString;
 class JSExtensibleString;
 class JSExternalString;
-class JSLinearString;
+ForwardDeclareJS(LinearString);
 class JSStableString;
-class JSInlineString;
+ForwardDeclareJS(InlineString);
 class JSRope;
-class JSAtom;
+ForwardDeclareJS(FlatString);
+ForwardDeclareJS(Atom);
 
 namespace js {
 
@@ -234,7 +239,7 @@ class JSString : public js::gc::Cell
      * representable by a JSString. An allocation overflow is reported if false
      * is returned.
      */
-    static inline bool validateLength(JSContext *cx, size_t length);
+    static inline bool validateLength(JSContext *maybecx, size_t length);
 
     static void staticAsserts() {
         JS_STATIC_ASSERT(JS_BITS_PER_WORD >= 32);
@@ -410,9 +415,12 @@ class JSString : public js::gc::Cell
         return offsetof(JSString, d.u1.chars);
     }
 
+    JS::Zone *zone() const { return tenuredZone(); }
+    js::gc::AllocKind getAllocKind() const { return tenuredGetAllocKind(); }
+
     static inline void writeBarrierPre(JSString *str);
     static inline void writeBarrierPost(JSString *str, void *addr);
-    static inline bool needWriteBarrierPre(JSCompartment *comp);
+    static inline bool needWriteBarrierPre(JS::Zone *zone);
     static inline void readBarrier(JSString *str);
 
     static inline js::ThingRootKind rootKind() { return js::THING_ROOT_STRING; }
@@ -441,8 +449,11 @@ class JSRope : public JSString
     void init(JSString *left, JSString *right, size_t length);
 
   public:
-    static inline JSRope *new_(JSContext *cx, js::HandleString left,
-                               js::HandleString right, size_t length);
+    template <js::AllowGC allowGC>
+    static inline JSRope *new_(JSContext *cx,
+                               typename js::MaybeRooted<JSString*, allowGC>::HandleType left,
+                               typename js::MaybeRooted<JSString*, allowGC>::HandleType right,
+                               size_t length);
 
     inline JSString *leftChild() const {
         JS_ASSERT(isRope());
@@ -473,6 +484,11 @@ class JSLinearString : public JSString
     const jschar *chars() const {
         JS_ASSERT(JSString::isLinear());
         return d.u1.chars;
+    }
+
+    JS::TwoByteChars range() const {
+        JS_ASSERT(JSString::isLinear());
+        return JS::TwoByteChars(d.u1.chars, length());
     }
 };
 
@@ -546,6 +562,7 @@ class JSStableString : public JSFlatString
     void init(const jschar *chars, size_t length);
 
   public:
+    template <js::AllowGC allowGC>
     static inline JSStableString *new_(JSContext *cx, const jschar *chars, size_t length);
 
     JS_ALWAYS_INLINE
@@ -553,12 +570,18 @@ class JSStableString : public JSFlatString
         JS_ASSERT(!JSString::isInline());
         return JS::StableCharPtr(d.u1.chars, length());
     }
+
+    JS_ALWAYS_INLINE
+    JS::StableTwoByteChars range() const {
+        JS_ASSERT(!JSString::isInline());
+        return JS::StableTwoByteChars(d.u1.chars, length());
+    }
 };
 
 JS_STATIC_ASSERT(sizeof(JSStableString) == sizeof(JSString));
 
 #if !(defined(JSGC_ROOT_ANALYSIS) || defined(JSGC_USE_EXACT_ROOTING))
-namespace js {
+namespace JS {
 /*
  * Specialization of Rooted<T> to explicitly root the string rather than
  * relying on conservative stack scanning.
@@ -596,7 +619,7 @@ class Rooted<JSStableString *>
 
     Rooted & operator =(JSStableString *value)
     {
-        JS_ASSERT(!RootMethods<JSStableString *>::poisoned(value));
+        JS_ASSERT(!js::RootMethods<JSStableString *>::poisoned(value));
         rooter.setString(value);
         return *this;
     }
@@ -636,6 +659,7 @@ class JSInlineString : public JSFlatString
     static const size_t MAX_INLINE_LENGTH = NUM_INLINE_CHARS - 1;
 
   public:
+    template <js::AllowGC allowGC>
     static inline JSInlineString *new_(JSContext *cx);
 
     inline jschar *init(size_t length);
@@ -653,11 +677,11 @@ JS_STATIC_ASSERT(sizeof(JSInlineString) == sizeof(JSString));
 
 class JSShortString : public JSInlineString
 {
-    /* This can be any value that is a multiple of Cell::CellSize. */
+    /* This can be any value that is a multiple of CellSize. */
     static const size_t INLINE_EXTENSION_CHARS = sizeof(JSString::Data) / sizeof(jschar);
 
     static void staticAsserts() {
-        JS_STATIC_ASSERT(INLINE_EXTENSION_CHARS % js::gc::Cell::CellSize == 0);
+        JS_STATIC_ASSERT(INLINE_EXTENSION_CHARS % js::gc::CellSize == 0);
         JS_STATIC_ASSERT(MAX_SHORT_LENGTH + 1 ==
                          (sizeof(JSShortString) -
                           offsetof(JSShortString, d.inlineStorage)) / sizeof(jschar));
@@ -667,6 +691,7 @@ class JSShortString : public JSInlineString
     jschar inlineStorageExtension[INLINE_EXTENSION_CHARS];
 
   public:
+    template <js::AllowGC allowGC>
     static inline JSShortString *new_(JSContext *cx);
 
     static const size_t MAX_SHORT_LENGTH = JSString::NUM_INLINE_CHARS +
@@ -750,9 +775,9 @@ class StaticStrings
     JSAtom *length2StaticTable[NUM_SMALL_CHARS * NUM_SMALL_CHARS];
 
     void clear() {
-        PodArrayZero(unitStaticTable);
-        PodArrayZero(length2StaticTable);
-        PodArrayZero(intStaticTable);
+        mozilla::PodArrayZero(unitStaticTable);
+        mozilla::PodArrayZero(length2StaticTable);
+        mozilla::PodArrayZero(intStaticTable);
     }
 
   public:
@@ -814,15 +839,15 @@ class StaticStrings
  *   - uint32_t indexes,
  *   - PropertyName strings which don't encode uint32_t indexes, and
  *   - jsspecial special properties (non-ES5 properties like object-valued
- *     jsids, JSID_EMPTY, JSID_VOID, E4X's default XML namespace, and maybe in
- *     the future Harmony-proposed private names).
+ *     jsids, JSID_EMPTY, JSID_VOID, and maybe in the future Harmony-proposed
+ *     private names).
  */
 class PropertyName : public JSAtom
 {};
 
 JS_STATIC_ASSERT(sizeof(PropertyName) == sizeof(JSString));
 
-static JS_ALWAYS_INLINE jsid
+static JS_ALWAYS_INLINE RawId
 NameToId(PropertyName *name)
 {
     return NON_INTEGER_ATOM_TO_JSID(name);
@@ -835,17 +860,17 @@ class AutoNameVector : public AutoVectorRooter<PropertyName *>
     typedef AutoVectorRooter<PropertyName *> BaseType;
   public:
     explicit AutoNameVector(JSContext *cx
-                            JS_GUARD_OBJECT_NOTIFIER_PARAM)
+                            MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
         : AutoVectorRooter<PropertyName *>(cx, NAMEVECTOR)
     {
-        JS_GUARD_OBJECT_NOTIFIER_INIT;
+        MOZ_GUARD_OBJECT_NOTIFIER_INIT;
     }
 
     HandlePropertyName operator[](size_t i) const {
         return HandlePropertyName::fromMarkedLocation(&BaseType::operator[](i));
     }
 
-    JS_DECL_USE_GUARD_OBJECT_NOTIFIER
+    MOZ_DECL_USE_GUARD_OBJECT_NOTIFIER
 };
 
 } /* namespace js */

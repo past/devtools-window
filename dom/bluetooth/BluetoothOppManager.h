@@ -8,8 +8,10 @@
 #define mozilla_dom_bluetooth_bluetoothoppmanager_h__
 
 #include "BluetoothCommon.h"
+#include "BluetoothSocketObserver.h"
 #include "mozilla/dom/ipc/Blob.h"
 #include "mozilla/ipc/UnixSocket.h"
+#include "DeviceStorage.h"
 
 class nsIOutputStream;
 class nsIInputStream;
@@ -17,8 +19,10 @@ class nsIInputStream;
 BEGIN_BLUETOOTH_NAMESPACE
 
 class BluetoothReplyRunnable;
+class BluetoothSocket;
+class ObexHeaderSet;
 
-class BluetoothOppManager : public mozilla::ipc::UnixSocketConsumer
+class BluetoothOppManager : public BluetoothSocketObserver
 {
 public:
   /*
@@ -31,8 +35,8 @@ public:
 
   ~BluetoothOppManager();
   static BluetoothOppManager* Get();
-  void ReceiveSocketData(mozilla::ipc::UnixSocketRawData* aMessage)
-    MOZ_OVERRIDE;
+  void ClientDataHandler(mozilla::ipc::UnixSocketRawData* aMessage);
+  void ServerDataHandler(mozilla::ipc::UnixSocketRawData* aMessage);
 
   /*
    * If a application wnats to send a file, first, it needs to
@@ -56,12 +60,31 @@ public:
 
   void SendConnectRequest();
   void SendPutHeaderRequest(const nsAString& aFileName, int aFileSize);
-  void SendPutRequest(uint8_t* aFileBody, int aFileBodyLength,
-                      bool aFinal);
+  void SendPutRequest(uint8_t* aFileBody, int aFileBodyLength);
+  void SendPutFinalRequest();
   void SendDisconnectRequest();
   void SendAbortRequest();
 
+  void ExtractPacketHeaders(const ObexHeaderSet& aHeader);
+  bool ExtractBlobHeaders();
   nsresult HandleShutdown();
+
+  // Return true if there is an ongoing file-transfer session, please see
+  // Bug 827267 for more information.
+  bool IsTransferring();
+
+  // Implement interface BluetoothSocketObserver
+  void ReceiveSocketData(
+    BluetoothSocket* aSocket,
+    nsAutoPtr<mozilla::ipc::UnixSocketRawData>& aMessage) MOZ_OVERRIDE;
+
+  virtual void OnConnectSuccess(BluetoothSocket* aSocket) MOZ_OVERRIDE;
+  virtual void OnConnectError(BluetoothSocket* aSocket) MOZ_OVERRIDE;
+  virtual void OnDisconnect(BluetoothSocket* aSocket) MOZ_OVERRIDE;
+  void OnConnectSuccess() MOZ_OVERRIDE;
+  void OnConnectError() MOZ_OVERRIDE;
+  void OnDisconnect() MOZ_OVERRIDE;
+
 private:
   BluetoothOppManager();
   void StartFileTransfer();
@@ -75,31 +98,82 @@ private:
   void ReplyToDisconnect();
   void ReplyToPut(bool aFinal, bool aContinue);
   void AfterOppConnected();
+  void AfterFirstPut();
   void AfterOppDisconnected();
-  virtual void OnConnectSuccess() MOZ_OVERRIDE;
-  virtual void OnConnectError() MOZ_OVERRIDE;
-  virtual void OnDisconnect() MOZ_OVERRIDE;
+  void ValidateFileName();
+  bool IsReservedChar(PRUnichar c);
 
+  /**
+   * RFCOMM socket status.
+   */
+  mozilla::ipc::SocketConnectionStatus mPrevSocketStatus;
+
+  /**
+   * OBEX session status.
+   * Set when OBEX session is established.
+   */
   bool mConnected;
-  int mConnectionId;
-  int mLastCommand;
+  nsString mConnectedDeviceAddress;
+
+  /**
+   * Remote information
+   */
   uint8_t mRemoteObexVersion;
   uint8_t mRemoteConnectionFlags;
   int mRemoteMaxPacketLength;
-  bool mAbortFlag;
+
+  /**
+   * For sending files, we decide our next action based on current command and
+   * previous one.
+   * For receiving files, we don't need previous command and it is set to 0
+   * as a default value.
+   */
+  int mLastCommand;
+
   int mPacketLeftLength;
   int mBodySegmentLength;
   int mReceivedDataBufferOffset;
-  nsString mConnectedDeviceAddress;
-  bool mPutFinal;
-  bool mWaitingForConfirmationFlag;
   int mUpdateProgressCounter;
-  bool mSuccessFlag;
-  bool mTransferMode;  // send:0, receive:1
-  enum mozilla::ipc::SocketConnectionStatus mSocketStatus;
 
-  nsAutoPtr<uint8_t> mBodySegment;
-  nsAutoPtr<uint8_t> mReceivedDataBuffer;
+  /**
+   * Set when StopSendingFile() is called.
+   */
+  bool mAbortFlag;
+
+  /**
+   * Set when receiving the first PUT packet of a new file
+   */
+  bool mNewFileFlag;
+
+  /**
+   * Set when receiving a PutFinal packet
+   */
+  bool mPutFinalFlag;
+
+  /**
+   * Set when FileTransferComplete() is called
+   */
+  bool mSendTransferCompleteFlag;
+
+  /**
+   * Set when a transfer is successfully completed.
+   */
+  bool mSuccessFlag;
+
+  /**
+   * True: Receive file (Server)
+   * False: Send file (Client)
+   */
+  bool mTransferMode;
+
+  /**
+   * Set when receiving the first PUT packet and wait for
+   * ConfirmReceivingFile() to be called.
+   */
+  bool mWaitingForConfirmationFlag;
+
+  nsAutoArrayPtr<uint8_t> mBodySegment;
+  nsAutoArrayPtr<uint8_t> mReceivedDataBuffer;
 
   nsCOMPtr<nsIDOMBlob> mBlob;
   nsCOMPtr<nsIThread> mReadFileThread;
@@ -107,6 +181,8 @@ private:
   nsCOMPtr<nsIInputStream> mInputStream;
 
   nsRefPtr<BluetoothReplyRunnable> mRunnable;
+  nsRefPtr<DeviceStorageFile> mDsFile;
+  nsRefPtr<BluetoothSocket> mSocket;
 };
 
 END_BLUETOOTH_NAMESPACE

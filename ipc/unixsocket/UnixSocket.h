@@ -7,7 +7,16 @@
 #ifndef mozilla_ipc_UnixSocket_h
 #define mozilla_ipc_UnixSocket_h
 
+
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/un.h>
+#include <netinet/in.h>
+#ifdef MOZ_B2G_BT
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/sco.h>
+#include <bluetooth/rfcomm.h>
+#endif
 #include <stdlib.h>
 #include "nsString.h"
 #include "nsAutoPtr.h"
@@ -16,25 +25,26 @@
 namespace mozilla {
 namespace ipc {
 
-struct UnixSocketRawData
+union sockaddr_any {
+  sockaddr_storage storage; // address-family only
+  sockaddr_un un;
+  sockaddr_in in;
+  sockaddr_in6 in6;
+#ifdef MOZ_B2G_BT
+  sockaddr_sco sco;
+  sockaddr_rc rc;
+#endif
+  // ... others
+};
+
+class UnixSocketRawData
 {
-  static const size_t MAX_DATA_SIZE = 1024;
-  uint8_t mData[MAX_DATA_SIZE];
+public:
+  nsAutoArrayPtr<uint8_t> mData;
 
   // Number of octets in mData.
   size_t mSize;
   size_t mCurrentWriteOffset;
-
-  /**
-   * Constructor for situations where size is not known beforehand. (for
-   * example, when reading a packet)
-   *
-   */
-  UnixSocketRawData() :
-    mSize(0),
-    mCurrentWriteOffset(0)
-  {
-  }
 
   /**
    * Constructor for situations where size is known beforehand (for example,
@@ -45,8 +55,10 @@ struct UnixSocketRawData
     mSize(aSize),
     mCurrentWriteOffset(0)
   {
+    mData = new uint8_t[aSize];
   }
-
+private:
+  UnixSocketRawData() {}
 };
 
 class UnixSocketImpl;
@@ -87,10 +99,12 @@ public:
    * @param aAddrSize Size of the struct 
    * @param aAddr Struct to fill
    * @param aAddress If aIsServer is false, Address to connect to. nullptr otherwise.
+   *
+   * @return True if address is filled correctly, false otherwise
    */
-  virtual void CreateAddr(bool aIsServer,
+  virtual bool CreateAddr(bool aIsServer,
                           socklen_t& aAddrSize,
-                          struct sockaddr *aAddr,
+                          sockaddr_any& aAddr,
                           const char* aAddress) = 0;
 
   /** 
@@ -109,7 +123,7 @@ public:
    * @param aAddr Address struct
    * @param aAddrStr String to store address to
    */
-  virtual void GetSocketAddr(const sockaddr& aAddr,
+  virtual void GetSocketAddr(const sockaddr_any& aAddr,
                              nsAString& aAddrStr) = 0;
 
 };
@@ -128,7 +142,7 @@ public:
 
   virtual ~UnixSocketConsumer();
 
-  SocketConnectionStatus GetConnectionStatus()
+  SocketConnectionStatus GetConnectionStatus() const
   {
     return mConnectionStatus;
   }
@@ -139,7 +153,7 @@ public:
    *
    * @param aMessage Data received from the socket.
    */
-  virtual void ReceiveSocketData(UnixSocketRawData* aMessage) = 0;
+  virtual void ReceiveSocketData(nsAutoPtr<UnixSocketRawData>& aMessage) = 0;
 
   /**
    * Queue data to be sent to the socket on the IO thread. Can only be called on
@@ -168,10 +182,13 @@ public:
    *
    * @param aConnector Connector object for socket type specific functions
    * @param aAddress Address to connect to.
+   * @param aDelayMs Time delay in milli-seconds.
    *
    * @return true on connect task started, false otherwise.
    */
-  bool ConnectSocket(UnixSocketConnector* aConnector, const char* aAddress);
+  bool ConnectSocket(UnixSocketConnector* aConnector,
+                     const char* aAddress,
+                     int aDelayMs = 0);
 
   /** 
    * Starts a task on the socket that will try to accept a new connection in a
@@ -188,11 +205,6 @@ public:
    * from main thread.
    */
   void CloseSocket();
-
-  /** 
-   * Cancels connect/accept task loop, if one is currently running.
-   */
-  void CancelSocketTask();
 
   /** 
    * Callback for socket connect/accept success. Called after connect/accept has

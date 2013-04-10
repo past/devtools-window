@@ -11,7 +11,7 @@ const Cu = Components.utils;
 
 const DBG_XUL = "chrome://browser/content/debugger.xul";
 const DBG_STRINGS_URI = "chrome://browser/locale/devtools/debugger.properties";
-const CHROME_DEBUGGER_PROFILE_NAME = "_chrome-debugger-profile";
+const CHROME_DEBUGGER_PROFILE_NAME = "-chrome-debugger";
 const TAB_SWITCH_NOTIFICATION = "debugger-tab-switch";
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
@@ -174,12 +174,6 @@ DebuggerUI.prototype = {
   },
 
   /**
-   * Get the preferences associated with the debugger frontend.
-   * @return object
-   */
-  get preferences() Prefs,
-
-  /**
    * Currently, there can only be one debugger per tab.
    * Show an asynchronous notification which asks the user to switch the
    * script debugger to the current tab if it's already open in another one.
@@ -279,7 +273,6 @@ DebuggerPane.prototype = {
     this._splitter.setAttribute("class", "devtools-horizontal-splitter");
 
     this._frame = ownerDocument.createElement("iframe");
-    this._frame.height = Prefs.height;
 
     this._nbox = gBrowser.getNotificationBox(this._tab.linkedBrowser);
     this._nbox.appendChild(this._splitter);
@@ -326,7 +319,6 @@ DebuggerPane.prototype = {
       }, true)
     }
 
-    Prefs.height = this._frame.height;
     this._frame.removeEventListener("Debugger:Unloaded", this.close, true);
     this._nbox.removeChild(this._splitter);
     this._nbox.removeChild(this._frame);
@@ -483,7 +475,7 @@ ChromeDebuggerProcess.prototype = {
       DebuggerServer.init();
       DebuggerServer.addBrowserActors();
     }
-    DebuggerServer.openListener(Prefs.remotePort);
+    DebuggerServer.openListener(Prefs.chromeDebuggingPort);
   },
 
   /**
@@ -536,10 +528,9 @@ ChromeDebuggerProcess.prototype = {
   _create: function RDP__create() {
     this.globalUI._chromeDebugger = this;
 
-    let file = FileUtils.getFile("CurProcD",
-      [Services.appinfo.OS == "WINNT" ? "firefox.exe"
-                                      : "firefox-bin"]);
+    let file = Services.dirsvc.get("XREExeF", Ci.nsIFile);
 
+    dumpn("Initializing chrome debugging process");
     let process = Cc["@mozilla.org/process/util;1"].createInstance(Ci.nsIProcess);
     process.init(file);
 
@@ -547,6 +538,7 @@ ChromeDebuggerProcess.prototype = {
       "-no-remote", "-P", this._dbgProfile.name,
       "-chrome", DBG_XUL];
 
+    dumpn("Running chrome debugging process");
     process.runwAsync(args, args.length, { observe: this.close.bind(this) });
     this._dbgProcess = process;
 
@@ -559,6 +551,7 @@ ChromeDebuggerProcess.prototype = {
    * Closes the remote debugger, removing the profile and killing the process.
    */
   close: function RDP_close() {
+    dumpn("Closing chrome debugging process");
     if (!this.globalUI) {
       return;
     }
@@ -601,34 +594,24 @@ XPCOMUtils.defineLazyGetter(L10N, "stringBundle", function() {
 /**
  * Shortcuts for accessing various debugger preferences.
  */
-let Prefs = {
-  /**
-   * Gets the preferred height of the debugger pane.
-   * @return number
-   */
-  get height()
-    Services.prefs.getIntPref("devtools.debugger.ui.height"),
-
-  /**
-   * Sets the preferred height of the debugger pane.
-   * @param number aValue
-   */
-  set height(aValue)
-    Services.prefs.setIntPref("devtools.debugger.ui.height", aValue)
-};
+let Prefs = {};
 
 /**
- * Gets the preferred default remote debugging host.
- * @return string
- */
-XPCOMUtils.defineLazyGetter(Prefs, "remoteHost", function() {
-  return Services.prefs.getCharPref("devtools.debugger.remote-host");
-});
-
-/**
- * Gets the preferred default remote debugging port.
+ * Gets the preferred default remote browser debugging port.
  * @return number
  */
-XPCOMUtils.defineLazyGetter(Prefs, "remotePort", function() {
-  return Services.prefs.getIntPref("devtools.debugger.remote-port");
+XPCOMUtils.defineLazyGetter(Prefs, "chromeDebuggingPort", function() {
+  return Services.prefs.getIntPref("devtools.debugger.chrome-debugging-port");
 });
+
+/**
+ * Helper method for debugging.
+ * @param string
+ */
+function dumpn(str) {
+  if (wantLogging) {
+    dump("DBG-FRONTEND: " + str + "\n");
+  }
+}
+
+let wantLogging = Services.prefs.getBoolPref("devtools.debugger.log");

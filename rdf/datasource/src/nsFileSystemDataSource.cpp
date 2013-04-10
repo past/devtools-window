@@ -11,7 +11,9 @@
 
 #include <ctype.h> // for toupper()
 #include <stdio.h>
-#include "nsIEnumerator.h"
+#include "nsArrayEnumerator.h"
+#include "nsCOMArray.h"
+#include "nsISupportsArray.h"
 #include "nsIRDFDataSource.h"
 #include "nsIRDFObserver.h"
 #include "nsIServiceManager.h"
@@ -211,13 +213,7 @@ FileSystemDataSource::Create(nsISupports* aOuter, const nsIID& aIID, void **aRes
     return self->QueryInterface(aIID, aResult);
 }
 
-NS_IMPL_CYCLE_COLLECTION_0(FileSystemDataSource) 
-NS_IMPL_CYCLE_COLLECTING_ADDREF(FileSystemDataSource)
-NS_IMPL_CYCLE_COLLECTING_RELEASE(FileSystemDataSource)
-NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(FileSystemDataSource)
-    NS_INTERFACE_MAP_ENTRY(nsIRDFDataSource)
-    NS_INTERFACE_MAP_ENTRY(nsISupports)
-NS_INTERFACE_MAP_END
+NS_IMPL_ISUPPORTS1(FileSystemDataSource, nsIRDFDataSource)
 
 NS_IMETHODIMP
 FileSystemDataSource::GetURI(char **uri)
@@ -737,39 +733,35 @@ FileSystemDataSource::ArcLabelsOut(nsIRDFResource *source,
     if (! labels)
     return NS_ERROR_NULL_POINTER;
 
-    nsresult rv;
-
     if (source == mNC_FileSystemRoot)
     {
-        nsCOMPtr<nsISupportsArray> array;
-        rv = NS_NewISupportsArray(getter_AddRefs(array));
-        if (NS_FAILED(rv)) return rv;
+        nsCOMArray<nsIRDFResource> resources;
+        resources.SetCapacity(2);
 
-        array->AppendElement(mNC_Child);
-        array->AppendElement(mNC_pulse);
+        resources.AppendObject(mNC_Child);
+        resources.AppendObject(mNC_pulse);
 
-        return NS_NewArrayEnumerator(labels, array);
+        return NS_NewArrayEnumerator(labels, resources);
     }
     else if (isFileURI(source))
     {
-        nsCOMPtr<nsISupportsArray> array;
-        rv = NS_NewISupportsArray(getter_AddRefs(array));
-        if (NS_FAILED(rv)) return rv;
+        nsCOMArray<nsIRDFResource> resources;
+        resources.SetCapacity(2);
 
         if (isDirURI(source))
         {
 #ifdef  XP_WIN
             if (isValidFolder(source))
             {
-                array->AppendElement(mNC_Child);
+                resources.AppendObject(mNC_Child);
             }
 #else
-            array->AppendElement(mNC_Child);
+            resources.AppendObject(mNC_Child);
 #endif
-            array->AppendElement(mNC_pulse);
+            resources.AppendObject(mNC_pulse);
         }
 
-        return NS_NewArrayEnumerator(labels, array);
+        return NS_NewArrayEnumerator(labels, resources);
     }
 
     return NS_NewEmptyEnumerator(labels);
@@ -852,11 +844,7 @@ nsresult
 FileSystemDataSource::GetVolumeList(nsISimpleEnumerator** aResult)
 {
     nsresult rv;
-    nsCOMPtr<nsISupportsArray> volumes;
-
-    rv = NS_NewISupportsArray(getter_AddRefs(volumes));
-    if (NS_FAILED(rv)) return rv;
-
+    nsCOMArray<nsIRDFResource> volumes;
     nsCOMPtr<nsIRDFResource> vol;
 
 #ifdef XP_WIN
@@ -878,14 +866,14 @@ FileSystemDataSource::GetVolumeList(nsISimpleEnumerator** aResult)
           if (NS_FAILED(rv))
             return rv;
 
-          volumes->AppendElement(vol);
+                volumes.AppendObject(vol);
         }
     }
 #endif
 
 #ifdef XP_UNIX
     mRDFService->GetResource(NS_LITERAL_CSTRING("file:///"), getter_AddRefs(vol));
-    volumes->AppendElement(vol);
+    volumes.AppendObject(vol);
 #endif
 
 #ifdef XP_OS2
@@ -905,7 +893,7 @@ FileSystemDataSource::GetVolumeList(nsISimpleEnumerator** aResult)
           rv = mRDFService->GetResource(nsDependentCString(url), getter_AddRefs(vol));
 
           if (NS_FAILED(rv)) return rv;
-          volumes->AppendElement(vol);
+                volumes.AppendObject(vol);
         }
 
     }
@@ -982,11 +970,6 @@ FileSystemDataSource::GetFolderList(nsIRDFResource *source, bool allowHidden,
         return(NS_RDF_NO_VALUE);
 
     nsresult                    rv;
-    nsCOMPtr<nsISupportsArray>  nameArray;
-
-    rv = NS_NewISupportsArray(getter_AddRefs(nameArray));
-    if (NS_FAILED(rv))
-        return(rv);
 
     const char      *parentURI = nullptr;
     rv = source->GetValueConst(&parentURI);
@@ -1016,6 +999,7 @@ FileSystemDataSource::GetFolderList(nsIRDFResource *source, bool allowHidden,
     if (!dirContents)
         return(NS_ERROR_UNEXPECTED);
 
+    nsCOMArray<nsIRDFResource> resources;
     bool            hasMore;
     while(NS_SUCCEEDED(rv = dirContents->HasMoreElements(&hasMore)) &&
           hasMore)
@@ -1081,13 +1065,13 @@ FileSystemDataSource::GetFolderList(nsIRDFResource *source, bool allowHidden,
         nsCOMPtr<nsIRDFResource>    fileRes;
         mRDFService->GetResource(fullURI, getter_AddRefs(fileRes));
 
-        nameArray->AppendElement(fileRes);
+        resources.AppendObject(fileRes);
 
         if (onlyFirst)
             break;
     }
 
-    return NS_NewArrayEnumerator(aResult, nameArray);
+    return NS_NewArrayEnumerator(aResult, resources);
 }
 
 nsresult

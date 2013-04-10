@@ -5,6 +5,7 @@
 #ifndef nsStreamUtils_h__
 #define nsStreamUtils_h__
 
+#include "nsCOMPtr.h"
 #include "nsStringFwd.h"
 #include "nsIInputStream.h"
 
@@ -23,9 +24,8 @@ class nsIEventTarget;
  * This function is designed to be used to implement AsyncWait when the
  * aTarget parameter is non-null.
  */
-extern nsresult
-NS_NewInputStreamReadyEvent(nsIInputStreamCallback **aEvent,
-                            nsIInputStreamCallback  *aNotify,
+extern already_AddRefed<nsIInputStreamCallback>
+NS_NewInputStreamReadyEvent(nsIInputStreamCallback  *aNotify,
                             nsIEventTarget          *aTarget);
 
 /**
@@ -38,9 +38,8 @@ NS_NewInputStreamReadyEvent(nsIInputStreamCallback **aEvent,
  * This function is designed to be used to implement AsyncWait when the
  * aTarget parameter is non-null.
  */
-extern nsresult
-NS_NewOutputStreamReadyEvent(nsIOutputStreamCallback **aEvent,
-                             nsIOutputStreamCallback  *aNotify,
+extern already_AddRefed<nsIOutputStreamCallback>
+NS_NewOutputStreamReadyEvent(nsIOutputStreamCallback  *aNotify,
                              nsIEventTarget           *aTarget);
 
 /* ------------------------------------------------------------------------- */
@@ -49,6 +48,12 @@ enum nsAsyncCopyMode {
     NS_ASYNCCOPY_VIA_READSEGMENTS,
     NS_ASYNCCOPY_VIA_WRITESEGMENTS
 };
+
+/**
+ * This function is called when a new chunk of data has been copied.  The
+ * reported count is the size of the current chunk.
+ */
+typedef void (* nsAsyncCopyProgressFun)(void *closure, uint32_t count);
 
 /**
  * This function is called when the async copy process completes.  The reported
@@ -82,7 +87,8 @@ NS_AsyncCopy(nsIInputStream         *aSource,
              void                   *aCallbackClosure = nullptr,
              bool                    aCloseSource = true,
              bool                    aCloseSink = true,
-             nsISupports           **aCopierCtx = nullptr);
+             nsISupports           **aCopierCtx = nullptr,
+             nsAsyncCopyProgressFun  aProgressCallbackFun = nullptr);
 
 /**
  * This function cancels copying started by function NS_AsyncCopy.

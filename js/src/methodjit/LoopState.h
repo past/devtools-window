@@ -8,6 +8,8 @@
 #if !defined jsjaeger_loopstate_h__ && defined JS_METHODJIT
 #define jsjaeger_loopstate_h__
 
+#include "mozilla/PodOperations.h"
+
 #include "jsanalyze.h"
 #include "methodjit/Compiler.h"
 
@@ -177,7 +179,7 @@ class LoopState : public MacroAssemblerTypedefs
                 jsid id;
             } property;
         } u;
-        InvariantEntry() { PodZero(this); }
+        InvariantEntry() { mozilla::PodZero(this); }
         bool isBoundsCheck() const {
             return kind == DENSE_ARRAY_BOUNDS_CHECK || kind == TYPED_ARRAY_BOUNDS_CHECK;
         }
@@ -269,7 +271,7 @@ class LoopState : public MacroAssemblerTypedefs
     FrameEntry *invariantArguments();
 
     FrameEntry *invariantLength(const analyze::CrossSSAValue &obj);
-    FrameEntry *invariantProperty(const analyze::CrossSSAValue &obj, jsid id);
+    FrameEntry *invariantProperty(const analyze::CrossSSAValue &obj, RawId id);
 
     /* Whether a binary or inc/dec op's result cannot overflow. */
     bool cannotIntegerOverflow(const analyze::CrossSSAValue &pushed);

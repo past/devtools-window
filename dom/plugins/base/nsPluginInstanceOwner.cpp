@@ -45,7 +45,7 @@ using mozilla::DefaultXDisplay;
 #include "nsIWebBrowserChrome.h"
 #include "nsLayoutUtils.h"
 #include "nsIPluginWidget.h"
-#include "nsIViewManager.h"
+#include "nsViewManager.h"
 #include "nsIDocShellTreeOwner.h"
 #include "nsIDOMHTMLObjectElement.h"
 #include "nsIAppShell.h"
@@ -304,7 +304,6 @@ nsPluginInstanceOwner::nsPluginInstanceOwner()
 
   mObjectFrame = nullptr;
   mContent = nullptr;
-  mTagText = nullptr;
   mWidgetCreationComplete = false;
 #ifdef XP_MACOSX
   memset(&mCGPluginPortCopy, 0, sizeof(NP_CGContext));
@@ -373,11 +372,6 @@ nsPluginInstanceOwner::~nsPluginInstanceOwner()
   if (mCachedAttrParamValues) {
     NS_Free(mCachedAttrParamValues);
     mCachedAttrParamValues = nullptr;
-  }
-
-  if (mTagText) {
-    NS_Free(mTagText);
-    mTagText = nullptr;
   }
 
   PLUG_DeletePluginNativeWindow(mPluginWindow);
@@ -537,7 +531,7 @@ NS_IMETHODIMP nsPluginInstanceOwner::GetURL(const char *aURL,
   nsAutoString  unitarget;
   unitarget.AssignASCII(aTarget); // XXX could this be nonascii?
 
-  nsCOMPtr<nsIURI> baseURI = mContent->GetBaseURI();
+  nsCOMPtr<nsIURI> baseURI = GetBaseURI();
 
   // Create an absolute URL
   nsCOMPtr<nsIURI> uri;
@@ -693,7 +687,7 @@ NS_IMETHODIMP nsPluginInstanceOwner::GetNetscapeWindow(void *value)
   
 #if defined(XP_WIN) || defined(XP_OS2)
   void** pvalue = (void**)value;
-  nsIViewManager* vm = mObjectFrame->PresContext()->GetPresShell()->GetViewManager();
+  nsViewManager* vm = mObjectFrame->PresContext()->GetPresShell()->GetViewManager();
   if (!vm)
     return NS_ERROR_FAILURE;
 #if defined(XP_WIN)
@@ -727,7 +721,7 @@ NS_IMETHODIMP nsPluginInstanceOwner::GetNetscapeWindow(void *value)
     
     nsIWidget* win = mObjectFrame->GetNearestWidget();
     if (win) {
-      nsIView *view = nsIView::GetViewFor(win);
+      nsView *view = nsView::GetViewFor(win);
       NS_ASSERTION(view, "No view for widget");
       nsPoint offset = view->GetOffsetTo(nullptr);
       
@@ -743,14 +737,14 @@ NS_IMETHODIMP nsPluginInstanceOwner::GetNetscapeWindow(void *value)
 #endif
   // simply return the topmost document window
   nsCOMPtr<nsIWidget> widget;
-  nsresult rv = vm->GetRootWidget(getter_AddRefs(widget));            
+  vm->GetRootWidget(getter_AddRefs(widget));
   if (widget) {
     *pvalue = (void*)widget->GetNativeData(NS_NATIVE_WINDOW);
   } else {
     NS_ASSERTION(widget, "couldn't get doc's widget in getting doc's window handle");
   }
 
-  return rv;
+  return NS_OK;
 #elif (defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)) && defined(MOZ_X11)
   // X11 window managers want the toplevel window for WM_TRANSIENT_FOR.
   nsIWidget* win = mObjectFrame->GetNearestWidget();
@@ -837,49 +831,6 @@ NS_IMETHODIMP nsPluginInstanceOwner::GetTagType(nsPluginTagType *result)
   return NS_OK;
 }
 
-NS_IMETHODIMP nsPluginInstanceOwner::GetTagText(const char* *result)
-{
-  NS_ENSURE_ARG_POINTER(result);
-  if (nullptr == mTagText) {
-    nsresult rv;
-    nsCOMPtr<nsIDOMNode> node(do_QueryInterface(mContent, &rv));
-    if (NS_FAILED(rv))
-      return rv;
-
-    nsCOMPtr<nsIDocument> document;
-    rv = GetDocument(getter_AddRefs(document));
-    if (NS_FAILED(rv))
-      return rv;
-
-    nsCOMPtr<nsIDOMDocument> domDoc = do_QueryInterface(document);
-    NS_ASSERTION(domDoc, "Need a document");
-
-    nsCOMPtr<nsIDocumentEncoder> docEncoder(do_CreateInstance(NS_DOC_ENCODER_CONTRACTID_BASE "text/html", &rv));
-    if (NS_FAILED(rv))
-      return rv;
-    rv = docEncoder->Init(domDoc, NS_LITERAL_STRING("text/html"), nsIDocumentEncoder::OutputEncodeBasicEntities);
-    if (NS_FAILED(rv))
-      return rv;
-
-    nsRefPtr<nsRange> range = new nsRange();
-    rv = range->SelectNode(node);
-    if (NS_FAILED(rv))
-      return rv;
-
-    docEncoder->SetRange(range);
-    nsString elementHTML;
-    rv = docEncoder->EncodeToString(elementHTML);
-    if (NS_FAILED(rv))
-      return rv;
-
-    mTagText = ToNewUTF8String(elementHTML);
-    if (!mTagText)
-      return NS_ERROR_OUT_OF_MEMORY;
-  }
-  *result = mTagText;
-  return NS_OK;
-}
-
 NS_IMETHODIMP nsPluginInstanceOwner::GetParameters(uint16_t& n, const char*const*& names, const char*const*& values)
 {
   nsresult rv = EnsureCachedAttrParamArrays();
@@ -914,7 +865,7 @@ NS_IMETHODIMP nsPluginInstanceOwner::GetParameter(const char* name, const char* 
 
   return NS_ERROR_FAILURE;
 }
-  
+
 NS_IMETHODIMP nsPluginInstanceOwner::GetDocumentBase(const char* *result)
 {
   NS_ENSURE_ARG_POINTER(result);
@@ -1018,7 +969,7 @@ NS_IMETHODIMP nsPluginInstanceOwner::GetDocumentEncoding(const char* *result)
   if (charset.EqualsLiteral("us-ascii")) {
     *result = PL_strdup("US_ASCII");
   } else if (charset.EqualsLiteral("ISO-8859-1") ||
-      !nsCRT::strncmp(PromiseFlatCString(charset).get(), "UTF", 3)) {
+      !nsCRT::strncmp(charset.get(), "UTF", 3)) {
     *result = ToNewCString(charset);
   } else {
     if (!gCharsetMap) {
@@ -1798,7 +1749,7 @@ void nsPluginInstanceOwner::ExitFullScreen(jobject view) {
 nsresult nsPluginInstanceOwner::DispatchFocusToPlugin(nsIDOMEvent* aFocusEvent)
 {
 #ifdef MOZ_WIDGET_ANDROID
-  {
+  if (mInstance) {
     ANPEvent event;
     event.inSize = sizeof(ANPEvent);
     event.eventType = kLifecycle_ANPEventType;
@@ -1828,7 +1779,7 @@ nsresult nsPluginInstanceOwner::DispatchFocusToPlugin(nsIDOMEvent* aFocusEvent)
   nsEvent* theEvent = aFocusEvent->GetInternalNSEvent();
   if (theEvent) {
     // we only care about the message in ProcessEvent
-    nsGUIEvent focusEvent(NS_IS_TRUSTED_EVENT(theEvent), theEvent->message,
+    nsGUIEvent focusEvent(theEvent->mFlags.mIsTrusted, theEvent->message,
                           nullptr);
     nsEventStatus rv = ProcessEvent(focusEvent);
     if (nsEventStatus_eConsumeNoDefault == rv) {
@@ -1955,6 +1906,8 @@ nsresult nsPluginInstanceOwner::DispatchMouseToPlugin(nsIDOMEvent* aMouseEvent)
 nsresult
 nsPluginInstanceOwner::HandleEvent(nsIDOMEvent* aEvent)
 {
+  NS_ASSERTION(mInstance, "Should have a valid plugin instance or not receive events.");
+
   nsAutoString eventType;
   aEvent->GetType(eventType);
   if (eventType.EqualsLiteral("focus")) {
@@ -2002,7 +1955,7 @@ nsPluginInstanceOwner::HandleEvent(nsIDOMEvent* aEvent)
   nsCOMPtr<nsIDOMDragEvent> dragEvent(do_QueryInterface(aEvent));
   if (dragEvent && mInstance) {
     nsEvent* ievent = aEvent->GetInternalNSEvent();
-    if ((ievent && NS_IS_TRUSTED_EVENT(ievent)) &&
+    if ((ievent && ievent->mFlags.mIsTrusted) &&
          ievent->message != NS_DRAGDROP_ENTER && ievent->message != NS_DRAGDROP_OVER) {
       aEvent->PreventDefault();
     }
@@ -2115,7 +2068,7 @@ nsEventStatus nsPluginInstanceOwner::ProcessEvent(const nsGUIEvent& anEvent)
   int16_t response = kNPEventNotHandled;
   void* window = FixUpPluginWindow(ePluginPaintEnable);
   if (window || (eventModel == NPEventModelCocoa)) {
-    mInstance->HandleEvent(event, &response);
+    mInstance->HandleEvent(event, &response, NS_PLUGIN_CALL_SAFE_TO_REENTER_GECKO);
   }
 
   if (eventModel == NPEventModelCocoa && response == kNPEventStartIME) {
@@ -2231,7 +2184,7 @@ nsEventStatus nsPluginInstanceOwner::ProcessEvent(const nsGUIEvent& anEvent)
 
   if (pPluginEvent) {
     int16_t response = kNPEventNotHandled;
-    mInstance->HandleEvent(pPluginEvent, &response);
+    mInstance->HandleEvent(pPluginEvent, &response, NS_PLUGIN_CALL_SAFE_TO_REENTER_GECKO);
     if (response == kNPEventHandled)
       rv = nsEventStatus_eConsumeNoDefault;
   }
@@ -2489,7 +2442,7 @@ nsEventStatus nsPluginInstanceOwner::ProcessEvent(const nsGUIEvent& anEvent)
   event.send_event = False;
 
   int16_t response = kNPEventNotHandled;
-  mInstance->HandleEvent(&pluginEvent, &response);
+  mInstance->HandleEvent(&pluginEvent, &response, NS_PLUGIN_CALL_SAFE_TO_REENTER_GECKO);
   if (response == kNPEventHandled)
     rv = nsEventStatus_eConsumeNoDefault;
 #endif
@@ -2541,7 +2494,7 @@ nsEventStatus nsPluginInstanceOwner::ProcessEvent(const nsGUIEvent& anEvent)
               event.data.mouse.action = kDown_ANPMouseAction;
               event.data.mouse.x = pluginPoint.x;
               event.data.mouse.y = pluginPoint.y;
-              mInstance->HandleEvent(&event, nullptr);
+              mInstance->HandleEvent(&event, nullptr, NS_PLUGIN_CALL_SAFE_TO_REENTER_GECKO);
             }
             break;
           case NS_MOUSE_BUTTON_UP:
@@ -2552,7 +2505,7 @@ nsEventStatus nsPluginInstanceOwner::ProcessEvent(const nsGUIEvent& anEvent)
               event.data.mouse.action = kUp_ANPMouseAction;
               event.data.mouse.x = pluginPoint.x;
               event.data.mouse.y = pluginPoint.y;
-              mInstance->HandleEvent(&event, nullptr);
+              mInstance->HandleEvent(&event, nullptr, NS_PLUGIN_CALL_SAFE_TO_REENTER_GECKO);
             }
             break;
           }
@@ -2568,7 +2521,7 @@ nsEventStatus nsPluginInstanceOwner::ProcessEvent(const nsGUIEvent& anEvent)
        if (pluginEvent) {
          MOZ_ASSERT(pluginEvent->inSize == sizeof(ANPEvent));
          MOZ_ASSERT(pluginEvent->eventType == kKey_ANPEventType);
-         mInstance->HandleEvent(pluginEvent, nullptr);
+         mInstance->HandleEvent(pluginEvent, nullptr, NS_PLUGIN_CALL_SAFE_TO_REENTER_GECKO);
        }
      }
      break;
@@ -3383,6 +3336,8 @@ nsPluginInstanceOwner::UpdateDocumentActiveState(bool aIsActive)
   if (mInstance) {
     if (!mPluginDocumentActiveState)
       RemovePluginView();
+    else if (mPluginDocumentActiveState && mFullScreen)
+      AddPluginView();
 
     mInstance->NotifyOnScreen(mPluginDocumentActiveState);
 
@@ -3478,7 +3433,7 @@ nsObjectFrame* nsPluginInstanceOwner::GetFrame()
 void nsPluginInstanceOwner::FixUpURLS(const nsString &name, nsAString &value)
 {
   if (name.LowerCaseEqualsLiteral("pluginspage")) {
-    nsCOMPtr<nsIURI> baseURI = mContent->GetBaseURI();
+    nsCOMPtr<nsIURI> baseURI = GetBaseURI();
     nsAutoString newURL;
     NS_MakeAbsoluteURI(newURL, value, baseURI);
     if (!newURL.IsEmpty())
@@ -3489,6 +3444,14 @@ void nsPluginInstanceOwner::FixUpURLS(const nsString &name, nsAString &value)
 NS_IMETHODIMP nsPluginInstanceOwner::PrivateModeChanged(bool aEnabled)
 {
   return mInstance ? mInstance->PrivateModeStateChanged(aEnabled) : NS_OK;
+}
+
+already_AddRefed<nsIURI> nsPluginInstanceOwner::GetBaseURI() const
+{
+  if (!mContent) {
+    return nullptr;
+  }
+  return mContent->GetBaseURI();
 }
 
 // nsPluginDOMContextMenuListener class implementation

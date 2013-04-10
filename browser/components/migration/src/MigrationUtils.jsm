@@ -266,13 +266,14 @@ this.MigratorPrototype = {
                           getService(Ci.nsIObserver);
         browserGlue.observe(null, TOPIC_WILL_IMPORT_BOOKMARKS, "");
 
-        // Note doMigrate doesn't care about the success value of the
-        // callback.
+        // Note doMigrate doesn't care about the success of the import.
+        let onImportComplete = function() {
+          browserGlue.observe(null, TOPIC_DID_IMPORT_BOOKMARKS, "");
+          doMigrate();
+        };
         BookmarkHTMLUtils.importFromURL(
-          "resource:///defaults/profile/bookmarks.html", true, function(a) {
-            browserGlue.observe(null, TOPIC_DID_IMPORT_BOOKMARKS, "");
-            doMigrate();
-          });
+          "resource:///defaults/profile/bookmarks.html", true).then(
+          onImportComplete, onImportComplete);
         return;
       }
     }
@@ -404,7 +405,8 @@ this.MigrationUtils = Object.freeze({
    */
   getLocalizedString: function MU_getLocalizedString(aKey, aReplacements) {
     const OVERRIDES = {
-      "4_firefox": "4_firefox_history_and_bookmarks"
+      "4_firefox": "4_firefox_history_and_bookmarks",
+      "64_firefox": "64_firefox_other"
     };
     aKey = OVERRIDES[aKey] || aKey;
 

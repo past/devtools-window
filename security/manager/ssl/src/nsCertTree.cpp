@@ -20,17 +20,15 @@
 #include "nsXPCOMCID.h"
 #include "nsTHashtable.h"
 #include "nsHashKeys.h"
-
+#include "ScopedNSSTypes.h"
+ 
 #include "prlog.h"
-#include "nsNSSCleaner.h"
 
 using namespace mozilla;
 
 #ifdef PR_LOGGING
 extern PRLogModuleInfo* gPIPNSSLog;
 #endif
-
-NSSCleanupAutoPtrClass(CERTCertificate, CERT_DestroyCertificate)
 
 static NS_DEFINE_CID(kNSSComponentCID, NS_NSSCOMPONENT_CID);
 static NS_DEFINE_CID(kCertOverrideCID, NS_CERTOVERRIDE_CID);
@@ -641,12 +639,9 @@ nsCertTree::GetCertsByType(uint32_t           aType,
                            void              *aCertCmpFnArg)
 {
   nsNSSShutDownPreventionLock locker;
-  CERTCertList *certList = nullptr;
   nsCOMPtr<nsIInterfaceRequestor> cxt = new PipUIContext();
-  certList = PK11_ListCerts(PK11CertListUnique, cxt);
+  ScopedCERTCertList certList(PK11_ListCerts(PK11CertListUnique, cxt));
   nsresult rv = GetCertsByTypeFromCertList(certList, aType, aCertCmpFn, aCertCmpFnArg);
-  if (certList)
-    CERT_DestroyCertList(certList);
   return rv;
 }
 
@@ -815,8 +810,7 @@ nsCertTree::DeleteEntryObject(uint32_t index)
             // although there are still overrides stored,
             // so, we keep the cert, but remove the trust
 
-            CERTCertificate *nsscert = nullptr;
-            CERTCertificateCleaner nsscertCleaner(nsscert);
+            ScopedCERTCertificate nsscert;
 
             nsCOMPtr<nsIX509Cert2> cert2 = do_QueryInterface(cert);
             if (cert2) {
@@ -934,33 +928,24 @@ nsCertTree::SetSelection(nsITreeSelection * aSelection)
   return NS_OK;
 }
 
-/* void getRowProperties (in long index, in nsISupportsArray properties); */
 NS_IMETHODIMP 
-nsCertTree::GetRowProperties(int32_t index, nsISupportsArray *properties)
+nsCertTree::GetRowProperties(int32_t index, nsAString& aProps)
 {
   return NS_OK;
 }
 
-/* void getCellProperties (in long row, in nsITreeColumn col, 
- *                         in nsISupportsArray properties); 
- */
 NS_IMETHODIMP 
 nsCertTree::GetCellProperties(int32_t row, nsITreeColumn* col, 
-                              nsISupportsArray* properties)
+                              nsAString& aProps)
 {
   return NS_OK;
 }
 
-/* void getColumnProperties (in nsITreeColumn col, 
- *                           in nsISupportsArray properties); 
- */
 NS_IMETHODIMP 
-nsCertTree::GetColumnProperties(nsITreeColumn* col, 
-                                nsISupportsArray* properties)
+nsCertTree::GetColumnProperties(nsITreeColumn* col, nsAString& aProps)
 {
   return NS_OK;
 }
-
 /* boolean isContainer (in long index); */
 NS_IMETHODIMP 
 nsCertTree::IsContainer(int32_t index, bool *_retval)

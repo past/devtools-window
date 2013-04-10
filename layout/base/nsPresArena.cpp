@@ -24,6 +24,7 @@
 #endif
 
 #include "mozilla/StandardInteger.h"
+#include "mozilla/MemoryChecking.h"
 
 // Even on 32-bit systems, we allocate objects from the frame arena
 // that require 8-byte alignment.  The cast to uintptr_t is needed
@@ -285,8 +286,24 @@ struct nsPresArena::State {
     PR_CallOnce(&ARENA_POISON_guard, ARENA_POISON_init);
   }
 
+#if defined(MOZ_HAVE_MEM_CHECKS)
+  static PLDHashOperator UnpoisonFreeList(FreeList* aEntry, void*)
+  {
+    nsTArray<void*>::index_type len;
+    while ((len = aEntry->mEntries.Length())) {
+      void* result = aEntry->mEntries.ElementAt(len - 1);
+      aEntry->mEntries.RemoveElementAt(len - 1);
+      MOZ_MAKE_MEM_UNDEFINED(result, aEntry->mEntrySize);
+    }
+    return PL_DHASH_NEXT;
+  }
+#endif
+
   ~State()
   {
+#if defined(MOZ_HAVE_MEM_CHECKS)
+    mFreeLists.EnumerateEntries(UnpoisonFreeList, nullptr);
+#endif
     PL_FinishArenaPool(&mPool);
   }
 
@@ -315,8 +332,9 @@ struct nsPresArena::State {
       // LIFO behavior for best cache utilization
       result = list->mEntries.ElementAt(len - 1);
       list->mEntries.RemoveElementAt(len - 1);
-#ifdef DEBUG
+#if defined(DEBUG)
       {
+        MOZ_MAKE_MEM_DEFINED(result, list->mEntrySize);
         char* p = reinterpret_cast<char*>(result);
         char* limit = p + list->mEntrySize;
         for (; p < limit; p += sizeof(uintptr_t)) {
@@ -333,6 +351,7 @@ struct nsPresArena::State {
         }
       }
 #endif
+      MOZ_MAKE_MEM_UNDEFINED(result, list->mEntrySize);
       return result;
     }
 
@@ -358,6 +377,7 @@ struct nsPresArena::State {
       *reinterpret_cast<uintptr_t*>(p) = ARENA_POISON;
     }
 
+    MOZ_MAKE_MEM_NOACCESS(aPtr, list->mEntrySize);
     list->mEntries.AppendElement(aPtr);
   }
 
@@ -371,15 +391,7 @@ struct nsPresArena::State {
   size_t SizeOfIncludingThisFromMalloc(nsMallocSizeOfFun aMallocSizeOf) const
   {
     size_t n = aMallocSizeOf(this);
-
-    // The first PLArena is within the PLArenaPool, i.e. within |this|, so we
-    // don't measure it.  Subsequent PLArenas are by themselves and must be
-    // measured.
-    const PLArena *arena = mPool.first.next;
-    while (arena) {
-      n += aMallocSizeOf(arena);
-      arena = arena->next;
-    }
+    n += PL_SizeOfArenaPoolExcludingPool(&mPool, aMallocSizeOf);
     n += mFreeLists.SizeOfExcludingThis(SizeOfFreeListEntryExcludingThis,
                                         aMallocSizeOf);
     return n;

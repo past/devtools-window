@@ -1,7 +1,7 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
-MAX_ARGS = 10
+MAX_ARGS = 15
 
 boilerplate = "/* This Source Code Form is subject to the terms of the Mozilla Public\n\
  * License, v. 2.0. If a copy of the MPL was not distributed with this\n\
@@ -89,6 +89,7 @@ def generate_class_template(args, ret = False, member = True):
     else:
         print "  runnable_args_%s_%d_ret("%(nm, args) + gen_args_type(args, member) + ", R *r) :"
         print "    " + gen_init(args, True, member) + "  {}"
+        print "  virtual bool returns_value() const { return true; }"
     print
     print "  NS_IMETHOD Run() {"
     if ret:

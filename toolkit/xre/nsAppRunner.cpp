@@ -26,6 +26,7 @@
 #include "mozilla/Util.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Likely.h"
+#include "mozilla/Telemetry.h"
 
 #include "nsAppRunner.h"
 #include "mozilla/AppData.h"
@@ -194,7 +195,9 @@ using mozilla::scache::StartupCache;
 #endif
 
 #include "base/command_line.h"
-
+#ifdef MOZ_ENABLE_GTEST
+#include "GTestRunner.h"
+#endif
 
 #ifdef MOZ_WIDGET_ANDROID
 #include "AndroidBridge.h"
@@ -777,7 +780,7 @@ nsXULAppInfo::EnsureContentProcess()
   if (XRE_GetProcessType() != GeckoProcessType_Default)
     return NS_ERROR_NOT_AVAILABLE;
 
-  unused << ContentParent::GetNewOrUsed();
+  nsRefPtr<ContentParent> unused = ContentParent::GetNewOrUsed();
   return NS_OK;
 }
 
@@ -1059,12 +1062,7 @@ static nsresult AppInfoConstructor(nsISupports* aOuter,
     QueryInterface(aIID, aResult);
 }
 
-bool gLogConsoleErrors
-#ifdef DEBUG
-         = true;
-#else
-         = false;
-#endif
+bool gLogConsoleErrors = false;
 
 #define NS_ENSURE_TRUE_LOG(x, ret)               \
   PR_BEGIN_MACRO                                 \
@@ -1117,7 +1115,7 @@ ScopedXPCOMStartup::~ScopedXPCOMStartup()
       appStartup->DestroyHiddenWindow();
 
     gDirServiceProvider->DoShutdown();
-    SAMPLE_MARKER("Shutdown early");
+    PROFILER_MARKER("Shutdown early");
 
     WriteConsoleLog();
 
@@ -1708,6 +1706,8 @@ ProfileLockedDialog(nsIFile* aProfileDir, nsIFile* aProfileLocalDir,
   ScopedXPCOMStartup xpcom;
   rv = xpcom.Initialize();
   NS_ENSURE_SUCCESS(rv, rv);
+
+  mozilla::Telemetry::WriteFailedProfileLock(aProfileDir);
 
   rv = xpcom.SetWindowCreator(aNative);
   NS_ENSURE_SUCCESS(rv, NS_ERROR_FAILURE);
@@ -2543,13 +2543,13 @@ static void RestoreStateForAppInitiatedRestart()
 static void MakeOrSetMinidumpPath(nsIFile* profD)
 {
   nsCOMPtr<nsIFile> dumpD;
-  nsresult rv = profD->Clone(getter_AddRefs(dumpD));
+  profD->Clone(getter_AddRefs(dumpD));
   
   if(dumpD) {
     bool fileExists;
     //XXX: do some more error checking here
     dumpD->Append(NS_LITERAL_STRING("minidumps"));
-    rv = dumpD->Exists(&fileExists);
+    dumpD->Exists(&fileExists);
     if(!fileExists) {
       dumpD->Create(nsIFile::DIRECTORY_TYPE, 0700);
     }
@@ -2758,7 +2758,7 @@ static DWORD InitDwriteBG(LPVOID lpdwThreadParam)
 bool fire_glxtest_process();
 #endif
 
-#include "sampler.h"
+#include "GeckoProfiler.h"
 
 // Encapsulates startup and shutdown state for XRE_main
 class XREMain
@@ -2788,7 +2788,7 @@ public:
   }
 
   int XRE_main(int argc, char* argv[], const nsXREAppData* aAppData);
-  int XRE_mainInit(const nsXREAppData* aAppData, bool* aExitFlag);
+  int XRE_mainInit(bool* aExitFlag);
   int XRE_mainStartup(bool* aExitFlag);
   nsresult XRE_mainRun();
   
@@ -2824,7 +2824,7 @@ public:
  * true.
  */
 int
-XREMain::XRE_mainInit(const nsXREAppData* aAppData, bool* aExitFlag)
+XREMain::XRE_mainInit(bool* aExitFlag)
 {
   if (!aExitFlag)
     return 1;
@@ -2929,8 +2929,7 @@ XREMain::XRE_mainInit(const nsXREAppData* aAppData, bool* aExitFlag)
       return 1;
     }
 
-    nsXREAppData* overrideAppData = const_cast<nsXREAppData*>(aAppData);
-    rv = XRE_ParseAppData(overrideLF, overrideAppData);
+    rv = XRE_ParseAppData(overrideLF, mAppData);
     if (NS_FAILED(rv)) {
       Output(true, "Couldn't read override.ini");
       return 1;
@@ -3208,7 +3207,56 @@ XREMain::XRE_mainInit(const nsXREAppData* aAppData, bool* aExitFlag)
     return 0;
   }
 
+  ar = CheckArg("unittest", true);
+  if (ar == ARG_FOUND) {
+#if MOZ_ENABLE_GTEST
+    int result = mozilla::RunGTest();
+#else
+    int result = 1;
+    printf("TEST-UNEXPECTED-FAIL | Not compiled with GTest enabled\n");
+#endif
+    *aExitFlag = true;
+    return result;
+  }
+
   return 0;
+}
+
+namespace mozilla {
+  ShutdownChecksMode gShutdownChecks = SCM_NOTHING;
+}
+
+static void SetShutdownChecks() {
+  // Set default first. On debug builds we crash. On nightly and local
+  // builds we record. Nightlies will then send the info via telemetry,
+  // but it is usefull to have the data in about:telemetry in local builds
+  // too.
+
+#ifdef DEBUG
+  gShutdownChecks = SCM_CRASH;
+#else
+  const char* releaseChannel = NS_STRINGIFY(MOZ_UPDATE_CHANNEL);
+  if (strcmp(releaseChannel, "nightly") == 0 ||
+      strcmp(releaseChannel, "default") == 0) {
+    gShutdownChecks = SCM_RECORD;
+  } else {
+    gShutdownChecks = SCM_NOTHING;
+  }
+#endif
+
+  // We let an environment variable override the default so that addons
+  // authors can use it for debugging shutdown with released firefox versions.
+  const char* mozShutdownChecksEnv = PR_GetEnv("MOZ_SHUTDOWN_CHECKS");
+  if (mozShutdownChecksEnv) {
+    if (strcmp(mozShutdownChecksEnv, "crash") == 0) {
+      gShutdownChecks = SCM_CRASH;
+    } else if (strcmp(mozShutdownChecksEnv, "record") == 0) {
+      gShutdownChecks = SCM_RECORD;
+    } else if (strcmp(mozShutdownChecksEnv, "nothing") == 0) {
+      gShutdownChecks = SCM_NOTHING;
+    }
+  }
+
 }
 
 /*
@@ -3224,6 +3272,8 @@ XREMain::XRE_mainStartup(bool* aExitFlag)
   if (!aExitFlag)
     return 1;
   *aExitFlag = false;
+
+  SetShutdownChecks();
 
 #if defined(MOZ_WIDGET_GTK) || defined(MOZ_ENABLE_XREMOTE)
   // Stash DESKTOP_STARTUP_ID in malloc'ed memory because gtk_init will clear it.
@@ -3448,8 +3498,14 @@ XREMain::XRE_mainStartup(bool* aExitFlag)
   if (CheckArg("process-updates")) {
     SaveToEnv("MOZ_PROCESS_UPDATES=1");
   }
+  nsCOMPtr<nsIFile> exeFile, exeDir;
+  rv = mDirProvider.GetFile(XRE_EXECUTABLE_FILE, &persistent,
+                            getter_AddRefs(exeFile));
+  NS_ENSURE_SUCCESS(rv, 1);
+  rv = exeFile->GetParent(getter_AddRefs(exeDir));
+  NS_ENSURE_SUCCESS(rv, 1);
   ProcessUpdates(mDirProvider.GetGREDir(),
-                 mDirProvider.GetAppDir(),
+                 exeDir,
                  updRoot,
                  gRestartArgc,
                  gRestartArgv,
@@ -3807,16 +3863,16 @@ XREMain::XRE_mainRun()
     if (!mDisableRemote)
       mRemoteService = do_GetService("@mozilla.org/toolkit/remote-service;1");
     if (mRemoteService)
-      mRemoteService->Startup(mAppData->name,
-                              PromiseFlatCString(mProfileName).get());
+      mRemoteService->Startup(mAppData->name, mProfileName.get());
 #endif /* MOZ_ENABLE_XREMOTE */
 
     mNativeApp->Enable();
   }
 
 #ifdef MOZ_INSTRUMENT_EVENT_LOOP
-  if (PR_GetEnv("MOZ_INSTRUMENT_EVENT_LOOP") || SAMPLER_IS_ACTIVE()) {
-    mozilla::InitEventTracing();
+  if (PR_GetEnv("MOZ_INSTRUMENT_EVENT_LOOP") || profiler_is_active()) {
+    bool logToConsole = !!PR_GetEnv("MOZ_INSTRUMENT_EVENT_LOOP");
+    mozilla::InitEventTracing(logToConsole);
   }
 #endif /* MOZ_INSTRUMENT_EVENT_LOOP */
 
@@ -3837,8 +3893,8 @@ XREMain::XRE_mainRun()
 int
 XREMain::XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
 {
-  SAMPLER_INIT();
-  SAMPLE_LABEL("Startup", "XRE_Main");
+  profiler_init();
+  PROFILER_LABEL("Startup", "XRE_Main");
 
   nsresult rv = NS_OK;
 
@@ -3868,7 +3924,7 @@ XREMain::XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
 
   // init
   bool exit = false;
-  int result = XRE_mainInit(aAppData, &exit);
+  int result = XRE_mainInit(&exit);
   if (result != 0 || exit)
     return result;
 
@@ -3938,7 +3994,7 @@ XREMain::XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
     MOZ_gdk_display_close(mGdkDisplay);
 #endif
 
-    SAMPLER_SHUTDOWN();
+    profiler_shutdown();
     rv = LaunchChild(mNativeApp, true);
 
 #ifdef MOZ_CRASHREPORTER
@@ -3961,7 +4017,7 @@ XREMain::XRE_main(int argc, char* argv[], const nsXREAppData* aAppData)
 
   XRE_DeinitCommandLine();
 
-  SAMPLER_SHUTDOWN();
+  profiler_shutdown();
 
   return NS_FAILED(rv) ? 1 : 0;
 }
@@ -3972,7 +4028,7 @@ static XREMain* xreMainPtr;
 
 // must be called by the thread we want as the main thread
 nsresult
-XRE_metroStartup()
+XRE_metroStartup(bool runXREMain)
 {
   nsresult rv;
 
@@ -3988,8 +4044,10 @@ XRE_metroStartup()
   rv = xreMainPtr->mScopedXPCom->Initialize();
   NS_ENSURE_SUCCESS(rv, rv);
 
-  rv = xreMainPtr->XRE_mainRun();
-  NS_ENSURE_SUCCESS(rv, rv);
+  if (runXREMain) {
+    rv = xreMainPtr->XRE_mainRun();
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
   return NS_OK;
 }
 
@@ -4033,8 +4091,8 @@ public:
 int
 XRE_mainMetro(int argc, char* argv[], const nsXREAppData* aAppData)
 {
-  SAMPLER_INIT();
-  SAMPLE_LABEL("Startup", "XRE_Main");
+  profiler_init();
+  PROFILER_LABEL("Startup", "XRE_Main");
 
   nsresult rv = NS_OK;
 
@@ -4061,7 +4119,7 @@ XRE_mainMetro(int argc, char* argv[], const nsXREAppData* aAppData)
 
   // init
   bool exit = false;
-  if (xreMainPtr->XRE_mainInit(aAppData, &exit) != 0 || exit)
+  if (xreMainPtr->XRE_mainInit(&exit) != 0 || exit)
     return 1;
 
   // Located in widget, will call back into XRE_metroStartup and
@@ -4074,12 +4132,17 @@ XRE_mainMetro(int argc, char* argv[], const nsXREAppData* aAppData)
   // thread that called XRE_metroStartup.
   NS_ASSERTION(!xreMainPtr->mScopedXPCom,
                "XPCOM Shutdown hasn't occured, and we are exiting.");
-  SAMPLER_SHUTDOWN();
+  profiler_shutdown();
   return 0;
 }
 
 void SetWindowsEnvironment(WindowsEnvironmentType aEnvID);
 #endif // MOZ_METRO || !defined(XP_WIN)
+
+void
+XRE_DisableWritePoisoning(void) {
+  mozilla::DisableWritePoisoning();
+}
 
 int
 XRE_main(int argc, char* argv[], const nsXREAppData* aAppData, uint32_t aFlags)

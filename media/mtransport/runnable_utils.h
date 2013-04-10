@@ -10,16 +10,16 @@
 #define runnable_utils_h__
 
 #include "nsThreadUtils.h"
+#include "mozilla/RefPtr.h"
 
 // Abstract base class for all of our templates
 namespace mozilla {
 
 class runnable_args_base : public nsRunnable {
  public:
-
   NS_IMETHOD Run() = 0;
+  virtual bool returns_value() const { return false; }
 };
-
 
 // The generated file contains four major function templates
 // (in variants for arbitrary numbers of arguments up to 10,
@@ -39,8 +39,44 @@ class runnable_args_base : public nsRunnable {
 #include "runnable_utils_generated.h"
 
 // Temporary hack. Really we want to have a template which will do this
-#define RUN_ON_THREAD(t, r, h) ((t && (t != nsRefPtr<nsIThread>(do_GetCurrentThread()))) ? t->Dispatch(r, h) : r->Run())
+static inline nsresult RUN_ON_THREAD(nsIEventTarget *thread, nsIRunnable *runnable, uint32_t flags) {
+  RefPtr<nsIRunnable> runnable_ref(runnable);
+  if (thread) {
+    bool on;
+    nsresult rv;
+    rv = thread->IsOnCurrentThread(&on);
+    MOZ_ASSERT(NS_SUCCEEDED(rv));
+    NS_ENSURE_SUCCESS(rv, rv);
+    if(!on) {
+      return thread->Dispatch(runnable_ref, flags);
+    }
+  }
+  return runnable_ref->Run();
 }
 
+static inline nsresult RUN_ON_THREAD(nsIEventTarget *thread, runnable_args_base *runnable, uint32_t flags) {
+  // Detect attempts to return a value when in async mode, since this
+  // most likely means someone is trying to assign to a heap variable
+  // which is now out of scope.
+  MOZ_ASSERT((!(runnable->returns_value()) || (flags != NS_DISPATCH_NORMAL)));
+
+  return RUN_ON_THREAD(thread, static_cast<nsIRunnable *>(runnable), flags);
+}
+
+#ifdef MOZ_DEBUG
+#define ASSERT_ON_THREAD(t) do {                \
+    if (t) {                                    \
+      bool on;                                    \
+      nsresult rv;                                \
+      rv = t->IsOnCurrentThread(&on);             \
+      MOZ_ASSERT(NS_SUCCEEDED(rv));               \
+      MOZ_ASSERT(on);                             \
+    }                                           \
+  } while(0)
+#else
+#define ASSERT_ON_THREAD(t)
 #endif
 
+} /* namespace mozilla */
+
+#endif

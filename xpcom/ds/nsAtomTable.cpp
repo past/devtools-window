@@ -369,13 +369,13 @@ PermanentAtomImpl::~PermanentAtomImpl()
 
 NS_IMETHODIMP_(nsrefcnt) PermanentAtomImpl::AddRef()
 {
-  NS_ASSERTION(NS_IsMainThread(), "wrong thread");
+  MOZ_ASSERT(NS_IsMainThread(), "wrong thread");
   return 2;
 }
 
 NS_IMETHODIMP_(nsrefcnt) PermanentAtomImpl::Release()
 {
-  NS_ASSERTION(NS_IsMainThread(), "wrong thread");
+  MOZ_ASSERT(NS_IsMainThread(), "wrong thread");
   return 1;
 }
 
@@ -392,8 +392,8 @@ PermanentAtomImpl::IsPermanent()
 }
 
 void* PermanentAtomImpl::operator new ( size_t size, AtomImpl* aAtom ) CPP_THROW_NEW {
-  NS_ASSERTION(!aAtom->IsPermanent(),
-               "converting atom that's already permanent");
+  MOZ_ASSERT(!aAtom->IsPermanent(),
+             "converting atom that's already permanent");
 
   // Just let the constructor overwrite the vtable pointer.
   return aAtom;
@@ -478,43 +478,52 @@ NS_SizeOfAtomTablesIncludingThis(nsMallocSizeOfFun aMallocSizeOf) {
 
 #define ATOM_HASHTABLE_INITIAL_SIZE  4096
 
-static inline bool
+static void HandleOOM()
+{
+  fputs("Out of memory allocating atom hashtable.\n", stderr);
+  MOZ_CRASH();
+  MOZ_NOT_REACHED();
+}
+
+static inline void
 EnsureTableExists()
 {
-  if (gAtomTable.ops) {
-    return true;
+  if (!gAtomTable.ops &&
+      !PL_DHashTableInit(&gAtomTable, &AtomTableOps, 0,
+                         sizeof(AtomTableEntry), ATOM_HASHTABLE_INITIAL_SIZE)) {
+    // Initialization failed.
+    HandleOOM();
   }
-  if (PL_DHashTableInit(&gAtomTable, &AtomTableOps, 0,
-                        sizeof(AtomTableEntry), ATOM_HASHTABLE_INITIAL_SIZE)) {
-    return true;
-  }
-  // Initialization failed.
-  gAtomTable.ops = nullptr;
-  return false;
 }
 
 static inline AtomTableEntry*
 GetAtomHashEntry(const char* aString, uint32_t aLength)
 {
-  NS_ASSERTION(NS_IsMainThread(), "wrong thread");
-  if (!EnsureTableExists()) {
-    return nullptr;
-  }
+  MOZ_ASSERT(NS_IsMainThread(), "wrong thread");
+  EnsureTableExists();
   AtomTableKey key(aString, aLength);
-  return static_cast<AtomTableEntry*>
-                    (PL_DHashTableOperate(&gAtomTable, &key, PL_DHASH_ADD));
+  AtomTableEntry* e =
+    static_cast<AtomTableEntry*>
+               (PL_DHashTableOperate(&gAtomTable, &key, PL_DHASH_ADD));
+  if (!e) {
+    HandleOOM();
+  }
+  return e;
 }
 
 static inline AtomTableEntry*
 GetAtomHashEntry(const PRUnichar* aString, uint32_t aLength)
 {
-  NS_ASSERTION(NS_IsMainThread(), "wrong thread");
-  if (!EnsureTableExists()) {
-    return nullptr;
-  }
+  MOZ_ASSERT(NS_IsMainThread(), "wrong thread");
+  EnsureTableExists();
   AtomTableKey key(aString, aLength);
-  return static_cast<AtomTableEntry*>
-                    (PL_DHashTableOperate(&gAtomTable, &key, PL_DHASH_ADD));
+  AtomTableEntry* e =
+    static_cast<AtomTableEntry*>
+               (PL_DHashTableOperate(&gAtomTable, &key, PL_DHASH_ADD));
+  if (!e) {
+    HandleOOM();
+  }
+  return e;
 }
 
 class CheckStaticAtomSizes

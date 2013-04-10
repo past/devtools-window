@@ -7,11 +7,13 @@
 #define MediaDecoderOwner_h_
 #include "AbstractMediaDecoder.h"
 
-class nsHTMLMediaElement;
-
 namespace mozilla {
 
 class VideoFrameContainer;
+
+namespace dom {
+class HTMLMediaElement;
+}
 
 class MediaDecoderOwner
 {
@@ -34,9 +36,9 @@ public:
    */
   virtual void FireTimeUpdate(bool aPeriodic) = 0;
 
-  // Get the nsHTMLMediaElement object if the decoder is being used from an
+  // Get the HTMLMediaElement object if the decoder is being used from an
   // HTML media element, and null otherwise.
-  virtual nsHTMLMediaElement* GetMediaElement()
+  virtual dom::HTMLMediaElement* GetMediaElement()
   {
     return nullptr;
   }
@@ -56,6 +58,7 @@ public:
   virtual void MetadataLoaded(int aChannels,
                               int aRate,
                               bool aHasAudio,
+                              bool aHasVideo,
                               const MetadataTags* aTags) = 0;
 
   // Called by the video decoder object, on the main thread,
@@ -106,11 +109,6 @@ public:
   // ongoing.
   virtual void DownloadResumed(bool aForceNetworkLoading = false) = 0;
 
-  // Notify that enough data has arrived to start autoplaying.
-  // If the element is 'autoplay' and is ready to play back (not paused,
-  // autoplay pref enabled, etc), it should start playing back.
-  virtual void NotifyAutoplayDataReady() = 0;
-
   // Called by the media decoder to indicate whether the media cache has
   // suspended the channel.
   virtual void NotifySuspendedByCache(bool aIsSuspended) = 0;
@@ -126,7 +124,9 @@ public:
     // is paused while it buffers up data
     NEXT_FRAME_UNAVAILABLE_BUFFERING,
     // The next frame of audio/video is unavailable for some other reasons
-    NEXT_FRAME_UNAVAILABLE
+    NEXT_FRAME_UNAVAILABLE,
+    // Sentinel value
+    NEXT_FRAME_UNINITIALIZED
   };
 
   // Called by the decoder when some data has been downloaded or

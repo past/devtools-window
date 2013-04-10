@@ -9,7 +9,8 @@ this.EXPORTED_SYMBOLS = [
                           "webConsoleDefinition",
                           "debuggerDefinition",
                           "inspectorDefinition",
-                          "styleEditorDefinition"
+                          "styleEditorDefinition",
+                          "netMonitorDefinition"
                         ];
 
 const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
@@ -18,6 +19,8 @@ const inspectorProps = "chrome://browser/locale/devtools/inspector.properties";
 const debuggerProps = "chrome://browser/locale/devtools/debugger.properties";
 const styleEditorProps = "chrome://browser/locale/devtools/styleeditor.properties";
 const webConsoleProps = "chrome://browser/locale/devtools/webconsole.properties";
+const profilerProps = "chrome://browser/locale/devtools/profiler.properties";
+const netMonitorProps = "chrome://browser/locale/devtools/netmonitor.properties";
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
@@ -39,6 +42,12 @@ XPCOMUtils.defineLazyModuleGetter(this, "StyleEditorPanel",
 XPCOMUtils.defineLazyModuleGetter(this, "InspectorPanel",
   "resource:///modules/devtools/InspectorPanel.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "ProfilerPanel",
+  "resource:///modules/devtools/ProfilerPanel.jsm");
+
+XPCOMUtils.defineLazyModuleGetter(this, "NetMonitorPanel",
+  "resource:///modules/devtools/NetMonitorPanel.jsm");
+
 // Strings
 XPCOMUtils.defineLazyGetter(this, "webConsoleStrings",
   function() Services.strings.createBundle(webConsoleProps));
@@ -52,6 +61,12 @@ XPCOMUtils.defineLazyGetter(this, "styleEditorStrings",
 XPCOMUtils.defineLazyGetter(this, "inspectorStrings",
   function() Services.strings.createBundle(inspectorProps));
 
+XPCOMUtils.defineLazyGetter(this, "profilerStrings",
+  function() Services.strings.createBundle(profilerProps));
+
+XPCOMUtils.defineLazyGetter(this, "netMonitorStrings",
+  function() Services.strings.createBundle(netMonitorProps));
+
 // Definitions
 let webConsoleDefinition = {
   id: "webconsole",
@@ -59,14 +74,17 @@ let webConsoleDefinition = {
   accesskey: l10n("webConsoleCmd.accesskey", webConsoleStrings),
   modifiers: Services.appinfo.OS == "Darwin" ? "accel,alt" : "accel,shift",
   ordinal: 0,
-  icon: "chrome://browser/skin/devtools/webconsole-tool-icon.png",
+  icon: "chrome://browser/skin/devtools/tool-webconsole.png",
   url: "chrome://browser/content/devtools/webconsole.xul",
   label: l10n("ToolboxWebconsole.label", webConsoleStrings),
+  tooltip: l10n("ToolboxWebconsole.tooltip", webConsoleStrings),
+
   isTargetSupported: function(target) {
     return true;
   },
   build: function(iframeWindow, toolbox) {
-    return new WebConsolePanel(iframeWindow, toolbox);
+    let panel = new WebConsolePanel(iframeWindow, toolbox);
+    return panel.open();
   }
 };
 
@@ -75,18 +93,20 @@ let debuggerDefinition = {
   key: l10n("open.commandkey", debuggerStrings),
   accesskey: l10n("debuggerMenu.accesskey", debuggerStrings),
   modifiers: osString == "Darwin" ? "accel,alt" : "accel,shift",
-  ordinal: 1,
+  ordinal: 2,
   killswitch: "devtools.debugger.enabled",
-  icon: "chrome://browser/skin/devtools/tools-icons-small.png",
+  icon: "chrome://browser/skin/devtools/tool-debugger.png",
   url: "chrome://browser/content/debugger.xul",
   label: l10n("ToolboxDebugger.label", debuggerStrings),
+  tooltip: l10n("ToolboxDebugger.tooltip", debuggerStrings),
 
   isTargetSupported: function(target) {
     return true;
   },
 
   build: function(iframeWindow, toolbox) {
-    return new DebuggerPanel(iframeWindow, toolbox);
+    let panel = new DebuggerPanel(iframeWindow, toolbox);
+    return panel.open();
   }
 };
 
@@ -94,18 +114,20 @@ let inspectorDefinition = {
   id: "inspector",
   accesskey: l10n("inspector.accesskey", inspectorStrings),
   key: l10n("inspector.commandkey", inspectorStrings),
-  ordinal: 2,
+  ordinal: 1,
   modifiers: osString == "Darwin" ? "accel,alt" : "accel,shift",
-  icon: "chrome://browser/skin/devtools/tools-icons-small.png",
+  icon: "chrome://browser/skin/devtools/tool-inspector.png",
   url: "chrome://browser/content/devtools/inspector/inspector.xul",
   label: l10n("inspector.label", inspectorStrings),
+  tooltip: l10n("inspector.tooltip", inspectorStrings),
 
   isTargetSupported: function(target) {
     return !target.isRemote;
   },
 
   build: function(iframeWindow, toolbox) {
-    return new InspectorPanel(iframeWindow, toolbox);
+    let panel = new InspectorPanel(iframeWindow, toolbox);
+    return panel.open();
   }
 };
 
@@ -115,15 +137,62 @@ let styleEditorDefinition = {
   ordinal: 3,
   accesskey: l10n("open.accesskey", styleEditorStrings),
   modifiers: "shift",
-  label: l10n("ToolboxStyleEditor.label", styleEditorStrings),
+  icon: "chrome://browser/skin/devtools/tool-styleeditor.png",
   url: "chrome://browser/content/styleeditor.xul",
+  label: l10n("ToolboxStyleEditor.label", styleEditorStrings),
+  tooltip: l10n("ToolboxStyleEditor.tooltip", styleEditorStrings),
 
   isTargetSupported: function(target) {
-    return !target.isRemote && !target.isChrome;
+    return !target.isRemote;
   },
 
   build: function(iframeWindow, toolbox) {
-    return new StyleEditorPanel(iframeWindow, toolbox);
+    let panel = new StyleEditorPanel(iframeWindow, toolbox);
+    return panel.open();
+  }
+};
+
+let profilerDefinition = {
+  id: "jsprofiler",
+  accesskey: l10n("profiler.accesskey", profilerStrings),
+  key: l10n("profiler2.commandkey", profilerStrings),
+  ordinal: 4,
+  modifiers: "shift",
+  killswitch: "devtools.profiler.enabled",
+  icon: "chrome://browser/skin/devtools/tool-profiler.png",
+  url: "chrome://browser/content/profiler.xul",
+  label: l10n("profiler.label", profilerStrings),
+  tooltip: l10n("profiler.tooltip", profilerStrings),
+
+  isTargetSupported: function (target) {
+    return true;
+  },
+
+  build: function (frame, target) {
+    let panel = new ProfilerPanel(frame, target);
+    return panel.open();
+  }
+};
+
+let netMonitorDefinition = {
+  id: "netmonitor",
+  accesskey: l10n("netmonitor.accesskey", netMonitorStrings),
+  key: l10n("netmonitor.commandkey", netMonitorStrings),
+  ordinal: 5,
+  modifiers: osString == "Darwin" ? "accel,alt" : "accel,shift",
+  killswitch: "devtools.netmonitor.enabled",
+  icon: "chrome://browser/skin/devtools/tool-profiler.png",
+  url: "chrome://browser/content/devtools/netmonitor.xul",
+  label: l10n("netmonitor.label", netMonitorStrings),
+  tooltip: l10n("netmonitor.tooltip", netMonitorStrings),
+
+  isTargetSupported: function(target) {
+    return true;
+  },
+
+  build: function(iframeWindow, toolbox) {
+    let panel = new NetMonitorPanel(iframeWindow, toolbox);
+    return panel.open();
   }
 };
 
@@ -132,7 +201,12 @@ this.defaultTools = [
   webConsoleDefinition,
   debuggerDefinition,
   inspectorDefinition,
+  netMonitorDefinition
 ];
+
+if (Services.prefs.getBoolPref("devtools.profiler.enabled")) {
+  defaultTools.push(profilerDefinition);
+}
 
 /**
  * Lookup l10n string from a string bundle.

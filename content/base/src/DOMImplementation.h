@@ -19,17 +19,17 @@
 #include "nsStringGlue.h"
 
 class nsIDOMDocument;
-class nsIDOMDocumentType;
 
 namespace mozilla {
 namespace dom {
+class DocumentType;
 
 class DOMImplementation MOZ_FINAL : public nsIDOMDOMImplementation
                                   , public nsWrapperCache
 {
 public:
   DOMImplementation(nsIDocument* aOwner,
-                    nsIScriptGlobalObject* aScriptObject,
+                    nsIGlobalObject* aScriptObject,
                     nsIURI* aDocumentURI,
                     nsIURI* aBaseURI)
     : mOwner(aOwner)
@@ -53,15 +53,14 @@ public:
     return mOwner;
   }
 
-  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope,
-                               bool* aTriedToWrap) MOZ_OVERRIDE;
+  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope) MOZ_OVERRIDE;
 
   // nsIDOMDOMImplementation
   NS_DECL_NSIDOMDOMIMPLEMENTATION
 
   bool HasFeature(const nsAString& aFeature, const nsAString& aVersion);
 
-  already_AddRefed<nsIDOMDocumentType>
+  already_AddRefed<DocumentType>
   CreateDocumentType(const nsAString& aQualifiedName,
                      const nsAString& aPublicId,
                      const nsAString& aSystemId,
@@ -74,7 +73,7 @@ public:
                  ErrorResult& aRv);
 
   already_AddRefed<nsIDocument>
-  CreateHTMLDocument(const nsAString& aTitle, ErrorResult& aRv);
+  CreateHTMLDocument(const Optional<nsAString>& aTitle, ErrorResult& aRv);
 
 private:
   nsresult CreateDocument(const nsAString& aNamespaceURI,

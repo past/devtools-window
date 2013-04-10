@@ -12,6 +12,8 @@
 
 #include "prlock.h"
 #include "mozilla/RefPtr.h"
+#include "nsWeakPtr.h"
+#include "nsIWeakReferenceUtils.h" // for the definition of nsWeakPtr
 #include "IPeerConnection.h"
 #include "nsComponentManagerUtils.h"
 #include "nsPIDOMWindow.h"
@@ -32,6 +34,7 @@
 #include "VideoUtils.h"
 #include "ImageLayers.h"
 #include "VideoSegment.h"
+#include "nsNSSShutDown.h"
 #else
 namespace mozilla {
   class DataChannel;
@@ -42,13 +45,17 @@ using namespace mozilla;
 
 namespace sipcc {
 
-struct ConstraintInfo {
+class PeerConnectionWrapper;
+
+struct ConstraintInfo
+{
   std::string  value;
   bool         mandatory;
 };
 typedef std::map<std::string, ConstraintInfo> constraints_map;
 
-class MediaConstraints {
+class MediaConstraints
+{
 public:
   void setBooleanConstraint(const std::string& constraint, bool enabled, bool mandatory);
 
@@ -58,13 +65,44 @@ private:
   constraints_map  mConstraints;
 };
 
+class IceConfiguration
+{
+public:
+  bool addServer(const std::string& addr, uint16_t port)
+  {
+    NrIceStunServer* server(NrIceStunServer::Create(addr, port));
+    if (!server) {
+      return false;
+    }
+    addServer(*server);
+    return true;
+  }
+  void addServer(const NrIceStunServer& server) { mServers.push_back (server); }
+  const std::vector<NrIceStunServer>& getServers() const { return mServers; }
+private:
+  std::vector<NrIceStunServer> mServers;
+};
+
 class PeerConnectionWrapper;
+
+// Enter an API call and check that the state is OK,
+// the PC isn't closed, etc.
+#define PC_AUTO_ENTER_API_CALL(assert_ice_ready) \
+    do { \
+      /* do/while prevents res from conflicting with locals */    \
+      nsresult res = CheckApiState(assert_ice_ready);             \
+      if (NS_FAILED(res)) return res; \
+    } while(0)
+#define PC_AUTO_ENTER_API_CALL_NO_CHECK() CheckThread()
+
 
 class PeerConnectionImpl MOZ_FINAL : public IPeerConnection,
 #ifdef MOZILLA_INTERNAL_API
                                      public mozilla::DataChannelConnection::DataConnectionListener,
+                                     public nsNSSShutDownObject,
 #endif
-                                     public sigslot::has_slots<> {
+                                     public sigslot::has_slots<>
+{
 public:
   PeerConnectionImpl();
   ~PeerConnectionImpl();
@@ -98,78 +136,157 @@ public:
     kRoleAnswerer
   };
 
+  enum Error {
+    kNoError                          = 0,
+    kInvalidConstraintsType           = 1,
+    kInvalidCandidateType             = 2,
+    kInvalidMediastreamTrack          = 3,
+    kInvalidState                     = 4,
+    kInvalidSessionDescription        = 5,
+    kIncompatibleSessionDescription   = 6,
+    kIncompatibleConstraints          = 7,
+    kIncompatibleMediaStreamTrack     = 8,
+    kInternalError                    = 9
+  };
+
   NS_DECL_ISUPPORTS
   NS_DECL_IPEERCONNECTION
 
   static PeerConnectionImpl* CreatePeerConnection();
-  static void Shutdown();
+  static nsresult ConvertRTCConfiguration(const JS::Value& aSrc,
+    IceConfiguration *aDst, JSContext* aCx);
+  static nsresult ConvertConstraints(
+    const JS::Value& aConstraints, MediaConstraints* aObj, JSContext* aCx);
+  static nsresult MakeMediaStream(nsIDOMWindow* aWindow,
+                                  uint32_t aHint, nsIDOMMediaStream** aStream);
 
-  Role GetRole() const { return mRole; }
-  nsresult CreateRemoteSourceStreamInfo(uint32_t aHint, RemoteSourceStreamInfo** aInfo);
+  Role GetRole() const {
+    PC_AUTO_ENTER_API_CALL_NO_CHECK();
+    return mRole;
+  }
+
+  nsresult CreateRemoteSourceStreamInfo(nsRefPtr<RemoteSourceStreamInfo>* aInfo);
 
   // Implementation of the only observer we need
   virtual void onCallEvent(
     ccapi_call_event_e aCallEvent,
-    CSF::CC_CallPtr aCall,
     CSF::CC_CallInfoPtr aInfo
   );
 
   // DataConnection observers
   void NotifyConnection();
   void NotifyClosedConnection();
-  void NotifyDataChannel(mozilla::DataChannel *aChannel);
+  void NotifyDataChannel(already_AddRefed<mozilla::DataChannel> aChannel);
 
   // Get the media object
-  const nsRefPtr<PeerConnectionMedia>& media() const { return mMedia; }
+  const nsRefPtr<PeerConnectionMedia>& media() const {
+    PC_AUTO_ENTER_API_CALL_NO_CHECK();
+    return mMedia;
+  }
 
   // Handle system to allow weak references to be passed through C code
-  static PeerConnectionWrapper *AcquireInstance(const std::string& aHandle);
-  virtual void ReleaseInstance();
   virtual const std::string& GetHandle();
 
   // ICE events
   void IceGatheringCompleted(NrIceCtx *aCtx);
   void IceCompleted(NrIceCtx *aCtx);
+  void IceFailed(NrIceCtx *aCtx);
   void IceStreamReady(NrIceMediaStream *aStream);
 
   static void ListenThread(void *aData);
   static void ConnectThread(void *aData);
 
   // Get the main thread
-  nsCOMPtr<nsIThread> GetMainThread() { return mThread; }
+  nsCOMPtr<nsIThread> GetMainThread() {
+    PC_AUTO_ENTER_API_CALL_NO_CHECK();
+    return mThread;
+  }
 
   // Get the STS thread
-  nsCOMPtr<nsIEventTarget> GetSTSThread() { return mSTSThread; }
+  nsCOMPtr<nsIEventTarget> GetSTSThread() {
+    PC_AUTO_ENTER_API_CALL_NO_CHECK();
+    return mSTSThread;
+  }
 
   // Get the DTLS identity
-  mozilla::RefPtr<DtlsIdentity> const GetIdentity() { return mIdentity; }
+  mozilla::RefPtr<DtlsIdentity> const GetIdentity() {
+    PC_AUTO_ENTER_API_CALL_NO_CHECK();
+    return mIdentity;
+  }
 
   // Create a fake media stream
   nsresult CreateFakeMediaStream(uint32_t hint, nsIDOMMediaStream** retval);
 
-  nsPIDOMWindow* GetWindow() const { return mWindow; }
+  nsPIDOMWindow* GetWindow() const {
+    PC_AUTO_ENTER_API_CALL_NO_CHECK();
+    return mWindow;
+  }
+
+  // Initialize PeerConnection from an IceConfiguration object.
+  nsresult Initialize(IPeerConnectionObserver* aObserver,
+                      nsIDOMWindow* aWindow,
+                      const IceConfiguration& aConfiguration,
+                      nsIThread* aThread) {
+    return Initialize(aObserver, aWindow, &aConfiguration, nullptr, aThread, nullptr);
+  }
 
   // Validate constraints and construct a MediaConstraints object
   // from a JS::Value.
-  nsresult ConvertConstraints(
-    const JS::Value& aConstraints, MediaConstraints* aObj, JSContext* aCx);
   NS_IMETHODIMP CreateOffer(MediaConstraints& aConstraints);
   NS_IMETHODIMP CreateAnswer(MediaConstraints& aConstraints);
+
+  nsresult InitializeDataChannel(int track_id, uint16_t aLocalport,
+                                 uint16_t aRemoteport, uint16_t aNumstreams);
+
+  // Called whenever something is unrecognized by the parser
+  // May be called more than once and does not necessarily mean
+  // that parsing was stopped, only that something was unrecognized.
+  void OnSdpParseError(const char* errorMessage);
+
+  // Called when OnLocal/RemoteDescriptionSuccess/Error
+  // is called to start the list over.
+  void ClearSdpParseErrorMessages();
 
 private:
   PeerConnectionImpl(const PeerConnectionImpl&rhs);
   PeerConnectionImpl& operator=(PeerConnectionImpl);
+  nsresult Initialize(IPeerConnectionObserver* aObserver,
+                      nsIDOMWindow* aWindow,
+                      const IceConfiguration* aConfiguration,
+                      const JS::Value* aRTCConfiguration,
+                      nsIThread* aThread,
+                      JSContext* aCx);
+  NS_IMETHODIMP CreateOfferInt(MediaConstraints& constraints);
+  NS_IMETHODIMP CreateAnswerInt(MediaConstraints& constraints);
+  NS_IMETHODIMP EnsureDataConnection(uint16_t aNumstreams);
 
+  nsresult CloseInt(bool aIsSynchronous);
   void ChangeReadyState(ReadyState aReadyState);
-  void CheckIceState() {
-    PR_ASSERT(mIceState != kIceGathering);
+  nsresult CheckApiState(bool assert_ice_ready) const;
+  void CheckThread() const {
+    NS_ABORT_IF_FALSE(CheckThreadInt(), "Wrong thread");
   }
+  bool CheckThreadInt() const {
+#ifdef MOZILLA_INTERNAL_API
+    // Thread assertions are disabled in the C++ unit tests because those
+    // make API calls off the main thread.
+    // TODO(ekr@rtfm.com): Fix the unit tests so they don't do that.
+    bool on;
+    NS_ENSURE_SUCCESS(mThread->IsOnCurrentThread(&on), false);
+    NS_ENSURE_TRUE(on, false);
+#endif
+    return true;
+  }
+
+#ifdef MOZILLA_INTERNAL_API
+  void virtualDestroyNSSReference() MOZ_FINAL;
+#endif
 
   // Shut down media. Called on any thread.
   void ShutdownMedia(bool isSynchronous);
 
-  nsresult MakeMediaStream(uint32_t aHint, nsIDOMMediaStream** aStream);
-  nsresult MakeRemoteSource(nsDOMMediaStream* aStream, RemoteSourceStreamInfo** aInfo);
+  // ICE callbacks run on the right thread.
+  nsresult IceStateChange_m(IceState aState);
 
   // The role we are adopting
   Role mRole;
@@ -182,7 +299,9 @@ private:
   IceState mIceState;
 
   nsCOMPtr<nsIThread> mThread;
-  nsCOMPtr<IPeerConnectionObserver> mPCObserver;
+  // Weak pointer to IPeerConnectionObserver
+  // This is only safe to use on the main thread
+  nsWeakPtr mPCObserver;
   nsCOMPtr<nsPIDOMWindow> mWindow;
 
   // The SDP sent in from JS - here for debugging.
@@ -212,8 +331,17 @@ private:
 
   nsRefPtr<PeerConnectionMedia> mMedia;
 
-  // Singleton list of all the PeerConnections
-  static std::map<const std::string, PeerConnectionImpl *> peerconnections;
+  // Temporary: used to prevent multiple audio streams or multiple video streams
+  // in a single PC. This is tied up in the IETF discussion around proper
+  // representation of multiple streams in SDP, and strongly related to
+  // Bug 840728.
+  int mNumAudioStreams;
+  int mNumVideoStreams;
+
+  bool mHaveDataStream;
+
+  // Holder for error messages from parsing SDP
+  std::vector<std::string> mSDPParseErrorMessages;
 
 public:
   //these are temporary until the DataChannel Listen/Connect API is removed
@@ -223,19 +351,15 @@ public:
 };
 
 // This is what is returned when you acquire on a handle
-class PeerConnectionWrapper {
+class PeerConnectionWrapper
+{
  public:
-  PeerConnectionWrapper(PeerConnectionImpl *impl) : impl_(impl) {}
-
-  ~PeerConnectionWrapper() {
-    if (impl_)
-      impl_->ReleaseInstance();
-  }
+  PeerConnectionWrapper(const std::string& handle);
 
   PeerConnectionImpl *impl() { return impl_; }
 
  private:
-  PeerConnectionImpl *impl_;
+  nsRefPtr<PeerConnectionImpl> impl_;
 };
 
 }  // end sipcc namespace

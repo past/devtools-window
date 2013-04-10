@@ -17,7 +17,11 @@
 #include "OggCodecState.h"
 #include "VideoUtils.h"
 
-class nsTimeRanges;
+namespace mozilla {
+namespace dom {
+class TimeRanges;
+}
+}
 
 namespace mozilla {
 
@@ -49,13 +53,7 @@ public:
   virtual nsresult ReadMetadata(VideoInfo* aInfo,
                                 MetadataTags** aTags);
   virtual nsresult Seek(int64_t aTime, int64_t aStartTime, int64_t aEndTime, int64_t aCurrentTime);
-  virtual nsresult GetBuffered(nsTimeRanges* aBuffered, int64_t aStartTime);
-
-  // We use bisection to seek in buffered range, but we don't allow seeking in a
-  // chained ogg file.
-  virtual bool IsSeekableInBufferedRanges() {
-    return true;
-  }
+  virtual nsresult GetBuffered(dom::TimeRanges* aBuffered, int64_t aStartTime);
 
 private:
   // This monitor should be taken when reading or writing to mIsChained.

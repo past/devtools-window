@@ -20,7 +20,7 @@
 #include "pldhash.h"
 #include "mozilla/TimeStamp.h"
 
-class  nsISupportsArray;
+class  nsILoadGroupConnectionInfo;
 
 class nsLoadGroup : public nsILoadGroup,
                     public nsISupportsPriority,
@@ -64,6 +64,7 @@ protected:
 
     nsCOMPtr<nsILoadGroup>          mLoadGroup; // load groups can contain load groups
     nsCOMPtr<nsIInterfaceRequestor> mCallbacks;
+    nsCOMPtr<nsILoadGroupConnectionInfo> mConnectionInfo;
 
     nsCOMPtr<nsIRequest>            mDefaultLoadRequest;
     PLDHashTable                    mRequests;

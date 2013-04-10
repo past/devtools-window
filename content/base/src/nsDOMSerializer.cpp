@@ -4,35 +4,31 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsDOMSerializer.h"
-#include "nsIDOMNode.h"
-#include "nsDOMClassInfoID.h"
-#include "nsIOutputStream.h"
+
 #include "nsIDocument.h"
-#include "nsIDOMDocument.h"
 #include "nsIDocumentEncoder.h"
-#include "nsString.h"
+#include "nsComponentManagerUtils.h"
 #include "nsContentCID.h"
 #include "nsContentUtils.h"
 #include "nsError.h"
+#include "nsINode.h"
 
 using namespace mozilla;
 
 nsDOMSerializer::nsDOMSerializer()
 {
+  SetIsDOMBinding();
 }
 
 nsDOMSerializer::~nsDOMSerializer()
 {
 }
 
-DOMCI_DATA(XMLSerializer, nsDOMSerializer)
-
 // QueryInterface implementation for nsDOMSerializer
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDOMSerializer)
   NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
   NS_INTERFACE_MAP_ENTRY(nsISupports)
   NS_INTERFACE_MAP_ENTRY(nsIDOMSerializer)
-  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(XMLSerializer)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_1(nsDOMSerializer, mOwner)

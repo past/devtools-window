@@ -105,7 +105,7 @@ function processStsHeader(hostname, header, status) {
   if (header != null) {
     try {
       var uri = Services.io.newURI("https://" + host.name, null, null);
-      gSTSService.processStsHeader(uri, header, maxAge, includeSubdomains);
+      gSTSService.processStsHeader(uri, header, 0, maxAge, includeSubdomains);
     }
     catch (e) {
       dump("ERROR: could not process header '" + header + "' from " + hostname +
@@ -148,6 +148,7 @@ function getHSTSStatus(host, resultList) {
   var inResultList = false;
   var uri = "https://" + host.name + "/";
   req.open("GET", uri, true);
+  req.timeout = 60000;
   req.channel.notificationCallbacks = new RedirectStopper();
   req.onreadystatechange = function(event) {
     if (!inResultList && req.readyState == 4) {

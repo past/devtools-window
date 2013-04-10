@@ -42,6 +42,8 @@ extern PRLogModuleInfo* gFTPLog;
 #define LOG(args)         PR_LOG(gFTPLog, PR_LOG_DEBUG, args)
 #define LOG_ALWAYS(args)  PR_LOG(gFTPLog, PR_LOG_ALWAYS, args)
 
+using namespace mozilla::net;
+
 // remove FTP parameters (starting with ";") from the path
 static void
 removeParamsFromPath(nsCString& path)
@@ -1292,7 +1294,9 @@ nsFtpState::S_pasv() {
     if (!mAddressChecked) {
         // Find socket address
         mAddressChecked = true;
-        PR_InitializeNetAddr(PR_IpAddrAny, 0, &mServerAddress);
+        mServerAddress.raw.family = AF_INET;
+        mServerAddress.inet.ip = htonl(INADDR_ANY);
+        mServerAddress.inet.port = htons(0);
 
         nsITransport *controlSocket = mControlConnection->Transport();
         if (!controlSocket)
@@ -1304,9 +1308,9 @@ nsFtpState::S_pasv() {
         if (sTrans) {
             nsresult rv = sTrans->GetPeerAddr(&mServerAddress);
             if (NS_SUCCEEDED(rv)) {
-                if (!PR_IsNetAddrType(&mServerAddress, PR_IpAddrAny))
-                    mServerIsIPv6 = mServerAddress.raw.family == PR_AF_INET6 &&
-                        !PR_IsNetAddrType(&mServerAddress, PR_IpAddrV4Mapped);
+                if (!IsIPAddrAny(&mServerAddress))
+                    mServerIsIPv6 = (mServerAddress.raw.family == AF_INET6) &&
+                                    !IsIPAddrV4Mapped(&mServerAddress);
                 else {
                     /*
                      * In case of SOCKS5 remote DNS resolution, we do
@@ -1315,12 +1319,11 @@ nsFtpState::S_pasv() {
                      * socks server should also be IPv6, and this is the
                      * self address of the transport.
                      */
-                    PRNetAddr selfAddress;
+                    NetAddr selfAddress;
                     rv = sTrans->GetSelfAddr(&selfAddress);
                     if (NS_SUCCEEDED(rv))
-                        mServerIsIPv6 = selfAddress.raw.family == PR_AF_INET6
-                            && !PR_IsNetAddrType(&selfAddress,
-                                                 PR_IpAddrV4Mapped);
+                        mServerIsIPv6 = (selfAddress.raw.family == AF_INET6) &&
+                                        !IsIPAddrV4Mapped(&selfAddress);
                 }
             }
         }
@@ -1446,9 +1449,9 @@ nsFtpState::R_pasv() {
         nsCOMPtr<nsISocketTransport> strans;
 
         nsAutoCString host;
-        if (!PR_IsNetAddrType(&mServerAddress, PR_IpAddrAny)) {
-            char buf[64];
-            PR_NetAddrToString(&mServerAddress, buf, sizeof(buf));
+        if (!IsIPAddrAny(&mServerAddress)) {
+            char buf[kIPv6CStrBufSize];
+            NetAddrToString(&mServerAddress, buf, sizeof(buf));
             host.Assign(buf);
         } else {
             /*
@@ -1845,6 +1848,32 @@ nsFtpState::KillControlConnection()
     mControlConnection = nullptr;
 }
 
+class nsFtpAsyncAlert : public nsRunnable
+{
+public:
+    nsFtpAsyncAlert(nsIPrompt *aPrompter, nsACString& aResponseMsg)
+        : mPrompter(aPrompter)
+        , mResponseMsg(aResponseMsg)
+    {
+        MOZ_COUNT_CTOR(nsFtpAsyncAlert);
+    }
+    virtual ~nsFtpAsyncAlert()
+    {
+        MOZ_COUNT_DTOR(nsFtpAsyncAlert);
+    }
+    NS_IMETHOD Run()
+    {
+        if (mPrompter) {
+            mPrompter->Alert(nullptr, NS_ConvertASCIItoUTF16(mResponseMsg).get());
+        }
+        return NS_OK;
+    }
+private:
+    nsCOMPtr<nsIPrompt> mPrompter;
+    nsCString mResponseMsg;
+};
+    
+
 nsresult
 nsFtpState::StopProcessing()
 {
@@ -1866,8 +1895,11 @@ nsFtpState::StopProcessing()
         // XXX(darin): this code should not be dictating UI like this!
         nsCOMPtr<nsIPrompt> prompter;
         mChannel->GetCallback(prompter);
-        if (prompter)
-            prompter->Alert(nullptr, NS_ConvertASCIItoUTF16(mResponseMsg).get());
+        if (prompter) {
+            nsCOMPtr<nsIRunnable> alertEvent =
+                new nsFtpAsyncAlert(prompter, mResponseMsg);
+            NS_DispatchToMainThread(alertEvent, NS_DISPATCH_NORMAL);
+        }
     }
     
     nsresult broadcastErrorCode = mControlStatus;

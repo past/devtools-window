@@ -34,7 +34,7 @@ class ConvertToStructuredFilter(logging.Filter):
             return True
 
         record.action = 'unstructured'
-        record.params = {'msg': record.msg}
+        record.params = {'msg': record.getMessage()}
         record.msg = '{msg}'
 
         return True
@@ -61,12 +61,16 @@ class StructuredHumanFormatter(logging.Formatter):
     Because of this limitation, format() will fail with a KeyError if an
     unstructured record is passed or if the structured message is malformed.
     """
-    def __init__(self, start_time, write_interval=False):
+    def __init__(self, start_time, write_interval=False, write_times=True):
         self.start_time = start_time
         self.write_interval = write_interval
+        self.write_times = write_times
         self.last_time = None
 
     def format(self, record):
+        if not self.write_times:
+            return record.msg.format(**record.params)
+
         elapsed = self._time(record)
 
         return '%s %s' % (format_seconds(elapsed),
@@ -112,11 +116,10 @@ class StructuredTerminalFormatter(StructuredHumanFormatter):
 class LoggingManager(object):
     """Holds and controls global logging state.
 
-    A mozbuild application should instantiate one of these and configure it
-    as needed.
+    An application should instantiate one of these and configure it as needed.
 
     This class provides a mechanism to configure the output of logging data
-    both from mozbuild and from the overall logging system (e.g. from other
+    both from mach and from the overall logging system (e.g. from other
     modules).
     """
 
@@ -135,12 +138,12 @@ class LoggingManager(object):
         # complaining about "no handlers could be found for logger XXX."
         self.root_logger.addHandler(logging.NullHandler())
 
-        self.mozbuild_logger = logging.getLogger('mozbuild')
-        self.mozbuild_logger.setLevel(logging.DEBUG)
+        self.mach_logger = logging.getLogger('mach')
+        self.mach_logger.setLevel(logging.DEBUG)
 
         self.structured_filter = ConvertToStructuredFilter()
 
-        self.structured_loggers = [self.mozbuild_logger]
+        self.structured_loggers = [self.mach_logger]
 
         self._terminal = None
 
@@ -227,6 +230,6 @@ class LoggingManager(object):
         """Register a structured logger.
 
         This needs to be called for all structured loggers that don't chain up
-        to the mozbuild logger in order for their output to be captured.
+        to the mach logger in order for their output to be captured.
         """
         self.structured_loggers.append(logger)

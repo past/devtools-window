@@ -107,6 +107,7 @@ public:
     {
         NS_PRECONDITION(wrapper,"bad param");
         nsISupports* obj = wrapper->GetIdentityObject();
+        MOZ_ASSERT(!Find(obj), "wrapper already in new scope!");
         Entry* entry = (Entry*)
             JS_DHashTableOperate(mTable, obj, JS_DHASH_ADD);
         if (!entry)
@@ -641,8 +642,11 @@ public:
 
     void Sweep() {
         for (Map::Enum e(mTable); !e.empty(); e.popFront()) {
-            if (JS_IsAboutToBeFinalized(e.front().key) || JS_IsAboutToBeFinalized(e.front().value))
+            JSObject *updated = e.front().key;
+            if (JS_IsAboutToBeFinalized(&updated) || JS_IsAboutToBeFinalized(&e.front().value))
                 e.removeFront();
+            else if (updated != e.front().key)
+                e.rekeyFront(updated);
         }
     }
 

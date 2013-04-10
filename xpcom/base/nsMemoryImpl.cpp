@@ -10,7 +10,7 @@
 #include "nsIObserver.h"
 #include "nsIObserverService.h"
 #include "nsIServiceManager.h"
-#include "nsISupportsArray.h"
+#include "nsISimpleEnumerator.h"
 
 #include "prcvar.h"
 #include "pratom.h"
@@ -22,7 +22,7 @@
 
 #ifdef ANDROID
 #include <stdio.h>
-#define LOW_MEMORY_THRESHOLD_KB (512 * 1024)
+#define LOW_MEMORY_THRESHOLD_KB (384 * 1024)
 #endif
 
 static nsMemoryImpl sGlobalMemory;

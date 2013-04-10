@@ -481,17 +481,16 @@ ReferenceFinder::Path::computeName(JSContext *cx)
 }
 
 bool
-ReferenceFinder::addReferrer(jsval referrer_, Path *path)
+ReferenceFinder::addReferrer(jsval referrerArg, Path *path)
 {
-    Rooted<jsval> referrer(context, referrer_);
+    RootedValue referrer(context, referrerArg);
 
-    if (!context->compartment->wrap(context, referrer.address()))
+    if (!context->compartment->wrap(context, &referrer))
         return false;
 
-    char *pathName = path->computeName(context);
+    ScopedJSFreePtr<char> pathName(path->computeName(context));
     if (!pathName)
         return false;
-    AutoReleasePtr releasePathName(pathName);
 
     /* Find the property of the results object named |pathName|. */
     RootedValue valRoot(context);
@@ -540,7 +539,7 @@ FindReferences(JSContext *cx, unsigned argc, jsval *vp)
         return false;
     }
 
-    JS::Value target = JS_ARGV(cx, vp)[0];
+    RootedValue target(cx, JS_ARGV(cx, vp)[0]);
     if (!target.isObject()) {
         JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL, JSMSG_UNEXPECTED_TYPE,
                              "argument", "not an object");

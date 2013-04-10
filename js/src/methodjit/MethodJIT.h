@@ -8,6 +8,8 @@
 #if !defined jsjaeger_h__ && defined JS_METHODJIT
 #define jsjaeger_h__
 
+#include "mozilla/PodOperations.h"
+
 #ifdef JSGC_INCREMENTAL
 #define JSGC_INCREMENTAL_MJ
 #endif
@@ -218,7 +220,7 @@ struct VMFrame
     inline unsigned chunkIndex();
 
     /* Get the inner script/PC in case of inlining. */
-    inline Return<JSScript*> script();
+    inline JSScript *script();
     inline jsbytecode *pc();
 
 #if defined(JS_CPU_SPARC)
@@ -748,7 +750,7 @@ struct ChunkDescriptor
     /* Optional compiled code for the chunk. */
     JITChunk *chunk;
 
-    ChunkDescriptor() { PodZero(this); }
+    ChunkDescriptor() { mozilla::PodZero(this); }
 };
 
 /* Jump or fallthrough edge in the bytecode which crosses a chunk boundary. */
@@ -784,7 +786,7 @@ struct CrossChunkEdge
      */
     void *shimLabel;
 
-    CrossChunkEdge() { PodZero(this); }
+    CrossChunkEdge() { mozilla::PodZero(this); }
 };
 
 struct JITScript
@@ -942,12 +944,12 @@ DisableScriptCodeForIon(JSScript *script, jsbytecode *osrPC);
 
 // Expand all stack frames inlined by the JIT within a compartment.
 void
-ExpandInlineFrames(JSCompartment *compartment);
+ExpandInlineFrames(JS::Zone *zone);
 
 // Return all VMFrames in a compartment to the interpreter. This must be
 // followed by destroying all JIT code in the compartment.
 void
-ClearAllFrames(JSCompartment *compartment);
+ClearAllFrames(JS::Zone *zone);
 
 // Information about a frame inlined during compilation.
 struct InlineFrame
@@ -1035,7 +1037,7 @@ IsLowerableFunCallOrApply(jsbytecode *pc)
 #endif
 }
 
-Shape *
+RawShape
 GetPICSingleShape(JSContext *cx, JSScript *script, jsbytecode *pc, bool constructing);
 
 static inline void
@@ -1064,10 +1066,9 @@ VMFrame::chunkIndex()
     return jit()->chunkIndex(regs.pc);
 }
 
-inline Return<JSScript*>
+inline JSScript *
 VMFrame::script()
 {
-    AutoAssertNoGC nogc;
     if (regs.inlined())
         return chunk()->inlineFrames()[regs.inlined()->inlineIndex].fun->nonLazyScript();
     return fp()->script();
@@ -1076,7 +1077,6 @@ VMFrame::script()
 inline jsbytecode *
 VMFrame::pc()
 {
-    AutoAssertNoGC nogc;
     if (regs.inlined())
         return script()->code + regs.inlined()->pcOffset;
     return regs.pc;
@@ -1087,7 +1087,7 @@ VMFrame::pc()
 inline void *
 JSScript::nativeCodeForPC(bool constructing, jsbytecode *pc)
 {
-    js::mjit::JITScript *jit = getJIT(constructing, compartment()->compileBarriers());
+    js::mjit::JITScript *jit = getJIT(constructing, zone()->compileBarriers());
     if (!jit)
         return NULL;
     js::mjit::JITChunk *chunk = jit->chunk(pc);

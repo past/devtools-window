@@ -32,10 +32,12 @@
   -. 'method' is designed to be as input for CSS2Properties and similar
   callers.  It must always be the same as 'name' except it must use
   InterCaps and all hyphens ('-') must be removed.  Callers using this
-  parameter must also define the CSS_PROP_DOMPROP_PREFIXED(prop) macro,
-  either to be Moz ## prop or to just be prop, depending on whether they
-  want Moz prefixes or not (i.e., whether the use is for internal use
-  such as nsRuleData::ValueFor* or external use).
+  parameter must also define the CSS_PROP_PUBLIC_OR_PRIVATE(publicname_,
+  privatename_) macro to yield either publicname_ or privatename_.
+  The names differ in that publicname_ has Moz prefixes where they are
+  used, and also in CssFloat vs. Float.  The caller's choice depends on
+  whether the use is for internal use such as eCSSProperty_* or
+  nsRuleData::ValueFor* or external use such as exposing DOM properties.
 
   -. 'pref' is the name of a pref that controls whether the property
   is enabled.  The property is enabled if 'pref' is an empty string,
@@ -75,6 +77,9 @@
 #define CSS_PROP_SHORTHAND(name_, id_, method_, flags_, pref_) /* nothing */
 #define DEFINED_CSS_PROP_SHORTHAND
 #endif
+
+#define CSS_PROP_DOMPROP_PREFIXED(name_) \
+  CSS_PROP_PUBLIC_OR_PRIVATE(Moz ## name_, name_)
 
 #define CSS_PROP_NO_OFFSET (-1)
 
@@ -1654,7 +1659,7 @@ CSS_PROP_POSITION(
 CSS_PROP_DISPLAY(
     float,
     float,
-    CssFloat,
+    CSS_PROP_PUBLIC_OR_PRIVATE(CssFloat, Float),
     CSS_PROPERTY_PARSE_VALUE |
         CSS_PROPERTY_APPLIES_TO_FIRST_LETTER,
     "",
@@ -2145,7 +2150,7 @@ CSS_PROP_POSITION(
         CSS_PROPERTY_VALUE_NONNEGATIVE |
         CSS_PROPERTY_STORES_CALC,
     "",
-    VARIANT_AHLP | VARIANT_CALC,
+    VARIANT_HLP | VARIANT_CALC,
     nullptr,
     offsetof(nsStylePosition, mMinHeight),
     eStyleAnimType_Coord)
@@ -2157,7 +2162,7 @@ CSS_PROP_POSITION(
         CSS_PROPERTY_VALUE_NONNEGATIVE |
         CSS_PROPERTY_STORES_CALC,
     "",
-    VARIANT_AHKLP | VARIANT_CALC,
+    VARIANT_HKLP | VARIANT_CALC,
     kWidthKTable,
     offsetof(nsStylePosition, mMinWidth),
     eStyleAnimType_Coord)
@@ -2496,6 +2501,16 @@ CSS_PROP_DISPLAY(
     kPageBreakInsideKTable,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_None)
+CSS_PROP_SVG(
+    paint-order,
+    paint_order,
+    PaintOrder,
+    CSS_PROPERTY_PARSE_FUNCTION,
+    "svg.paint-order.enabled",
+    0,
+    nullptr,
+    CSS_PROP_NO_OFFSET,
+    eStyleAnimType_None)
 CSS_PROP_VISIBILITY(
     pointer-events,
     pointer_events,
@@ -2665,7 +2680,8 @@ CSS_PROP_TEXTRESET(
     text_overflow,
     TextOverflow,
     CSS_PROPERTY_PARSE_VALUE |
-        CSS_PROPERTY_VALUE_PARSER_FUNCTION,
+        CSS_PROPERTY_VALUE_PARSER_FUNCTION |
+        CSS_PROPERTY_APPLIES_TO_PLACEHOLDER,
     "",
     0,
     kTextOverflowKTable,
@@ -3294,6 +3310,16 @@ CSS_PROP_SVGRESET(
     nullptr,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_None)
+CSS_PROP_SVGRESET(
+    mask-type,
+    mask_type,
+    MaskType,
+    CSS_PROPERTY_PARSE_VALUE,
+    "layout.css.masking.enabled",
+    VARIANT_HK,
+    kMaskTypeKTable,
+    offsetof(nsStyleSVGReset, mMaskType),
+    eStyleAnimType_EnumU8)
 CSS_PROP_SVG(
     shape-rendering,
     shape_rendering,
@@ -3459,22 +3485,11 @@ CSS_PROP_SHORTHAND(
 #ifdef CSS_PROP_STUB_NOT_CSS
 CSS_PROP_STUB_NOT_CSS
 CSS_PROP_STUB_NOT_CSS
-CSS_PROP_STUB_NOT_CSS
 #else
 CSS_PROP_FONT(
     -x-lang,
     _x_lang,
     Lang,
-    CSS_PROPERTY_PARSE_INACCESSIBLE,
-    "",
-    0,
-    nullptr,
-    CSS_PROP_NO_OFFSET,
-    eStyleAnimType_None)
-CSS_PROP_TABLE(
-    -x-cols,
-    _x_cols,
-    Cols,
     CSS_PROPERTY_PARSE_INACCESSIBLE,
     "",
     0,
@@ -3630,3 +3645,5 @@ CSS_PROP_TABLE(
 #undef CSS_PROP_SHORTHAND
 #undef DEFINED_CSS_PROP_SHORTHAND
 #endif
+
+#undef CSS_PROP_DOMPROP_PREFIXED

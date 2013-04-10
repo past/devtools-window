@@ -9,10 +9,10 @@
 #define _nsTextEquivUtils_H_
 
 #include "Accessible.h"
+#include "nsIStringBundle.h"
 #include "Role.h"
 
-#include "nsIContent.h"
-#include "nsIStringBundle.h"
+class nsIContent;
 
 /**
  * Text equivalent computation rules (see nsTextEquivUtils::gRoleToNameRulesMap)
@@ -52,6 +52,14 @@ public:
    */
   static nsresult GetNameFromSubtree(Accessible* aAccessible,
                                      nsAString& aName);
+
+  /**
+   * Calculates text equivalent from the subtree. Similar to GetNameFromSubtree.
+   * The difference it returns not empty result for things like HTML p, i.e.
+   * if the role has eNameFromSubtreeIfReq rule.
+   */
+  static void GetTextEquivFromSubtree(Accessible* aAccessible,
+                                      nsString& aTextEquiv);
 
   /**
    * Calculates text equivalent for the given accessible from its IDRefs

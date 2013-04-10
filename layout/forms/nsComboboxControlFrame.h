@@ -35,7 +35,7 @@
 #include "nsIDOMEventListener.h"
 #include "nsThreadUtils.h"
 
-class nsIView;
+class nsView;
 class nsStyleContext;
 class nsIListControlFrame;
 class nsComboboxDisplayFrame;
@@ -81,9 +81,9 @@ public:
                          nsGUIEvent* aEvent,
                          nsEventStatus* aEventStatus);
 
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists) MOZ_OVERRIDE;
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
 
   void PaintFocus(nsRenderingContext& aRenderingContext, nsPoint aPt);
 
@@ -115,7 +115,6 @@ public:
 
   // nsIFormControlFrame
   virtual nsresult SetFormProperty(nsIAtom* aName, const nsAString& aValue) MOZ_OVERRIDE;
-  virtual nsresult GetFormProperty(nsIAtom* aName, nsAString& aValue) const MOZ_OVERRIDE; 
   /**
    * Inform the control that it got (or lost) focus.
    * If it lost focus, the dropdown menu will be rolled up if needed,
@@ -177,6 +176,9 @@ public:
    */
   virtual bool ShouldRollupOnMouseWheelEvent()
     { return true; }
+
+  virtual bool ShouldConsumeOnMouseWheelEvent()
+    { return false; }
 
   /**
    * A combobox should not roll up if activated by a mouse activate message

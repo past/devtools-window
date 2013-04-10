@@ -38,7 +38,7 @@
 
 // radio buttons
 #include "nsIDOMHTMLInputElement.h"
-#include "nsHTMLInputElement.h"
+#include "mozilla/dom/HTMLInputElement.h"
 #include "nsIRadioVisitor.h"
 
 #include "nsLayoutUtils.h"
@@ -52,6 +52,7 @@
 
 #include "nsIDOMHTMLButtonElement.h"
 #include "mozilla/dom/HTMLCollectionBinding.h"
+#include "mozilla/dom/BindingUtils.h"
 #include "nsSandboxFlags.h"
 
 using namespace mozilla::dom;
@@ -123,10 +124,9 @@ public:
   nsresult GetSortedControls(nsTArray<nsGenericHTMLFormElement*>& aControls) const;
 
   // nsWrapperCache
-  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope,
-                               bool *triedToWrap)
+  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope)
   {
-    return HTMLCollectionBinding::Wrap(cx, scope, this, triedToWrap);
+    return HTMLCollectionBinding::Wrap(cx, scope, this);
   }
 
   nsHTMLFormElement* mForm;  // WEAK - the form owns me
@@ -183,6 +183,9 @@ ShouldBeInElements(nsIFormControl* aFormControl)
   case NS_FORM_INPUT_TEL :
   case NS_FORM_INPUT_URL :
   case NS_FORM_INPUT_NUMBER :
+  case NS_FORM_INPUT_RANGE :
+  case NS_FORM_INPUT_DATE :
+  case NS_FORM_INPUT_TIME :
   case NS_FORM_SELECT :
   case NS_FORM_TEXTAREA :
   case NS_FORM_FIELDSET :
@@ -283,7 +286,6 @@ ElementTraverser(const nsAString& key, nsIDOMHTMLInputElement* element,
   return PL_DHASH_NEXT;
 }
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsHTMLFormElement)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsHTMLFormElement,
                                                   nsGenericHTMLElement)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mControls)
@@ -582,9 +584,9 @@ nsHTMLFormElement::WillHandleEvent(nsEventChainPostVisitor& aVisitor)
   // for this form too.
   if ((aVisitor.mEvent->message == NS_FORM_SUBMIT ||
        aVisitor.mEvent->message == NS_FORM_RESET) &&
-      aVisitor.mEvent->flags & NS_EVENT_FLAG_BUBBLE &&
+      aVisitor.mEvent->mFlags.mInBubblingPhase &&
       aVisitor.mEvent->originalTarget != static_cast<nsIContent*>(this)) {
-    aVisitor.mEvent->flags |= NS_EVENT_FLAG_STOP_DISPATCH;
+    aVisitor.mEvent->mFlags.mPropagationStopped = true;
   }
   return NS_OK;
 }
@@ -1088,6 +1090,20 @@ AssertDocumentOrder(const nsTArray<nsGenericHTMLFormElement*>& aControls,
 }
 #endif
 
+void
+nsHTMLFormElement::PostPasswordEvent()
+{
+  // Don't fire another add event if we have a pending add event.
+  if (mFormPasswordEvent.get()) {
+    return;
+  }
+
+  nsRefPtr<FormPasswordEvent> event =
+    new FormPasswordEvent(this, NS_LITERAL_STRING("DOMFormHasPassword"));
+  mFormPasswordEvent = event;
+  event->PostDOMEvent();
+}
+
 nsresult
 nsHTMLFormElement::AddElement(nsGenericHTMLFormElement* aChild,
                               bool aUpdateValidity, bool aNotify)
@@ -1155,12 +1171,14 @@ nsHTMLFormElement::AddElement(nsGenericHTMLFormElement* aChild,
   // If it is a password control, and the password manager has not yet been
   // initialized, initialize the password manager
   //
-  if (!gPasswordManagerInitialized && type == NS_FORM_INPUT_PASSWORD) {
-    // Initialize the password manager category
-    gPasswordManagerInitialized = true;
-    NS_CreateServicesFromCategory(NS_PASSWORDMANAGER_CATEGORY,
-                                  nullptr,
-                                  NS_PASSWORDMANAGER_CATEGORY);
+  if (type == NS_FORM_INPUT_PASSWORD) {
+    if (!gPasswordManagerInitialized) {
+      gPasswordManagerInitialized = true;
+      NS_CreateServicesFromCategory(NS_PASSWORDMANAGER_CATEGORY,
+                                    nullptr,
+                                    NS_PASSWORDMANAGER_CATEGORY);
+    }
+    PostPasswordEvent();
   }
  
   // Default submit element handling
@@ -1222,8 +1240,8 @@ nsHTMLFormElement::AddElement(nsGenericHTMLFormElement* aChild,
   // This has to be done _after_ UpdateValidity() call to prevent the element
   // being count twice.
   if (type == NS_FORM_INPUT_RADIO) {
-    nsRefPtr<nsHTMLInputElement> radio =
-      static_cast<nsHTMLInputElement*>(aChild);
+    nsRefPtr<HTMLInputElement> radio =
+      static_cast<HTMLInputElement*>(aChild);
     radio->AddedToRadioGroup();
   }
 
@@ -1247,8 +1265,8 @@ nsHTMLFormElement::RemoveElement(nsGenericHTMLFormElement* aChild,
   //
   nsresult rv = NS_OK;
   if (aChild->GetType() == NS_FORM_INPUT_RADIO) {
-    nsRefPtr<nsHTMLInputElement> radio =
-      static_cast<nsHTMLInputElement*>(aChild);
+    nsRefPtr<HTMLInputElement> radio =
+      static_cast<HTMLInputElement*>(aChild);
     radio->WillRemoveFromRadioGroup();
   }
 
@@ -1346,10 +1364,24 @@ nsHTMLFormElement::RemoveElementFromTable(nsGenericHTMLFormElement* aElement,
   return mControls->RemoveElementFromTable(aElement, aName);
 }
 
-NS_IMETHODIMP_(already_AddRefed<nsISupports>)
-nsHTMLFormElement::ResolveName(const nsAString& aName)
+already_AddRefed<nsISupports>
+nsHTMLFormElement::FindNamedItem(const nsAString& aName,
+                                 nsWrapperCache** aCache)
 {
-  return DoResolveName(aName, true);
+  nsCOMPtr<nsISupports> result = DoResolveName(aName, true);
+  if (result) {
+    // FIXME Get the wrapper cache from DoResolveName.
+    *aCache = nullptr;
+    return result.forget();
+  }
+
+  nsCOMPtr<nsIHTMLDocument> htmlDoc = do_QueryInterface(GetCurrentDoc());
+  if (!htmlDoc) {
+    *aCache = nullptr;
+    return nullptr;
+  }
+
+  return htmlDoc->ResolveName(aName, this, aCache);
 }
 
 already_AddRefed<nsISupports>
@@ -1728,7 +1760,7 @@ nsHTMLFormElement::CheckValidFormSubmission()
           // update the style in that case.
           if (mControls->mElements[i]->IsHTML(nsGkAtoms::input) &&
               nsContentUtils::IsFocusedContent(mControls->mElements[i])) {
-            static_cast<nsHTMLInputElement*>(mControls->mElements[i])
+            static_cast<HTMLInputElement*>(mControls->mElements[i])
               ->UpdateValidityUIBits(true);
           }
 
@@ -1915,7 +1947,7 @@ nsHTMLFormElement::GetNextRadioButton(const nsAString& aName,
     mSelectedRadioButtons.Get(aName, getter_AddRefs(currentRadio));
   }
 
-  nsCOMPtr<nsISupports> itemWithName = ResolveName(aName);
+  nsCOMPtr<nsISupports> itemWithName = DoResolveName(aName, true);
   nsCOMPtr<nsINodeList> radioGroup(do_QueryInterface(itemWithName));
 
   if (!radioGroup) {
@@ -2177,20 +2209,17 @@ ControlTraverser(const nsAString& key, nsISupports* control, void* userArg)
   return PL_DHASH_NEXT;
 }
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsFormControlList)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsFormControlList)
   tmp->Clear();
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsFormControlList)
-  tmp->mNameLookupTable.EnumerateRead(ControlTraverser, &cb);
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mNameLookupTable)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(nsFormControlList)
   NS_IMPL_CYCLE_COLLECTION_TRACE_PRESERVED_WRAPPER
 NS_IMPL_CYCLE_COLLECTION_TRACE_END
-
-DOMCI_DATA(HTMLCollection, nsFormControlList)
 
 // XPConnect interface list for nsFormControlList
 NS_INTERFACE_TABLE_HEAD(nsFormControlList)
@@ -2199,7 +2228,6 @@ NS_INTERFACE_TABLE_HEAD(nsFormControlList)
                       nsIHTMLCollection,
                       nsIDOMHTMLCollection)
   NS_INTERFACE_TABLE_TO_MAP_SEGUE_CYCLE_COLLECTION(nsFormControlList)
-  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(HTMLCollection)
 NS_INTERFACE_MAP_END
 
 

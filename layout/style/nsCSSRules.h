@@ -22,7 +22,6 @@
 #include "nsIDOMMozCSSKeyframeRule.h"
 #include "nsIDOMMozCSSKeyframesRule.h"
 #include "nsIDOMCSSStyleDeclaration.h"
-#include "nsICSSRuleList.h"
 #include "nsAutoPtr.h"
 #include "nsCSSProperty.h"
 #include "nsCSSValue.h"
@@ -36,6 +35,9 @@
 class nsMediaList;
 
 namespace mozilla {
+
+class ErrorResult;
+
 namespace css {
 
 class MediaRule MOZ_FINAL : public GroupRule,
@@ -87,8 +89,8 @@ public:
   // @media rule methods
   nsresult SetMedia(nsMediaList* aMedia);
   
-  virtual NS_MUST_OVERRIDE size_t
-    SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const;
+  virtual size_t SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf)
+    const MOZ_MUST_OVERRIDE;
 
 protected:
   void AppendConditionText(nsAString& aOutput);
@@ -165,8 +167,8 @@ public:
 
   void SetURLs(URL *aURLs) { mURLs = aURLs; }
 
-  virtual NS_MUST_OVERRIDE size_t
-    SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const;
+  virtual size_t SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf)
+    const MOZ_MUST_OVERRIDE;
 
 protected:
   void AppendConditionText(nsAString& aOutput);
@@ -183,8 +185,12 @@ class nsCSSFontFaceStyleDecl : public nsICSSDeclaration
 {
 public:
   NS_DECL_ISUPPORTS_INHERITED
-  NS_DECL_NSIDOMCSSSTYLEDECLARATION
+  NS_DECL_NSIDOMCSSSTYLEDECLARATION_HELPER
   NS_DECL_NSICSSDECLARATION
+  virtual already_AddRefed<mozilla::dom::CSSValue>
+  GetPropertyCSSValue(const nsAString& aProp, mozilla::ErrorResult& aRv)
+    MOZ_OVERRIDE;
+  using nsICSSDeclaration::GetPropertyCSSValue;
 
   nsCSSFontFaceStyleDecl()
   {
@@ -197,8 +203,7 @@ public:
   nsresult GetPropertyValue(nsCSSFontDesc aFontDescID,
                             nsAString & aResult) const;
 
-  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope,
-                               bool *triedToWrap);
+  virtual JSObject* WrapObject(JSContext *cx, JSObject *scope) MOZ_OVERRIDE;
 
 protected:
   friend class nsCSSFontFaceRule;
@@ -364,7 +369,8 @@ private:
   nsCSSKeyframeRule(const nsCSSKeyframeRule& aCopy);
   ~nsCSSKeyframeRule();
 public:
-  NS_DECL_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
+  NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsCSSKeyframeRule, nsIStyleRule)
 
   // nsIStyleRule methods
 #ifdef DEBUG

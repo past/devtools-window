@@ -17,6 +17,7 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/StructuredCloneTags.h"
 #include "mozilla/dom/ipc/Blob.h"
+#include "mozilla/dom/quota/FileStreams.h"
 #include "mozilla/storage.h"
 #include "nsContentUtils.h"
 #include "nsDOMClassInfo.h"
@@ -27,10 +28,8 @@
 #include "nsServiceManagerUtils.h"
 #include "nsThreadUtils.h"
 #include "snappy/snappy.h"
-#include "test_quota.h"
 
 #include "AsyncConnectionHelper.h"
-#include "FileStream.h"
 #include "IDBCursor.h"
 #include "IDBEvents.h"
 #include "IDBFileHandle.h"
@@ -51,6 +50,30 @@
 USING_INDEXEDDB_NAMESPACE
 using namespace mozilla::dom;
 using namespace mozilla::dom::indexedDB::ipc;
+using mozilla::dom::quota::FileOutputStream;
+
+BEGIN_INDEXEDDB_NAMESPACE
+
+struct FileHandleData
+{
+  nsString type;
+  nsString name;
+};
+
+struct BlobOrFileData
+{
+  BlobOrFileData()
+  : tag(0), size(0), lastModifiedDate(UINT64_MAX)
+  { }
+
+  uint32_t tag;
+  uint64_t size;
+  nsString type;
+  nsString name;
+  uint64_t lastModifiedDate;
+};
+
+END_INDEXEDDB_NAMESPACE
 
 namespace {
 
@@ -487,7 +510,7 @@ class ThreadLocalJSRuntime
   JSObject* mGlobal;
 
   static JSClass sGlobalClass;
-  static const unsigned sRuntimeHeapSize = 512 * 1024;
+  static const unsigned sRuntimeHeapSize = 768 * 1024;
 
   ThreadLocalJSRuntime()
   : mRuntime(NULL), mContext(NULL), mGlobal(NULL)
@@ -627,6 +650,187 @@ ResolveMysteryBlob(nsIDOMBlob* aBlob, const nsString& aContentType,
   }
   return true;
 }
+
+class MainThreadDeserializationTraits
+{
+public:
+  static JSObject* CreateAndWrapFileHandle(JSContext* aCx,
+                                           IDBDatabase* aDatabase,
+                                           StructuredCloneFile& aFile,
+                                           const FileHandleData& aData)
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+
+    nsRefPtr<FileInfo>& fileInfo = aFile.mFileInfo;
+
+    nsRefPtr<IDBFileHandle> fileHandle = IDBFileHandle::Create(aDatabase,
+      aData.name, aData.type, fileInfo.forget());
+
+    jsval wrappedFileHandle;
+    nsresult rv =
+      nsContentUtils::WrapNative(aCx, JS_GetGlobalForScopeChain(aCx),
+                                 static_cast<nsIDOMFileHandle*>(fileHandle),
+                                 &NS_GET_IID(nsIDOMFileHandle),
+                                 &wrappedFileHandle);
+    if (NS_FAILED(rv)) {
+      NS_WARNING("Failed to wrap native!");
+      return nullptr;
+    }
+
+    return JSVAL_TO_OBJECT(wrappedFileHandle);
+  }
+
+  static JSObject* CreateAndWrapBlobOrFile(JSContext* aCx,
+                                           IDBDatabase* aDatabase,
+                                           StructuredCloneFile& aFile,
+                                           const BlobOrFileData& aData)
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+
+    MOZ_ASSERT(aData.tag == SCTAG_DOM_FILE ||
+               aData.tag == SCTAG_DOM_FILE_WITHOUT_LASTMODIFIEDDATE ||
+               aData.tag == SCTAG_DOM_BLOB);
+
+    nsresult rv = NS_OK;
+
+    nsRefPtr<FileInfo>& fileInfo = aFile.mFileInfo;
+
+    nsCOMPtr<nsIFile> nativeFile;
+    if (!aFile.mFile) {
+      FileManager* fileManager = aDatabase->Manager();
+        NS_ASSERTION(fileManager, "This should never be null!");
+
+      nsCOMPtr<nsIFile> directory = fileManager->GetDirectory();
+      if (!directory) {
+        NS_WARNING("Failed to get directory!");
+        return nullptr;
+      }
+
+      nativeFile = fileManager->GetFileForId(directory, fileInfo->Id());
+      if (!nativeFile) {
+        NS_WARNING("Failed to get file!");
+        return nullptr;
+      }
+    }
+
+    if (aData.tag == SCTAG_DOM_BLOB) {
+      nsCOMPtr<nsIDOMBlob> domBlob;
+      if (aFile.mFile) {
+        if (!ResolveMysteryBlob(aFile.mFile, aData.type, aData.size)) {
+          return nullptr;
+        }
+        domBlob = aFile.mFile;
+      }
+      else {
+        domBlob = new nsDOMFileFile(aData.type, aData.size, nativeFile,
+                                    fileInfo);
+      }
+
+      jsval wrappedBlob;
+       rv =
+        nsContentUtils::WrapNative(aCx, JS_GetGlobalForScopeChain(aCx), domBlob,
+                                   &NS_GET_IID(nsIDOMBlob), &wrappedBlob);
+      if (NS_FAILED(rv)) {
+        NS_WARNING("Failed to wrap native!");
+        return nullptr;
+      }
+
+      return JSVAL_TO_OBJECT(wrappedBlob);
+    }
+
+    nsCOMPtr<nsIDOMFile> domFile;
+    if (aFile.mFile) {
+      if (!ResolveMysteryFile(aFile.mFile, aData.name, aData.type, aData.size,
+                              aData.lastModifiedDate)) {
+        return nullptr;
+      }
+      domFile = do_QueryInterface(aFile.mFile);
+      NS_ASSERTION(domFile, "This should never fail!");
+    }
+    else {
+      domFile = new nsDOMFileFile(aData.name, aData.type, aData.size,
+                                  nativeFile, fileInfo);
+    }
+
+    jsval wrappedFile;
+    rv =
+      nsContentUtils::WrapNative(aCx, JS_GetGlobalForScopeChain(aCx), domFile,
+                                 &NS_GET_IID(nsIDOMFile), &wrappedFile);
+    if (NS_FAILED(rv)) {
+      NS_WARNING("Failed to wrap native!");
+      return nullptr;
+    }
+
+    return JSVAL_TO_OBJECT(wrappedFile);
+  }
+};
+
+
+class CreateIndexDeserializationTraits
+{
+public:
+  static JSObject* CreateAndWrapFileHandle(JSContext* aCx,
+                                           IDBDatabase* aDatabase,
+                                           StructuredCloneFile& aFile,
+                                           const FileHandleData& aData)
+  {
+    // FileHandle can't be used in index creation, so just make a dummy object.
+    return JS_NewObject(aCx, nullptr, nullptr, nullptr);
+  }
+
+  static JSObject* CreateAndWrapBlobOrFile(JSContext* aCx,
+                                           IDBDatabase* aDatabase,
+                                           StructuredCloneFile& aFile,
+                                           const BlobOrFileData& aData)
+  {
+    MOZ_ASSERT(aData.tag == SCTAG_DOM_FILE ||
+               aData.tag == SCTAG_DOM_FILE_WITHOUT_LASTMODIFIEDDATE ||
+               aData.tag == SCTAG_DOM_BLOB);
+
+    // The following properties are available for use in index creation
+    //   Blob.size
+    //   Blob.type
+    //   File.name
+    //   File.lastModifiedDate
+
+    JSObject* obj = JS_NewObject(aCx, nullptr, nullptr, nullptr);
+    if (!obj) {
+      NS_WARNING("Failed to create object!");
+      return nullptr;
+    }
+
+    // Technically these props go on the proto, but this detail won't change
+    // the results of index creation.
+
+    JSString* type =
+      JS_NewUCStringCopyN(aCx, aData.type.get(), aData.type.Length());
+    if (!type ||
+        !JS_DefineProperty(aCx, obj, "size",
+                           JS_NumberValue((double)aData.size),
+                           nullptr, nullptr, 0) ||
+        !JS_DefineProperty(aCx, obj, "type", STRING_TO_JSVAL(type),
+                           nullptr, nullptr, 0)) {
+      return nullptr;
+    }
+
+    if (aData.tag == SCTAG_DOM_BLOB) {
+      return obj;
+    }
+
+    JSString* name =
+      JS_NewUCStringCopyN(aCx, aData.name.get(), aData.name.Length());
+    JSObject* date = JS_NewDateObjectMsec(aCx, aData.lastModifiedDate);
+    if (!name || !date ||
+        !JS_DefineProperty(aCx, obj, "name", STRING_TO_JSVAL(name),
+                           nullptr, nullptr, 0) ||
+        !JS_DefineProperty(aCx, obj, "lastModifiedDate", OBJECT_TO_JSVAL(date),
+                           nullptr, nullptr, 0)) {
+      return nullptr;
+    }
+
+    return obj;
+  }
+};
 
 } // anonymous namespace
 
@@ -775,7 +979,6 @@ IDBObjectStore::UpdateIndexes(IDBTransaction* aTransaction,
                               int64_t aObjectDataId,
                               const nsTArray<IndexUpdateInfo>& aUpdateInfoArray)
 {
-  nsCOMPtr<mozIStorageStatement> stmt;
   nsresult rv;
 
   NS_ASSERTION(aObjectDataId != INT64_MIN, "Bad objectData id!");
@@ -783,41 +986,49 @@ IDBObjectStore::UpdateIndexes(IDBTransaction* aTransaction,
   NS_NAMED_LITERAL_CSTRING(objectDataId, "object_data_id");
 
   if (aOverwrite) {
-    stmt = aTransaction->GetCachedStatement(
-      "DELETE FROM unique_index_data "
-      "WHERE object_data_id = :object_data_id; "
-      "DELETE FROM index_data "
-      "WHERE object_data_id = :object_data_id");
-    NS_ENSURE_TRUE(stmt, NS_ERROR_FAILURE);
+    nsCOMPtr<mozIStorageStatement> deleteStmt =
+      aTransaction->GetCachedStatement(
+        "DELETE FROM unique_index_data "
+        "WHERE object_data_id = :object_data_id; "
+        "DELETE FROM index_data "
+        "WHERE object_data_id = :object_data_id");
+    NS_ENSURE_TRUE(deleteStmt, NS_ERROR_FAILURE);
 
-    mozStorageStatementScoper scoper(stmt);
+    mozStorageStatementScoper scoper(deleteStmt);
 
-    rv = stmt->BindInt64ByName(objectDataId, aObjectDataId);
+    rv = deleteStmt->BindInt64ByName(objectDataId, aObjectDataId);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    rv = stmt->Execute();
+    rv = deleteStmt->Execute();
     NS_ENSURE_SUCCESS(rv, rv);
   }
+
+  // Avoid lots of hash lookups for objectStores with lots of indexes by lazily
+  // holding the necessary statements on the stack outside the loop.
+  nsCOMPtr<mozIStorageStatement> insertUniqueStmt;
+  nsCOMPtr<mozIStorageStatement> insertStmt;
 
   uint32_t infoCount = aUpdateInfoArray.Length();
   for (uint32_t i = 0; i < infoCount; i++) {
     const IndexUpdateInfo& updateInfo = aUpdateInfoArray[i];
 
-    // Insert new values.
+    nsCOMPtr<mozIStorageStatement>& stmt =
+      updateInfo.indexUnique ? insertUniqueStmt : insertStmt;
 
-    stmt = updateInfo.indexUnique ?
-      aTransaction->GetCachedStatement(
-        "INSERT INTO unique_index_data "
-          "(index_id, object_data_id, object_data_key, value) "
-        "VALUES (:index_id, :object_data_id, :object_data_key, :value)") :
-      aTransaction->GetCachedStatement(
-        "INSERT OR IGNORE INTO index_data ("
-          "index_id, object_data_id, object_data_key, value) "
-        "VALUES (:index_id, :object_data_id, :object_data_key, :value)");
-
+    if (!stmt) {
+      stmt = updateInfo.indexUnique ?
+        aTransaction->GetCachedStatement(
+          "INSERT INTO unique_index_data "
+            "(index_id, object_data_id, object_data_key, value) "
+          "VALUES (:index_id, :object_data_id, :object_data_key, :value)") :
+        aTransaction->GetCachedStatement(
+          "INSERT OR IGNORE INTO index_data ("
+            "index_id, object_data_id, object_data_key, value) "
+          "VALUES (:index_id, :object_data_id, :object_data_key, :value)");
+    }
     NS_ENSURE_TRUE(stmt, NS_ERROR_FAILURE);
 
-    mozStorageStatementScoper scoper4(stmt);
+    mozStorageStatementScoper scoper(stmt);
 
     rv = stmt->BindInt64ByName(NS_LITERAL_CSTRING("index_id"),
                                updateInfo.indexId);
@@ -1003,7 +1214,7 @@ IDBObjectStore::DeserializeValue(JSContext* aCx,
   JSAutoRequest ar(aCx);
 
   JSStructuredCloneCallbacks callbacks = {
-    IDBObjectStore::StructuredCloneReadCallback,
+    IDBObjectStore::StructuredCloneReadCallback<MainThreadDeserializationTraits>,
     nullptr,
     nullptr
   };
@@ -1090,6 +1301,87 @@ StructuredCloneReadString(JSStructuredCloneReader* aReader,
 }
 
 // static
+bool
+IDBObjectStore::ReadFileHandle(JSStructuredCloneReader* aReader,
+                               FileHandleData* aRetval)
+{
+  MOZ_STATIC_ASSERT(SCTAG_DOM_FILEHANDLE == 0xFFFF8004,
+                    "Update me!");
+  MOZ_ASSERT(aReader && aRetval);
+
+  nsCString type;
+  if (!StructuredCloneReadString(aReader, type)) {
+    return false;
+  }
+  CopyUTF8toUTF16(type, aRetval->type);
+
+  nsCString name;
+  if (!StructuredCloneReadString(aReader, name)) {
+    return false;
+  }
+  CopyUTF8toUTF16(name, aRetval->name);
+
+  return true;
+}
+
+// static
+bool
+IDBObjectStore::ReadBlobOrFile(JSStructuredCloneReader* aReader,
+                               uint32_t aTag,
+                               BlobOrFileData* aRetval)
+{
+  MOZ_STATIC_ASSERT(SCTAG_DOM_BLOB == 0xFFFF8001 &&
+                    SCTAG_DOM_FILE_WITHOUT_LASTMODIFIEDDATE == 0xFFFF8002 &&
+                    SCTAG_DOM_FILE == 0xFFFF8005,
+                    "Update me!");
+  MOZ_ASSERT(aReader && aRetval);
+  MOZ_ASSERT(aTag == SCTAG_DOM_FILE ||
+             aTag == SCTAG_DOM_FILE_WITHOUT_LASTMODIFIEDDATE ||
+             aTag == SCTAG_DOM_BLOB);
+
+  aRetval->tag = aTag;
+
+  // If it's not a FileHandle, it's a Blob or a File.
+  uint64_t size;
+  if (!JS_ReadBytes(aReader, &size, sizeof(uint64_t))) {
+    NS_WARNING("Failed to read size!");
+    return false;
+  }
+  aRetval->size = SwapBytes(size);
+
+  nsCString type;
+  if (!StructuredCloneReadString(aReader, type)) {
+    return false;
+  }
+  CopyUTF8toUTF16(type, aRetval->type);
+
+  // Blobs are done.
+  if (aTag == SCTAG_DOM_BLOB) {
+    return true;
+  }
+
+  NS_ASSERTION(aTag == SCTAG_DOM_FILE ||
+               aTag == SCTAG_DOM_FILE_WITHOUT_LASTMODIFIEDDATE, "Huh?!");
+
+  uint64_t lastModifiedDate = UINT64_MAX;
+  if (aTag != SCTAG_DOM_FILE_WITHOUT_LASTMODIFIEDDATE &&
+      !JS_ReadBytes(aReader, &lastModifiedDate, sizeof(lastModifiedDate))) {
+    NS_WARNING("Failed to read lastModifiedDate");
+    return false;
+  }
+  aRetval->lastModifiedDate = lastModifiedDate;
+
+  nsCString name;
+  if (!StructuredCloneReadString(aReader, name)) {
+    return false;
+  }
+  CopyUTF8toUTF16(name, aRetval->name);
+
+  return true;
+}
+
+// static
+template <class DeserializationTraits>
 JSObject*
 IDBObjectStore::StructuredCloneReadCallback(JSContext* aCx,
                                             JSStructuredCloneReader* aReader,
@@ -1118,137 +1410,26 @@ IDBObjectStore::StructuredCloneReadCallback(JSContext* aCx,
       return nullptr;
     }
 
-    nsresult rv;
-
     StructuredCloneFile& file = cloneReadInfo->mFiles[aData];
-    nsRefPtr<FileInfo>& fileInfo = file.mFileInfo;
     IDBDatabase* database = cloneReadInfo->mDatabase;
 
     if (aTag == SCTAG_DOM_FILEHANDLE) {
-      nsCString type;
-      if (!StructuredCloneReadString(aReader, type)) {
-        return nullptr;
-      }
-      NS_ConvertUTF8toUTF16 convType(type);
-
-      nsCString name;
-      if (!StructuredCloneReadString(aReader, name)) {
-        return nullptr;
-      }
-      NS_ConvertUTF8toUTF16 convName(name);
-
-      nsRefPtr<IDBFileHandle> fileHandle = IDBFileHandle::Create(database,
-        convName, convType, fileInfo.forget());
-
-      jsval wrappedFileHandle;
-      rv =
-        nsContentUtils::WrapNative(aCx, JS_GetGlobalForScopeChain(aCx),
-                                   static_cast<nsIDOMFileHandle*>(fileHandle),
-                                   &NS_GET_IID(nsIDOMFileHandle),
-                                   &wrappedFileHandle);
-      if (NS_FAILED(rv)) {
-        NS_WARNING("Failed to wrap native!");
+      FileHandleData data;
+      if (!ReadFileHandle(aReader, &data)) {
         return nullptr;
       }
 
-      return JSVAL_TO_OBJECT(wrappedFileHandle);
+      return DeserializationTraits::CreateAndWrapFileHandle(aCx, database,
+                                                            file, data);
     }
 
-    // If it's not a FileHandle, it's a Blob or a File.
-    uint64_t size;
-    if (!JS_ReadBytes(aReader, &size, sizeof(uint64_t))) {
-      NS_WARNING("Failed to read size!");
-      return nullptr;
-    }
-    size = SwapBytes(size);
-
-    nsCString type;
-    if (!StructuredCloneReadString(aReader, type)) {
-      return nullptr;
-    }
-    NS_ConvertUTF8toUTF16 convType(type);
-
-    nsCOMPtr<nsIFile> nativeFile;
-    if (!file.mFile) {
-      FileManager* fileManager = database->Manager();
-        NS_ASSERTION(fileManager, "This should never be null!");
-
-      nsCOMPtr<nsIFile> directory = fileManager->GetDirectory();
-      if (!directory) {
-        NS_WARNING("Failed to get directory!");
-        return nullptr;
-      }
-
-      nativeFile = fileManager->GetFileForId(directory, fileInfo->Id());
-      if (!nativeFile) {
-        NS_WARNING("Failed to get file!");
-        return nullptr;
-      }
-    }
-
-    if (aTag == SCTAG_DOM_BLOB) {
-      nsCOMPtr<nsIDOMBlob> domBlob;
-      if (file.mFile) {
-        if (!ResolveMysteryBlob(file.mFile, convType, size)) {
-          return nullptr;
-        }
-        domBlob = file.mFile;
-      }
-      else {
-        domBlob = new nsDOMFileFile(convType, size, nativeFile, fileInfo);
-      }
-
-      jsval wrappedBlob;
-       rv =
-        nsContentUtils::WrapNative(aCx, JS_GetGlobalForScopeChain(aCx), domBlob,
-                                   &NS_GET_IID(nsIDOMBlob), &wrappedBlob);
-      if (NS_FAILED(rv)) {
-        NS_WARNING("Failed to wrap native!");
-        return nullptr;
-      }
-
-      return JSVAL_TO_OBJECT(wrappedBlob);
-    }
-
-    NS_ASSERTION(aTag == SCTAG_DOM_FILE ||
-                 aTag == SCTAG_DOM_FILE_WITHOUT_LASTMODIFIEDDATE, "Huh?!");
-
-    uint64_t lastModifiedDate = UINT64_MAX;
-    if (aTag != SCTAG_DOM_FILE_WITHOUT_LASTMODIFIEDDATE &&
-        !JS_ReadBytes(aReader, &lastModifiedDate, sizeof(lastModifiedDate))) {
-      NS_WARNING("Failed to read lastModifiedDate");
+    BlobOrFileData data;
+    if (!ReadBlobOrFile(aReader, aTag, &data)) {
       return nullptr;
     }
 
-    nsCString name;
-    if (!StructuredCloneReadString(aReader, name)) {
-      return nullptr;
-    }
-    NS_ConvertUTF8toUTF16 convName(name);
-
-    nsCOMPtr<nsIDOMFile> domFile;
-    if (file.mFile) {
-      if (!ResolveMysteryFile(file.mFile, convName, convType, size, lastModifiedDate)) {
-        return nullptr;
-      }
-      domFile = do_QueryInterface(file.mFile);
-      NS_ASSERTION(domFile, "This should never fail!");
-    }
-    else {
-      domFile = new nsDOMFileFile(convName, convType, size, nativeFile,
-                                  fileInfo);
-    }
-
-    jsval wrappedFile;
-    rv =
-      nsContentUtils::WrapNative(aCx, JS_GetGlobalForScopeChain(aCx), domFile,
-                                 &NS_GET_IID(nsIDOMFile), &wrappedFile);
-    if (NS_FAILED(rv)) {
-      NS_WARNING("Failed to wrap native!");
-      return nullptr;
-    }
-
-    return JSVAL_TO_OBJECT(wrappedFile);
+    return DeserializationTraits::CreateAndWrapBlobOrFile(aCx, database,
+                                                          file, data);
   }
 
   const JSStructuredCloneCallbacks* runtimeCallbacks =
@@ -1501,7 +1682,10 @@ IDBObjectStore::ConvertBlobsToActors(
 
       BlobParent* actor =
         aContentParent->GetOrCreateActorForBlob(blob);
-      NS_ASSERTION(actor, "This should never fail without aborting!");
+      if (!actor) {
+        // This can only fail if the child has crashed.
+        return NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR;
+      }
 
       aActors.AppendElement(actor);
     }
@@ -2016,8 +2200,6 @@ IDBObjectStore::IndexInternal(const nsAString& aName,
   return NS_OK;
 }
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(IDBObjectStore)
-
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(IDBObjectStore)
   NS_IMPL_CYCLE_COLLECTION_TRACE_JSVAL_MEMBER_CALLBACK(mCachedKeyPath)
 NS_IMPL_CYCLE_COLLECTION_TRACE_END
@@ -2376,7 +2558,7 @@ IDBObjectStore::CreateIndex(const nsAString& aName,
 #endif
 
   nsresult rv;
-  mozilla::dom::IDBIndexParameters params;
+  mozilla::idl::IDBIndexParameters params;
 
   // Get optional arguments.
   if (!JSVAL_IS_VOID(aOptions) && !JSVAL_IS_NULL(aOptions)) {
@@ -2516,22 +2698,25 @@ CopyData(nsIInputStream* aInputStream, nsIOutputStream* aOutputStream)
     char copyBuffer[FILE_COPY_BUFFER_SIZE];
 
     uint32_t numRead;
-    rv = aInputStream->Read(copyBuffer, FILE_COPY_BUFFER_SIZE, &numRead);
-    NS_ENSURE_SUCCESS(rv, rv);
+    rv = aInputStream->Read(copyBuffer, sizeof(copyBuffer), &numRead);
+    NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
 
-    if (numRead <= 0) {
+    if (!numRead) {
       break;
     }
 
     uint32_t numWrite;
     rv = aOutputStream->Write(copyBuffer, numRead, &numWrite);
-    NS_ENSURE_SUCCESS(rv, rv);
+    NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
 
-    NS_ENSURE_TRUE(numWrite == numRead, NS_ERROR_FAILURE);
+    if (numWrite < numRead) {
+      // Must have hit the quota limit.
+      return NS_ERROR_DOM_INDEXEDDB_QUOTA_ERR;
+    }
   } while (true);
 
   rv = aOutputStream->Flush();
-  NS_ENSURE_SUCCESS(rv, rv);
+  NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
 
   return NS_OK;
 }
@@ -2734,12 +2919,12 @@ AddHelper::DoDatabaseWork(mozIStorageConnection* aConnection)
         nativeFile = fileManager->GetFileForId(directory, id);
         NS_ENSURE_TRUE(nativeFile, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
 
-        nsRefPtr<FileStream> outputStream = new FileStream();
-        rv = outputStream->Init(nativeFile, NS_LITERAL_STRING("wb"), 0);
-        NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
+        nsRefPtr<FileOutputStream> outputStream = FileOutputStream::Create(
+          mObjectStore->Transaction()->Database()->Origin(), nativeFile);
+        NS_ENSURE_TRUE(outputStream, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
 
         rv = CopyData(inputStream, outputStream);
-        NS_ENSURE_SUCCESS(rv, NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR);
+        NS_ENSURE_SUCCESS(rv, rv);
 
         cloneFile.mFile->AddFileInfo(fileInfo);
       }
@@ -2830,8 +3015,9 @@ AddHelper::PackArgumentsForParentProcess(ObjectStoreRequestParams& aParams)
 
       BlobChild* actor =
         contentChild->GetOrCreateActorForBlob(file.mFile);
-      NS_ASSERTION(actor, "This should never fail without aborting!");
-
+      if (!actor) {
+        return NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR;
+      }
       blobsChild.AppendElement(actor);
     }
   }
@@ -3626,7 +3812,7 @@ CreateIndexHelper::InsertDataFromObjectStore(mozIStorageConnection* aConnection)
     JSAutoStructuredCloneBuffer& buffer = cloneReadInfo.mCloneBuffer;
 
     JSStructuredCloneCallbacks callbacks = {
-      IDBObjectStore::StructuredCloneReadCallback,
+      IDBObjectStore::StructuredCloneReadCallback<CreateIndexDeserializationTraits>,
       nullptr,
       nullptr
     };
@@ -3760,14 +3946,11 @@ GetAllHelper::DoDatabaseWork(mozIStorageConnection* aConnection)
   bool hasResult;
   while (NS_SUCCEEDED((rv = stmt->ExecuteStep(&hasResult))) && hasResult) {
     if (mCloneReadInfos.Capacity() == mCloneReadInfos.Length()) {
-      if (!mCloneReadInfos.SetCapacity(mCloneReadInfos.Capacity() * 2)) {
-        NS_ERROR("Out of memory!");
-        return NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR;
-      }
+      mCloneReadInfos.SetCapacity(mCloneReadInfos.Capacity() * 2);
     }
 
     StructuredCloneReadInfo* readInfo = mCloneReadInfos.AppendElement();
-    NS_ASSERTION(readInfo, "Shouldn't fail if SetCapacity succeeded!");
+    NS_ASSERTION(readInfo, "Shouldn't fail since SetCapacity succeeded!");
 
     rv = IDBObjectStore::GetStructuredCloneReadInfoFromStatement(stmt, 0, 1,
       mDatabase, *readInfo);
@@ -3784,13 +3967,12 @@ GetAllHelper::GetSuccessResult(JSContext* aCx,
 {
   NS_ASSERTION(mCloneReadInfos.Length() <= mLimit, "Too many results!");
 
-  nsresult rv = ConvertCloneReadInfosToArray(aCx, mCloneReadInfos, aVal);
+  nsresult rv = ConvertToArrayAndCleanup(aCx, mCloneReadInfos, aVal);
 
-  for (uint32_t index = 0; index < mCloneReadInfos.Length(); index++) {
-    mCloneReadInfos[index].mCloneBuffer.clear();
-  }
-
+  NS_ASSERTION(mCloneReadInfos.IsEmpty(),
+               "Should have cleared in ConvertToArrayAndCleanup");
   NS_ENSURE_SUCCESS(rv, rv);
+
   return NS_OK;
 }
 
@@ -3907,7 +4089,7 @@ GetAllHelper::UnpackResponseFromParentProcess(
 
   for (uint32_t index = 0; index < cloneInfos.Length(); index++) {
     const SerializedStructuredCloneReadInfo srcInfo = cloneInfos[index];
-    const InfallibleTArray<PBlobChild*> blobs = blobArrays[index].blobsChild();
+    const InfallibleTArray<PBlobChild*>& blobs = blobArrays[index].blobsChild();
 
     StructuredCloneReadInfo* destInfo = mCloneReadInfos.AppendElement();
     if (!destInfo->SetFromSerialized(srcInfo)) {

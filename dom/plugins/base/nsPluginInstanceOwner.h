@@ -231,6 +231,8 @@ public:
   
   bool UseAsyncRendering();
 
+  already_AddRefed<nsIURI> GetBaseURI() const;
+
 #ifdef MOZ_WIDGET_ANDROID
   // Returns the image container for the specified VideoInfo
   void GetVideos(nsTArray<nsNPAPIPluginInstance::VideoInfo*>& aVideos);
@@ -270,7 +272,6 @@ private:
   nsObjectFrame              *mObjectFrame;
   nsIContent                 *mContent; // WEAK, content owns us
   nsCString                   mDocumentBase;
-  char                       *mTagText;
   bool                        mWidgetCreationComplete;
   nsCOMPtr<nsIWidget>         mWidget;
   nsRefPtr<nsPluginHost>      mPluginHost;

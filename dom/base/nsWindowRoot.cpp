@@ -15,6 +15,7 @@
 #include "nsGUIEvent.h"
 #include "nsGlobalWindow.h"
 #include "nsFocusManager.h"
+#include "nsIContent.h"
 #include "nsIDOMHTMLInputElement.h"
 #include "nsIDOMHTMLTextAreaElement.h"
 #include "nsIControllers.h"
@@ -24,6 +25,8 @@
 #ifdef MOZ_XUL
 #include "nsIDOMXULElement.h"
 #endif
+
+using namespace mozilla::dom;
 
 static NS_DEFINE_CID(kEventListenerManagerCID,    NS_EVENTLISTENERMANAGER_CID);
 
@@ -39,15 +42,17 @@ nsWindowRoot::~nsWindowRoot()
   }
 }
 
-NS_IMPL_CYCLE_COLLECTION_3(nsWindowRoot,
-                           mListenerManager,
-                           mPopupNode,
-                           mParent)
+NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_3(nsWindowRoot,
+                                        mListenerManager,
+                                        mPopupNode,
+                                        mParent)
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsWindowRoot)
+  NS_WRAPPERCACHE_INTERFACE_MAP_ENTRY
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMEventTarget)
   NS_INTERFACE_MAP_ENTRY(nsPIWindowRoot)
   NS_INTERFACE_MAP_ENTRY(nsIDOMEventTarget)
+  NS_INTERFACE_MAP_ENTRY(mozilla::dom::EventTarget)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(nsWindowRoot)
@@ -260,10 +265,9 @@ nsWindowRoot::SetPopupNode(nsIDOMNode* aNode)
 
 ///////////////////////////////////////////////////////////////////////////////////
 
-nsresult
-NS_NewWindowRoot(nsPIDOMWindow* aWindow, nsIDOMEventTarget** aResult)
+already_AddRefed<EventTarget>
+NS_NewWindowRoot(nsPIDOMWindow* aWindow)
 {
-  *aResult = new nsWindowRoot(aWindow);
-  NS_ADDREF(*aResult);
-  return NS_OK;
+  nsCOMPtr<EventTarget> result = new nsWindowRoot(aWindow);
+  return result.forget();
 }

@@ -135,10 +135,9 @@ class LinkerHelper : public JSC::LinkBuffer
     }
 
     JSC::CodeLocationLabel finalize(VMFrame &f) {
-        AutoAssertNoGC nogc;
         masm.finalize(*this);
         JSC::CodeLocationLabel label = finalizeCodeAddendum();
-        Probes::registerICCode(f.cx, f.chunk(), f.script().get(nogc), f.pc(),
+        Probes::registerICCode(f.cx, f.chunk(), f.script(), f.pc(),
                                label.executableAddress(), masm.size());
         return label;
     }

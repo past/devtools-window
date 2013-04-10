@@ -15,7 +15,55 @@ using namespace js;
 using namespace js::ion;
 
 void
-MacroAssemblerX86::setupABICall(uint32 args)
+MacroAssemblerX86::loadConstantDouble(double d, const FloatRegister &dest)
+{
+    union DoublePun {
+        uint64_t u;
+        double d;
+    } dpun;
+    dpun.d = d;
+    if (maybeInlineDouble(dpun.u, dest))
+        return;
+
+    if (!doubleMap_.initialized()) {
+        enoughMemory_ &= doubleMap_.init();
+        if (!enoughMemory_)
+            return;
+    }
+    size_t doubleIndex;
+    DoubleMap::AddPtr p = doubleMap_.lookupForAdd(d);
+    if (p) {
+        doubleIndex = p->value;
+    } else {
+        doubleIndex = doubles_.length();
+        enoughMemory_ &= doubles_.append(Double(d));
+        enoughMemory_ &= doubleMap_.add(p, d, doubleIndex);
+        if (!enoughMemory_)
+            return;
+    }
+    Double &dbl = doubles_[doubleIndex];
+    masm.movsd_mr(reinterpret_cast<void *>(dbl.uses.prev()), dest.code());
+    dbl.uses.setPrev(masm.size());
+}
+
+void
+MacroAssemblerX86::finish()
+{
+    if (doubles_.empty())
+        return;
+
+    masm.align(sizeof(double));
+    for (size_t i = 0; i < doubles_.length(); i++) {
+        CodeLabel cl(doubles_[i].uses);
+        writeDoubleConstant(doubles_[i].value, cl.src());
+        enoughMemory_ &= addCodeLabel(cl);
+        if (!enoughMemory_)
+            return;
+    }
+}
+
+void
+MacroAssemblerX86::setupABICall(uint32_t args)
 {
     JS_ASSERT(!inCall_);
     inCall_ = true;
@@ -26,14 +74,14 @@ MacroAssemblerX86::setupABICall(uint32 args)
 }
 
 void
-MacroAssemblerX86::setupAlignedABICall(uint32 args)
+MacroAssemblerX86::setupAlignedABICall(uint32_t args)
 {
     setupABICall(args);
     dynamicAlignment_ = false;
 }
 
 void
-MacroAssemblerX86::setupUnalignedABICall(uint32 args, const Register &scratch)
+MacroAssemblerX86::setupUnalignedABICall(uint32_t args, const Register &scratch)
 {
     setupABICall(args);
     dynamicAlignment_ = true;
@@ -70,23 +118,22 @@ MacroAssemblerX86::passABIArg(const FloatRegister &reg)
 }
 
 void
-MacroAssemblerX86::callWithABI(void *fun, Result result)
+MacroAssemblerX86::callWithABIPre(uint32_t *stackAdjust)
 {
     JS_ASSERT(inCall_);
     JS_ASSERT(args_ == passedArgs_);
 
-    uint32 stackAdjust;
     if (dynamicAlignment_) {
-        stackAdjust = stackForCall_
-                    + ComputeByteAlignment(stackForCall_ + STACK_SLOT_SIZE,
-                                           StackAlignment);
+        *stackAdjust = stackForCall_
+                     + ComputeByteAlignment(stackForCall_ + STACK_SLOT_SIZE,
+                                            StackAlignment);
     } else {
-        stackAdjust = stackForCall_
-                    + ComputeByteAlignment(stackForCall_ + framePushed_,
-                                           StackAlignment);
+        *stackAdjust = stackForCall_
+                     + ComputeByteAlignment(stackForCall_ + framePushed_,
+                                            StackAlignment);
     }
 
-    reserveStack(stackAdjust);
+    reserveStack(*stackAdjust);
 
     // Position all arguments.
     {
@@ -110,9 +157,11 @@ MacroAssemblerX86::callWithABI(void *fun, Result result)
         bind(&good);
     }
 #endif
+}
 
-    call(ImmWord(fun));
-
+void
+MacroAssemblerX86::callWithABIPost(uint32_t stackAdjust, Result result)
+{
     freeStack(stackAdjust);
     if (result == DOUBLE) {
         reserveStack(sizeof(double));
@@ -128,6 +177,24 @@ MacroAssemblerX86::callWithABI(void *fun, Result result)
 }
 
 void
+MacroAssemblerX86::callWithABI(void *fun, Result result)
+{
+    uint32_t stackAdjust;
+    callWithABIPre(&stackAdjust);
+    call(ImmWord(fun));
+    callWithABIPost(stackAdjust, result);
+}
+
+void
+MacroAssemblerX86::callWithABI(const Address &fun, Result result)
+{
+    uint32_t stackAdjust;
+    callWithABIPre(&stackAdjust);
+    call(Operand(fun));
+    callWithABIPost(stackAdjust, result);
+}
+
+void
 MacroAssemblerX86::handleException()
 {
     // Reserve space for exception information.
@@ -138,10 +205,42 @@ MacroAssemblerX86::handleException()
     setupUnalignedABICall(1, ecx);
     passABIArg(eax);
     callWithABI(JS_FUNC_TO_DATA_PTR(void *, ion::HandleException));
-    
-    // Load the error value, load the new stack pointer, and return.
+
+    Label catch_;
+    Label entryFrame;
+    Label return_;
+
+    branch32(Assembler::Equal, Address(esp, offsetof(ResumeFromException, kind)),
+             Imm32(ResumeFromException::RESUME_ENTRY_FRAME), &entryFrame);
+    branch32(Assembler::Equal, Address(esp, offsetof(ResumeFromException, kind)),
+             Imm32(ResumeFromException::RESUME_CATCH), &catch_);
+    branch32(Assembler::Equal, Address(esp, offsetof(ResumeFromException, kind)),
+             Imm32(ResumeFromException::RESUME_FORCED_RETURN), &return_);
+
+    breakpoint(); // Invalid kind.
+
+    // No exception handler. Load the error value, load the new stack pointer
+    // and return from the entry frame.
+    bind(&entryFrame);
     moveValue(MagicValue(JS_ION_ERROR), JSReturnOperand);
     movl(Operand(esp, offsetof(ResumeFromException, stackPointer)), esp);
+    ret();
+
+    // If we found a catch handler, this must be a baseline frame. Restore state
+    // and jump to the catch block.
+    bind(&catch_);
+    movl(Operand(esp, offsetof(ResumeFromException, target)), eax);
+    movl(Operand(esp, offsetof(ResumeFromException, framePointer)), ebp);
+    movl(Operand(esp, offsetof(ResumeFromException, stackPointer)), esp);
+    jmp(Operand(eax));
+
+    // Only used in debug mode. Return BaselineFrame->returnValue() to the caller.
+    bind(&return_);
+    movl(Operand(esp, offsetof(ResumeFromException, framePointer)), ebp);
+    movl(Operand(esp, offsetof(ResumeFromException, stackPointer)), esp);
+    loadValue(Address(ebp, BaselineFrame::reverseOffsetOfReturnValue()), JSReturnOperand);
+    movl(ebp, esp);
+    pop(ebp);
     ret();
 }
 

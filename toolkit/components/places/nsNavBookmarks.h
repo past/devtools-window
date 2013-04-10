@@ -111,10 +111,6 @@ public:
    */
   nsresult Init();
 
-  static nsNavBookmarks* GetBookmarksServiceIfAvailable() {
-    return gBookmarksService;
-  }
-
   static nsNavBookmarks* GetBookmarksService() {
     if (!gBookmarksService) {
       nsCOMPtr<nsINavBookmarksService> serv =
@@ -282,6 +278,12 @@ private:
   int64_t mTagsRoot;
   int64_t mUnfiledRoot;
   int64_t mToolbarRoot;
+
+  inline bool IsRoot(int64_t aFolderId) {
+    return aFolderId == mRoot || aFolderId == mMenuRoot ||
+           aFolderId == mTagsRoot || aFolderId == mUnfiledRoot ||
+           aFolderId == mToolbarRoot;
+  }
 
   nsresult IsBookmarkedInDatabase(int64_t aBookmarkID, bool* aIsBookmarked);
 

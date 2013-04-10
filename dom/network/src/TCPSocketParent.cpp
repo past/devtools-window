@@ -8,7 +8,7 @@
 #include "nsJSUtils.h"
 #include "nsIDOMTCPSocket.h"
 #include "mozilla/unused.h"
-#include "mozilla/AppProcessPermissions.h"
+#include "mozilla/AppProcessChecker.h"
 
 namespace IPC {
 
@@ -16,7 +16,7 @@ namespace IPC {
 extern bool
 DeserializeUint8Array(JSRawObject aObj,
                       const InfallibleTArray<uint8_t>& aBuffer,
-                      jsval* aVal);
+                      JS::Value* aVal);
 
 }
 
@@ -44,15 +44,8 @@ NS_INTERFACE_MAP_END
 
 bool
 TCPSocketParent::Init(const nsString& aHost, const uint16_t& aPort, const bool& aUseSSL,
-                      const nsString& aBinaryType, PBrowserParent* aBrowser)
+                      const nsString& aBinaryType)
 {
-  // We don't have browser actors in xpcshell, and hence can't run automated
-  // tests without this loophole.
-  if (aBrowser && !AssertAppProcessPermission(aBrowser, "tcp-socket")) {
-    FireInteralError(this, __LINE__);
-    return true;
-  }
-
   nsresult rv;
   mIntermediary = do_CreateInstance("@mozilla.org/tcp-socket-intermediary;1", &rv);
   if (NS_FAILED(rv)) {
@@ -103,7 +96,7 @@ TCPSocketParent::RecvData(const SendableData& aData)
   nsresult rv;
   switch (aData.type()) {
     case SendableData::TArrayOfuint8_t: {
-      jsval val;
+      JS::Value val;
       IPC::DeserializeUint8Array(mIntermediaryObj, aData.get_ArrayOfuint8_t(), &val);
       rv = mIntermediary->SendArrayBuffer(val);
       NS_ENSURE_SUCCESS(rv, true);
@@ -178,7 +171,7 @@ TCPSocketParent::SendCallback(const nsAString& aType, const JS::Value& aDataVal,
       uint32_t lineNumber = 0;
       uint32_t columnNumber = 0;
 
-      jsval val;
+      JS::Value val;
       if (!JS_GetProperty(aCx, obj, "message", &val)) {
         NS_ERROR("No message property on supposed error object");
       } else if (JSVAL_IS_STRING(val)) {

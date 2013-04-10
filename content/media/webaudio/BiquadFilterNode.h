@@ -9,8 +9,8 @@
 
 #include "AudioNode.h"
 #include "AudioParam.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/ErrorResult.h"
+#include "mozilla/TypedEnum.h"
 
 namespace mozilla {
 namespace dom {
@@ -33,35 +33,23 @@ class BiquadFilterNode : public AudioNode
 {
 public:
   explicit BiquadFilterNode(AudioContext* aContext);
+  ~BiquadFilterNode();
 
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(BiquadFilterNode, AudioNode)
 
-  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope,
-                               bool* aTriedToWrap);
+  virtual JSObject* WrapObject(JSContext* aCx, JSObject* aScope);
 
-  virtual uint32_t MaxNumberOfInputs() const MOZ_FINAL MOZ_OVERRIDE
+  virtual bool SupportsMediaStreams() const MOZ_OVERRIDE
   {
-    return 1;
-  }
-  virtual uint32_t MaxNumberOfOutputs() const MOZ_FINAL MOZ_OVERRIDE
-  {
-    return 1;
+    return true;
   }
 
   uint16_t Type() const
   {
     return static_cast<uint16_t> (mType);
   }
-  void SetType(uint16_t aType, ErrorResult& aRv)
-  {
-    BiquadTypeEnum type = static_cast<BiquadTypeEnum> (aType);
-    if (type > BiquadTypeEnum::Max) {
-      aRv.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
-    } else {
-      mType = type;
-    }
-  }
+  void SetType(uint16_t aType, ErrorResult& aRv);
 
   AudioParam* Frequency() const
   {
@@ -77,6 +65,11 @@ public:
   {
     return mGain;
   }
+
+private:
+  static void SendFrequencyToStream(AudioNode* aNode);
+  static void SendQToStream(AudioNode* aNode);
+  static void SendGainToStream(AudioNode* aNode);
 
 private:
   BiquadTypeEnum mType;

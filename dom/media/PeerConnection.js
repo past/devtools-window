@@ -4,7 +4,7 @@
 
 "use strict";
 
-const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
+const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
 
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
@@ -23,9 +23,11 @@ const PC_MANAGER_CID = Components.ID("{7293e901-2be3-4c02-b4bd-cbef6fc24f78}");
 // a page is torn down. (Maps inner window ID to an array of PC objects).
 function GlobalPCList() {
   this._list = [];
+  this._networkdown = false; // XXX Need to query current state somehow
   Services.obs.addObserver(this, "inner-window-destroyed", true);
   Services.obs.addObserver(this, "profile-change-net-teardown", true);
   Services.obs.addObserver(this, "network:offline-about-to-go-offline", true);
+  Services.obs.addObserver(this, "network:offline-status-changed", true);
 }
 GlobalPCList.prototype = {
   QueryInterface: XPCOMUtils.generateQI([Ci.nsIObserver,
@@ -45,7 +47,7 @@ GlobalPCList.prototype = {
   _xpcom_factory: {
     createInstance: function(outer, iid) {
       if (outer) {
-        throw Components.results.NS_ERROR_NO_AGGREGATION;
+        throw Cr.NS_ERROR_NO_AGGREGATION;
       }
       return _globalPCList.QueryInterface(iid);
     }
@@ -54,13 +56,23 @@ GlobalPCList.prototype = {
   addPC: function(pc) {
     let winID = pc._winID;
     if (this._list[winID]) {
-      this._list[winID].push(pc);
+      this._list[winID].push(Components.utils.getWeakReference(pc));
     } else {
-      this._list[winID] = [pc];
+      this._list[winID] = [Components.utils.getWeakReference(pc)];
     }
+    this.removeNullRefs(winID);
+  },
+
+  removeNullRefs: function(winID) {
+    if (this._list === undefined || this._list[winID] === undefined) {
+      return;
+    }
+    this._list[winID] = this._list[winID].filter(
+      function (e,i,a) { return e.get() !== null; });
   },
 
   hasActivePeerConnection: function(winID) {
+    this.removeNullRefs(winID);
     return this._list[winID] ? true : false;
   },
 
@@ -68,10 +80,13 @@ GlobalPCList.prototype = {
     if (topic == "inner-window-destroyed") {
       let winID = subject.QueryInterface(Ci.nsISupportsPRUint64).data;
       if (this._list[winID]) {
-        this._list[winID].forEach(function(pc) {
-          pc._pc.close(false);
-          delete pc._observer;
-          pc._pc = null;
+        this._list[winID].forEach(function(pcref) {
+          let pc = pcref.get();
+          if (pc !== null) {
+            pc._pc.close(false);
+            delete pc._observer;
+            pc._pc = null;
+          }
         });
         delete this._list[winID];
       }
@@ -79,16 +94,28 @@ GlobalPCList.prototype = {
                topic == "network:offline-about-to-go-offline") {
       // Delete all peerconnections on shutdown - synchronously (we need
       // them to be done deleting transports before we return)!
-      // Also kill them if "Work Offline" is selected - more can be created 
+      // Also kill them if "Work Offline" is selected - more can be created
       // while offline, but attempts to connect them should fail.
       let array;
       while ((array = this._list.pop()) != undefined) {
-        array.forEach(function(pc) {
-          pc._pc.close(true);
-          delete pc._observer;
-          pc._pc = null;
+        array.forEach(function(pcref) {
+          let pc = pcref.get();
+          if (pc !== null) {
+            pc._pc.close(true);
+            delete pc._observer;
+            pc._pc = null;
+          }
         });
       };
+      this._networkdown = true;
+    }
+    else if (topic == "network:offline-status-changed") {
+      if (data == "offline") {
+	// this._list shold be empty here
+        this._networkdown = true;
+      } else if (data == "online") {
+        this._networkdown = false;
+      }
     }
   },
 };
@@ -116,13 +143,14 @@ IceCandidate.prototype = {
 
   constructor: function(win, candidateInitDict) {
     if (this._win) {
-      throw new Error("Constructor already called");
+      throw new Components.Exception("Constructor already called");
     }
     this._win = win;
     if (candidateInitDict !== undefined) {
       this.candidate = candidateInitDict.candidate || null;
-      this.sdpMid = candidateInitDict.sdbMid || null;
-      this.sdpMLineIndex = candidateInitDict.sdpMLineIndex || null;
+      this.sdpMid = candidateInitDict.sdpMid || null;
+      this.sdpMLineIndex = candidateInitDict.sdpMLineIndex === null ?
+            null : candidateInitDict.sdpMLineIndex + 1;
     } else {
       this.candidate = this.sdpMid = this.sdpMLineIndex = null;
     }
@@ -150,7 +178,7 @@ SessionDescription.prototype = {
 
   constructor: function(win, descriptionInitDict) {
     if (this._win) {
-      throw new Error("Constructor already called");
+      throw new Components.Exception("Constructor already called");
     }
     this._win = win;
     if (descriptionInitDict !== undefined) {
@@ -180,6 +208,10 @@ function PeerConnection() {
   this._onCreateAnswerSuccess = null;
   this._onCreateAnswerFailure = null;
 
+  this._pendingType = null;
+  this._localType = null;
+  this._remoteType = null;
+
   /**
    * Everytime we get a request from content, we put it in the queue. If
    * there are no pending operations though, we will execute it immediately.
@@ -198,7 +230,6 @@ function PeerConnection() {
   this.onstatechange = null;
   this.ongatheringchange = null;
   this.onicechange = null;
-  this.remoteDescription = null;
 
   // Data channel.
   this.ondatachannel = null;
@@ -208,25 +239,31 @@ function PeerConnection() {
 PeerConnection.prototype = {
   classID: PC_CID,
 
-  classInfo: XPCOMUtils.generateCI({classID: PC_CID,
-                                    contractID: PC_CONTRACT,
-                                    classDescription: "PeerConnection",
-                                    interfaces: [
-                                      Ci.nsIDOMRTCPeerConnection
-                                    ],
-                                    flags: Ci.nsIClassInfo.DOM_OBJECT}),
+  classInfo: Cu.getDOMClassInfo("RTCPeerConnection"),
 
   QueryInterface: XPCOMUtils.generateQI([
-    Ci.nsIDOMRTCPeerConnection, Ci.nsIDOMGlobalObjectConstructor
+    Ci.nsIDOMRTCPeerConnection,
+    Ci.nsIDOMGlobalObjectConstructor,
+    Ci.nsISupportsWeakReference
   ]),
 
   // Constructor is an explicit function, because of nsIDOMGlobalObjectConstructor.
-  constructor: function(win) {
+  constructor: function(win, rtcConfig) {
     if (!Services.prefs.getBoolPref("media.peerconnection.enabled")) {
-      throw new Error("PeerConnection not enabled (did you set the pref?)");
+      throw new Components.Exception("PeerConnection not enabled (did you set the pref?)");
     }
     if (this._win) {
-      throw new Error("Constructor already called");
+      throw new Components.Exception("RTCPeerConnection constructor already called");
+    }
+    if (!rtcConfig ||
+        !Services.prefs.getBoolPref("media.peerconnection.use_document_iceservers")) {
+      rtcConfig = {iceServers:
+        JSON.parse(Services.prefs.getCharPref("media.peerconnection.default_iceservers"))};
+    }
+    this._mustValidateRTCConfiguration(rtcConfig,
+        "RTCPeerConnection constructor passed invalid RTCConfiguration");
+    if (_globalPCList._networkdown) {
+      throw new Components.Exception("Can't create RTCPeerConnections when the network is down");
     }
 
     this._pc = Cc["@mozilla.org/peerconnection;1"].
@@ -236,7 +273,7 @@ PeerConnection.prototype = {
     // Nothing starts until ICE gathering completes.
     this._queueOrRun({
       func: this._pc.initialize,
-      args: [this._observer, win, Services.tm.currentThread],
+      args: [this._observer, win, rtcConfig, Services.tm.currentThread],
       wait: true
     });
 
@@ -255,10 +292,11 @@ PeerConnection.prototype = {
    * call _executeNext, false if it doesn't have a callback.
    */
   _queueOrRun: function(obj) {
-    if (this._closed) {
-	return;
-    }
+    this._checkClosed();
     if (!this._pending) {
+      if (obj.type !== undefined) {
+        this._pendingType = obj.type;
+      }
       obj.func.apply(this, obj.args);
       if (obj.wait) {
         this._pending = true;
@@ -272,6 +310,9 @@ PeerConnection.prototype = {
   _executeNext: function() {
     if (this._queue.length) {
       let obj = this._queue.shift();
+      if (obj.type !== undefined) {
+        this._pendingType = obj.type;
+      }
       obj.func.apply(this, obj.args);
       if (!obj.wait) {
         this._executeNext();
@@ -282,51 +323,146 @@ PeerConnection.prototype = {
   },
 
   /**
-   * Constraints look like this:
+   * An RTCConfiguration looks like this:
    *
-   * {
-   *   mandatory: {"foo": true, "bar": 10, "baz": "boo"},
-   *   optional: [{"foo": true}, {"bar": 10}]
-   * }
+   * { "iceServers": [ { url:"stun:23.21.150.121" },
+   *                   { url:"turn:user@turn.example.org", credential:"mypass"} ] }
    *
-   * We check for basic structure but not the validity of the constraints
-   * themselves before passing them along to C++.
+   * We check for basic structure and well-formed stun/turn urls, but not
+   * validity of servers themselves, before passing along to C++.
+   * ErrorMsg is passed in to detail which array-entry failed, if any.
    */
-  _validateConstraints: function(constraints) {
+  _mustValidateRTCConfiguration: function(rtcConfig, errorMsg) {
     function isObject(obj) {
       return obj && (typeof obj === "object");
     }
-    function isArray(obj) {
-      return isObject(obj) &&
-        (Object.prototype.toString.call(obj) === "[object Array]");
+    function isArraylike(obj) {
+      return isObject(obj) && ("length" in obj);
     }
+    function nicerNewURI(uriStr, errorMsg) {
+      let ios = Cc['@mozilla.org/network/io-service;1'].getService(Ci.nsIIOService);
+      try {
+        return ios.newURI(uriStr, null, null);
+      } catch (e if (e.result == Cr.NS_ERROR_MALFORMED_URI)) {
+        throw new Components.Exception(errorMsg + " - malformed URI: " + uriStr,
+                                       Cr.NS_ERROR_MALFORMED_URI);
+      }
+    }
+    function mustValidateServer(server) {
+      let url = nicerNewURI(server.url, errorMsg);
+      if (!(url.scheme in { stun:1, stuns:1, turn:1, turns:1 })) {
+        throw new Components.Exception(errorMsg + " - improper scheme: " + url.scheme,
+                                       Cr.NS_ERROR_MALFORMED_URI);
+      }
+      if (server.credential && isObject(server.credential)) {
+        throw new Components.Exception(errorMsg + " - invalid credential");
+      }
+    }
+    if (!isObject(rtcConfig)) {
+      throw new Components.Exception(errorMsg);
+    }
+    if (!isArraylike(rtcConfig.iceServers)) {
+      throw new Components.Exception(errorMsg +
+                                     " - iceServers [] property not present");
+    }
+    let len = rtcConfig.iceServers.length;
+    for (let i=0; i < len; i++) {
+      mustValidateServer (rtcConfig.iceServers[i], errorMsg);
+    }
+  },
 
-    if (!isObject(constraints)) {
-      return false;
+  /**
+   * Constraints look like this:
+   *
+   * {
+   *   mandatory: {"OfferToReceiveAudio": true, "OfferToReceiveVideo": true },
+   *   optional: [{"VoiceActivityDetection": true}, {"FooBar": 10}]
+   * }
+   *
+   * We check for basic structure of constraints and the validity of
+   * mandatory constraints against those we support (fail if we don't).
+   * Unknown optional constraints may be of any type.
+   */
+  _mustValidateConstraints: function(constraints, errorMsg) {
+    function isObject(obj) {
+      return obj && (typeof obj === "object");
     }
-    if (constraints.mandatory && !isObject(constraints.mandatory)) {
-      return false;
+    function isArraylike(obj) {
+      return isObject(obj) && ("length" in obj);
     }
-    if (constraints.optional && !isArray(constraints.optional)) {
-      return false;
+    const SUPPORTED_CONSTRAINTS = {
+      OfferToReceiveAudio:1,
+      OfferToReceiveVideo:1,
+      MozDontOfferDataChannel:1
+    };
+    const OTHER_KNOWN_CONSTRAINTS = {
+      VoiceActivityDetection:1,
+      IceTransports:1,
+      RequestIdentity:1
+    };
+    // Parse-aid: Testing for pilot error of missing outer block avoids
+    // otherwise silent no-op since both mandatory and optional are optional
+    if (!isObject(constraints) || Array.isArray(constraints)) {
+      throw new Components.Exception(errorMsg);
     }
+    if (constraints.mandatory) {
+      // Testing for pilot error of using [] on mandatory here throws nicer msg
+      // (arrays would throw in loop below regardless but with more cryptic msg)
+      if (!isObject(constraints.mandatory) || Array.isArray(constraints.mandatory)) {
+        throw new Components.Exception(errorMsg + " - malformed mandatory constraints");
+      }
+      for (let constraint in constraints.mandatory) {
+        if (!(constraint in SUPPORTED_CONSTRAINTS) &&
+            constraints.mandatory.hasOwnProperty(constraint)) {
+          throw new Components.Exception(errorMsg + " - " +
+                                         ((constraint in OTHER_KNOWN_CONSTRAINTS)?
+                                          "unsupported" : "unknown") +
+                                         " mandatory constraint: " + constraint);
+        }
+      }
+    }
+    if (constraints.optional) {
+      if (!isArraylike(constraints.optional)) {
+        throw new Components.Exception(errorMsg +
+                                       " - malformed optional constraint array");
+      }
+      let len = constraints.optional.length;
+      for (let i = 0; i < len; i += 1) {
+        if (!isObject(constraints.optional[i])) {
+          throw new Components.Exception(errorMsg +
+                                         " - malformed optional constraint: " +
+                                         constraints.optional[i]);
+        }
+        let constraints_per_entry = 0;
+        for (let constraint in constraints.optional[i]) {
+          if (constraints.optional[i].hasOwnProperty(constraint)) {
+            if (constraints_per_entry) {
+              throw new Components.Exception(errorMsg +
+                  " - optional constraint must be single key/value pair");
+            }
+            constraints_per_entry += 1;
+          }
+        }
+      }
+    }
+  },
 
-    return true;
+  // Ideally, this should be of the form _checkState(state),
+  // where the state is taken from an enumeration containing
+  // the valid peer connection states defined in the WebRTC
+  // spec. See Bug 831756.
+  _checkClosed: function() {
+    if (this._closed) {
+      throw new Components.Exception("Peer connection is closed");
+    }
   },
 
   createOffer: function(onSuccess, onError, constraints) {
-    if (this._onCreateOfferSuccess) {
-      throw new Error("createOffer already called");
-    }
-
     if (!constraints) {
       constraints = {};
     }
 
-    if (!this._validateConstraints(constraints)) {
-      throw new Error("createOffer passed invalid constraints");
-    }
-
+    this._mustValidateConstraints(constraints, "createOffer passed invalid constraints");
     this._onCreateOfferSuccess = onSuccess;
     this._onCreateOfferFailure = onError;
 
@@ -337,47 +473,51 @@ PeerConnection.prototype = {
     });
   },
 
-  createAnswer: function(onSuccess, onError, constraints, provisional) {
-    if (this._onCreateAnswerSuccess) {
-      throw new Error("createAnswer already called");
-    }
+  _createAnswer: function(onSuccess, onError, constraints, provisional) {
+    this._onCreateAnswerSuccess = onSuccess;
+    this._onCreateAnswerFailure = onError;
 
     if (!this.remoteDescription) {
-      throw new Error("setRemoteDescription not called");
+
+      this._observer.onCreateAnswerError(Ci.IPeerConnection.kInvalidState,
+                                         "setRemoteDescription not called");
+      return;
     }
 
     if (this.remoteDescription.type != "offer") {
-      throw new Error("No outstanding offer");
+
+      this._observer.onCreateAnswerError(Ci.IPeerConnection.kInvalidState,
+                                         "No outstanding offer");
+      return;
     }
 
+    // TODO: Implement provisional answer.
+
+    this._pc.createAnswer(constraints);
+  },
+
+  createAnswer: function(onSuccess, onError, constraints, provisional) {
     if (!constraints) {
       constraints = {};
     }
 
-    if (!this._validateConstraints(constraints)) {
-      throw new Error("createAnswer passed invalid constraints");
-    }
-
-    this._onCreateAnswerSuccess = onSuccess;
-    this._onCreateAnswerFailure = onError;
+    this._mustValidateConstraints(constraints, "createAnswer passed invalid constraints");
 
     if (!provisional) {
       provisional = false;
     }
 
-    // TODO: Implement provisional answer.
     this._queueOrRun({
-      func: this._pc.createAnswer,
-      args: [constraints],
+      func: this._createAnswer,
+      args: [onSuccess, onError, constraints, provisional],
       wait: true
     });
   },
 
   setLocalDescription: function(desc, onSuccess, onError) {
-    if (this._onSetLocalDescriptionSuccess) {
-      throw new Error("setLocalDescription already called");
-    }
-
+    // TODO -- if we have two setLocalDescriptions in the
+    // queue,this code overwrites the callbacks for the first
+    // one with the callbacks for the second one. See Bug 831759.
     this._onSetLocalDescriptionSuccess = onSuccess;
     this._onSetLocalDescriptionFailure = onError;
 
@@ -390,24 +530,23 @@ PeerConnection.prototype = {
         type = Ci.IPeerConnection.kActionAnswer;
         break;
       default:
-        throw new Error(
-          "Invalid type " + desc.type + " provided to setLocalDescription"
-        );
+        throw new Components.Exception("Invalid type " + desc.type +
+                                       " provided to setLocalDescription");
         break;
     }
 
     this._queueOrRun({
       func: this._pc.setLocalDescription,
       args: [type, desc.sdp],
-      wait: true
+      wait: true,
+      type: desc.type
     });
   },
 
   setRemoteDescription: function(desc, onSuccess, onError) {
-    if (this._onSetRemoteDescriptionSuccess) {
-      throw new Error("setRemoteDescription already called");
-    }
-
+    // TODO -- if we have two setRemoteDescriptions in the
+    // queue, this code overwrites the callbacks for the first
+    // one with the callbacks for the second one. See Bug 831759.
     this._onSetRemoteDescriptionSuccess = onSuccess;
     this._onSetRemoteDescriptionFailure = onError;
 
@@ -420,21 +559,16 @@ PeerConnection.prototype = {
         type = Ci.IPeerConnection.kActionAnswer;
         break;
       default:
-        throw new Error(
-          "Invalid type " + desc.type + " provided to setRemoteDescription"
-        );
+        throw new Components.Exception("Invalid type " + desc.type +
+                                       " provided to setRemoteDescription");
         break;
     }
-
-    this.remoteDescription = {
-      type: desc.type, sdp: desc.sdp,
-      __exposedProps__: { type: "rw", sdp: "rw" }
-    };
 
     this._queueOrRun({
       func: this._pc.setRemoteDescription,
       args: [type, desc.sdp],
-      wait: true
+      wait: true,
+      type: desc.type
     });
   },
 
@@ -442,19 +576,22 @@ PeerConnection.prototype = {
     return Cr.NS_ERROR_NOT_IMPLEMENTED;
   },
 
-  addIceCandidate: function(cand) {
+  addIceCandidate: function(cand, onSuccess, onError) {
     if (!cand) {
-      throw "NULL candidate passed to addIceCandidate!";
+      throw new Components.Exception("NULL candidate passed to addIceCandidate!");
     }
 
     if (!cand.candidate || !cand.sdpMLineIndex) {
-      throw "Invalid candidate passed to addIceCandidate!";
+      throw new Components.Exception("Invalid candidate passed to addIceCandidate!");
     }
+
+    this._onAddIceCandidateSuccess = onSuccess;
+    this._onAddIceCandidateError = onError;
 
     this._queueOrRun({
       func: this._pc.addIceCandidate,
       args: [cand.candidate, cand.sdpMid || "", cand.sdpMLineIndex],
-      wait: false
+      wait: true
     });
   },
 
@@ -468,11 +605,8 @@ PeerConnection.prototype = {
   },
 
   removeStream: function(stream) {
-    this._queueOrRun({
-      func: this._pc.removeStream,
-      args: [stream],
-      wait: false
-    });
+     //Bug844295: Not implemeting this functionality.
+     return Cr.NS_ERROR_NOT_IMPLEMENTED;
   },
 
   close: function() {
@@ -485,17 +619,81 @@ PeerConnection.prototype = {
   },
 
   get localStreams() {
+    this._checkClosed();
     return this._pc.localStreams;
   },
+
   get remoteStreams() {
+    this._checkClosed();
     return this._pc.remoteStreams;
   },
 
+  get localDescription() {
+    this._checkClosed();
+    let sdp = this._pc.localDescription;
+    if (sdp.length == 0) {
+      return null;
+    }
+    return {
+      type: this._localType, sdp: sdp,
+      __exposedProps__: { type: "rw", sdp: "rw" }
+    };
+  },
+
+  get remoteDescription() {
+    this._checkClosed();
+    let sdp = this._pc.remoteDescription;
+    if (sdp.length == 0) {
+      return null;
+    }
+    return {
+      type: this._remoteType, sdp: sdp,
+      __exposedProps__: { type: "rw", sdp: "rw" }
+    };
+  },
+
+  get readyState() {
+    // checking for our local pc closed indication
+    // before invoking the pc methods.
+    if(this._closed) {
+      return "closed";
+    }
+
+    var state="undefined";
+    switch (this._pc.readyState) {
+      case Ci.IPeerConnection.kNew:
+        state = "new";
+        break;
+      case Ci.IPeerConnection.kNegotiating:
+        state = "negotiating";
+        break;
+      case Ci.IPeerConnection.kActive:
+        state = "active";
+        break;
+      case Ci.IPeerConnection.kClosing:
+        state = "closing";
+        break;
+      case Ci.IPeerConnection.kClosed:
+        state = "closed";
+        break;
+    }
+    return state;
+  },
+
   createDataChannel: function(label, dict) {
-    if (dict &&
-        dict.maxRetransmitTime != undefined &&
+    this._checkClosed();
+    if (dict == undefined) {
+	dict = {};
+    }
+    if (dict.maxRetransmitTime != undefined &&
         dict.maxRetransmitNum != undefined) {
-      throw new Error("Both maxRetransmitTime and maxRetransmitNum cannot be provided");
+      throw new Components.Exception("Both maxRetransmitTime and maxRetransmitNum cannot be provided");
+    }
+    let protocol;
+    if (dict.protocol == undefined) {
+      protocol = "";
+    } else {
+      protocol = dict.protocol;
     }
 
     // Must determine the type where we still know if entries are undefined.
@@ -510,8 +708,9 @@ PeerConnection.prototype = {
 
     // Synchronous since it doesn't block.
     let channel = this._pc.createDataChannel(
-      label, type, dict.outOfOrderAllowed, dict.maxRetransmitTime,
-      dict.maxRetransmitNum
+      label, protocol, type, dict.outOfOrderAllowed, dict.maxRetransmitTime,
+      dict.maxRetransmitNum, dict.preset ? true : false,
+      dict.stream != undefined ? dict.stream : 0xFFFF
     );
     return channel;
   },
@@ -528,12 +727,46 @@ PeerConnection.prototype = {
   }
 };
 
-// This is a seperate object because we don't want to expose it to DOM.
+// This is a separate object because we don't want to expose it to DOM.
 function PeerConnectionObserver(dompc) {
   this._dompc = dompc;
 }
 PeerConnectionObserver.prototype = {
-  QueryInterface: XPCOMUtils.generateQI([Ci.IPeerConnectionObserver]),
+  QueryInterface: XPCOMUtils.generateQI([Ci.IPeerConnectionObserver,
+                                         Ci.nsISupportsWeakReference]),
+
+  // These strings must match those defined in the WebRTC spec.
+  reasonName: [
+    "NO_ERROR", // Should never happen -- only used for testing
+    "INVALID_CONSTRAINTS_TYPE",
+    "INVALID_CANDIDATE_TYPE",
+    "INVALID_MEDIASTREAM_TRACK",
+    "INVALID_STATE",
+    "INVALID_SESSION_DESCRIPTION",
+    "INCOMPATIBLE_SESSION_DESCRIPTION",
+    "INCOMPATIBLE_CONSTRAINTS",
+    "INCOMPATIBLE_MEDIASTREAMTRACK",
+    "INTERNAL_ERROR"
+  ],
+
+  callErrorCallback: function(callback, code, message) {
+    if (code > Ci.IPeerConnection.kMaxErrorType) {
+      code = Ci.IPeerConnection.kInternalError;
+    }
+
+    if (typeof message !== "string") {
+      message = this.reasonName[code];
+    }
+
+    if (callback) {
+      try {
+        callback.onCallback({
+          name: this.reasonName[code], message: message,
+          __exposedProps__: { name: "rw", message: "rw" }
+        });
+      } catch(e) {}
+    }
+  },
 
   onCreateOfferSuccess: function(offer) {
     if (this._dompc._onCreateOfferSuccess) {
@@ -547,12 +780,8 @@ PeerConnectionObserver.prototype = {
     this._dompc._executeNext();
   },
 
-  onCreateOfferError: function(code) {
-    if (this._dompc._onCreateOfferFailure) {
-      try {
-        this._dompc._onCreateOfferFailure.onCallback(code);
-      } catch(e) {}
-    }
+  onCreateOfferError: function(code, message) {
+    this.callErrorCallback (this._dompc._onCreateOfferFailure, code, message);
     this._dompc._executeNext();
   },
 
@@ -568,46 +797,58 @@ PeerConnectionObserver.prototype = {
     this._dompc._executeNext();
   },
 
-  onCreateAnswerError: function(code) {
-    if (this._dompc._onCreateAnswerFailure) {
-      try {
-        this._dompc._onCreateAnswerFailure.onCallback(code);
-      } catch(e) {}
-    }
+  onCreateAnswerError: function(code, message) {
+    this.callErrorCallback (this._dompc._onCreateAnswerFailure, code, message);
     this._dompc._executeNext();
   },
 
-  onSetLocalDescriptionSuccess: function(code) {
+  onSetLocalDescriptionSuccess: function() {
+    this._dompc._localType = this._dompc._pendingType;
+    this._dompc._pendingType = null;
     if (this._dompc._onSetLocalDescriptionSuccess) {
       try {
-        this._dompc._onSetLocalDescriptionSuccess.onCallback(code);
+        this._dompc._onSetLocalDescriptionSuccess.onCallback();
       } catch(e) {}
     }
     this._dompc._executeNext();
   },
 
-  onSetRemoteDescriptionSuccess: function(code) {
+  onSetRemoteDescriptionSuccess: function() {
+    this._dompc._remoteType = this._dompc._pendingType;
+    this._dompc._pendingType = null;
     if (this._dompc._onSetRemoteDescriptionSuccess) {
       try {
-        this._dompc._onSetRemoteDescriptionSuccess.onCallback(code);
+        this._dompc._onSetRemoteDescriptionSuccess.onCallback();
       } catch(e) {}
     }
     this._dompc._executeNext();
   },
 
-  onSetLocalDescriptionError: function(code) {
-    if (this._dompc._onSetLocalDescriptionFailure) {
-      try {
-        this._dompc._onSetLocalDescriptionFailure.onCallback(code);
-      } catch(e) {}
+  onSetLocalDescriptionError: function(code, message) {
+    this._dompc._pendingType = null;
+    this.callErrorCallback (this._dompc._onSetLocalDescriptionFailure, code,
+                            message);
+    this._dompc._executeNext();
+  },
+
+  onSetRemoteDescriptionError: function(code, message) {
+    this._dompc._pendingType = null;
+    this.callErrorCallback (this._dompc._onSetRemoteDescriptionFailure, code,
+                            message);
+    this._dompc._executeNext();
+  },
+
+  onAddIceCandidateSuccess: function() {
+    this._dompc._pendingType = null;
+    if (this._dompc._onAddIceCandidateSuccess) {
+      this._dompc._onAddIceCandidateSuccess.onCallback();
     }
     this._dompc._executeNext();
   },
 
-  onSetRemoteDescriptionError: function(code) {
-    if (this._dompc._onSetRemoteDescriptionFailure) {
-      this._dompc._onSetRemoteDescriptionFailure.onCallback(code);
-    }
+  onAddIceCandidateError: function(code, message) {
+    this._dompc._pendingType = null;
+    this.callErrorCallback (this._dompc._onAddIceCandidateError, code, message);
     this._dompc._executeNext();
   },
 
@@ -644,13 +885,11 @@ PeerConnectionObserver.prototype = {
         break;
       case Ci.IPeerConnection.kIceChecking:
         iceCb("checking");
-        this._dompc._executeNext();
         break;
       case Ci.IPeerConnection.kIceConnected:
         // ICE gathering complete.
         iceCb("connected");
         iceGatherCb("complete");
-        this._dompc._executeNext();
         break;
       case Ci.IPeerConnection.kIceFailed:
         iceCb("failed");
@@ -670,7 +909,6 @@ PeerConnectionObserver.prototype = {
         });
       } catch(e) {}
     }
-    this._dompc._executeNext();
   },
 
   onRemoveStream: function(stream, type) {
@@ -682,7 +920,6 @@ PeerConnectionObserver.prototype = {
         });
       } catch(e) {}
     }
-    this._dompc._executeNext();
   },
 
   foundIceCandidate: function(cand) {
@@ -694,16 +931,17 @@ PeerConnectionObserver.prototype = {
         });
       } catch(e) {}
     }
-    this._dompc._executeNext();
   },
 
   notifyDataChannel: function(channel) {
     if (this._dompc.ondatachannel) {
       try {
-        this._dompc.ondatachannel.onCallback(channel);
+        this._dompc.ondatachannel.onCallback({
+          channel: channel,
+          __exposedProps__: { channel: "r" }
+        });
       } catch(e) {}
     }
-    this._dompc._executeNext();
   },
 
   notifyConnection: function() {
@@ -712,7 +950,6 @@ PeerConnectionObserver.prototype = {
         this._dompc.onconnection.onCallback();
       } catch(e) {}
     }
-    this._dompc._executeNext();
   },
 
   notifyClosedConnection: function() {
@@ -721,7 +958,6 @@ PeerConnectionObserver.prototype = {
         this._dompc.onclosedconnection.onCallback();
       } catch(e) {}
     }
-    this._dompc._executeNext();
   }
 };
 

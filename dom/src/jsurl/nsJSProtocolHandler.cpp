@@ -47,6 +47,8 @@
 #include "nsIContentSecurityPolicy.h"
 #include "nsSandboxFlags.h"
 
+using mozilla::AutoPushJSContext;
+
 static NS_DEFINE_CID(kJSURICID, NS_JSURI_CID);
 
 class nsJSThunk : public nsIInputStream
@@ -166,22 +168,27 @@ nsresult nsJSThunk::EvaluateScript(nsIChannel *aChannel,
     rv = principal->GetCsp(getter_AddRefs(csp));
     NS_ENSURE_SUCCESS(rv, rv);
     if (csp) {
-		bool allowsInline;
-		rv = csp->GetAllowsInlineScript(&allowsInline);
-		NS_ENSURE_SUCCESS(rv, rv);
+        bool allowsInline = true;
+        bool reportViolations = false;
+        rv = csp->GetAllowsInlineScript(&reportViolations, &allowsInline);
+        NS_ENSURE_SUCCESS(rv, rv);
 
-      if (!allowsInline) {
-          // gather information to log with violation report
-          nsCOMPtr<nsIURI> uri;
-          principal->GetURI(getter_AddRefs(uri));
-          nsAutoCString asciiSpec;
-          uri->GetAsciiSpec(asciiSpec);
-		  csp->LogViolationDetails(nsIContentSecurityPolicy::VIOLATION_TYPE_INLINE_SCRIPT,
-								   NS_ConvertUTF8toUTF16(asciiSpec),
-								   NS_ConvertUTF8toUTF16(mURL),
-                                   0);
+        if (reportViolations) {
+            // gather information to log with violation report
+            nsCOMPtr<nsIURI> uri;
+            principal->GetURI(getter_AddRefs(uri));
+            nsAutoCString asciiSpec;
+            uri->GetAsciiSpec(asciiSpec);
+            csp->LogViolationDetails(nsIContentSecurityPolicy::VIOLATION_TYPE_INLINE_SCRIPT,
+                                     NS_ConvertUTF8toUTF16(asciiSpec),
+                                     NS_ConvertUTF8toUTF16(mURL),
+                                     0);
+        }
+
+        //return early if inline scripts are not allowed
+        if (!allowsInline) {
           return NS_ERROR_DOM_RETVAL_UNDEFINED;
-      }
+        }
     }
 
     // Get the global object we should be running on.
@@ -239,13 +246,7 @@ nsresult nsJSThunk::EvaluateScript(nsIChannel *aChannel,
     if (!useSandbox) {
         //-- Don't outside a sandbox unless the script principal subsumes the
         //   principal of the context.
-        nsCOMPtr<nsIPrincipal> objectPrincipal;
-        rv = securityManager->
-            GetObjectPrincipal(scriptContext->GetNativeContext(),
-                               globalJSObject,
-                               getter_AddRefs(objectPrincipal));
-        if (NS_FAILED(rv))
-            return rv;
+        nsIPrincipal* objectPrincipal = nsContentUtils::GetObjectPrincipal(globalJSObject);
 
         bool subsumes;
         rv = principal->Subsumes(objectPrincipal, &subsumes);
@@ -255,11 +256,11 @@ nsresult nsJSThunk::EvaluateScript(nsIChannel *aChannel,
         useSandbox = !subsumes;
     }
 
-    nsString result;
-    bool isUndefined;
-
+    JS::Value v = JS::UndefinedValue();
     // Finally, we have everything needed to evaluate the expression.
 
+    AutoPushJSContext cx(scriptContext->GetNativeContext());
+    JSAutoRequest ar(cx);
     if (useSandbox) {
         // We were asked to use a sandbox, or the channel owner isn't allowed
         // to execute in this context.  Evaluate the javascript URL in a
@@ -268,9 +269,6 @@ nsresult nsJSThunk::EvaluateScript(nsIChannel *aChannel,
 
         // First check to make sure it's OK to evaluate this script to
         // start with.  For example, script could be disabled.
-        JSContext *cx = scriptContext->GetNativeContext();
-        JSAutoRequest ar(cx);
-
         bool ok;
         rv = securityManager->CanExecuteScripts(cx, principal, &ok);
         if (NS_FAILED(rv)) {
@@ -298,10 +296,6 @@ nsresult nsJSThunk::EvaluateScript(nsIChannel *aChannel,
         NS_ENSURE_SUCCESS(rv, rv);
         sandboxObj = js::UnwrapObject(sandboxObj);
         JSAutoCompartment ac(cx, sandboxObj);
-        rv = xpc->HoldObject(cx, sandboxObj, getter_AddRefs(sandbox));
-        NS_ENSURE_SUCCESS(rv, rv);
-
-        jsval rval = JSVAL_VOID;
 
         // Push our JSContext on the context stack so the JS_ValueToString call (and
         // JS_ReportPendingException, if relevant) will use the principal of cx.
@@ -315,43 +309,26 @@ nsresult nsJSThunk::EvaluateScript(nsIChannel *aChannel,
             return rv;
         }
 
-        rv = xpc->EvalInSandboxObject(NS_ConvertUTF8toUTF16(script), cx,
-                                      sandbox, true, &rval);
+        rv = xpc->EvalInSandboxObject(NS_ConvertUTF8toUTF16(script),
+                                      /* filename = */ nullptr, cx,
+                                      sandboxObj, true, &v);
 
         // Propagate and report exceptions that happened in the
         // sandbox.
         if (JS_IsExceptionPending(cx)) {
             JS_ReportPendingException(cx);
-            isUndefined = true;
-        } else {
-            isUndefined = rval == JSVAL_VOID;
-        }
-
-        if (!isUndefined && NS_SUCCEEDED(rv)) {
-            NS_ASSERTION(JSVAL_IS_STRING(rval), "evalInSandbox is broken");
-
-            nsDependentJSString depStr;
-            if (!depStr.init(cx, JSVAL_TO_STRING(rval))) {
-                JS_ReportPendingException(cx);
-                isUndefined = true;
-            } else {
-                result = depStr;
-            }
         }
 
         stack->Pop(nullptr);
     } else {
         // No need to use the sandbox, evaluate the script directly in
         // the given scope.
+        JS::CompileOptions options(cx);
+        options.setFileAndLine(mURL.get(), 1)
+               .setVersion(JSVERSION_DEFAULT);
         rv = scriptContext->EvaluateString(NS_ConvertUTF8toUTF16(script),
-                                           globalJSObject, // obj
-                                           principal,
-                                           principal,
-                                           mURL.get(),     // url
-                                           1,              // line no
-                                           JSVERSION_DEFAULT,
-                                           &result,
-                                           &isUndefined);
+                                           *globalJSObject, options,
+                                           /* aCoerceToString = */ true, &v);
 
         // If there's an error on cx as a result of that call, report
         // it now -- either we're just running under the event loop,
@@ -360,18 +337,25 @@ nsresult nsJSThunk::EvaluateScript(nsIChannel *aChannel,
         // lose the error), or it might be JS that then proceeds to
         // cause an error of its own (which will also make us lose
         // this error).
-        JSContext *cx = scriptContext->GetNativeContext();
-        JSAutoRequest ar(cx);
         ::JS_ReportPendingException(cx);
     }
-    
-    if (NS_FAILED(rv)) {
-        rv = NS_ERROR_MALFORMED_URI;
+
+    // If we took the sandbox path above, v might be in the sandbox
+    // compartment.
+    if (!JS_WrapValue(cx, &v)) {
+        return NS_ERROR_OUT_OF_MEMORY;
     }
-    else if (isUndefined) {
-        rv = NS_ERROR_DOM_RETVAL_UNDEFINED;
-    }
-    else {
+
+    if (NS_FAILED(rv) || !(v.isString() || v.isUndefined())) {
+        return NS_ERROR_MALFORMED_URI;
+    } else if (v.isUndefined()) {
+        return NS_ERROR_DOM_RETVAL_UNDEFINED;
+    } else {
+        nsDependentJSString result;
+        if (!result.init(cx, v)) {
+            return NS_ERROR_OUT_OF_MEMORY;
+        }
+
         char *bytes;
         uint32_t bytesLen;
         NS_NAMED_LITERAL_CSTRING(isoCharset, "ISO-8859-1");
@@ -785,10 +769,13 @@ nsJSChannel::EvaluateScript()
     nsLoadFlags loadFlags;
     mStreamChannel->GetLoadFlags(&loadFlags);
 
-    if (loadFlags & LOAD_DOCUMENT_URI) {
-        // We're loaded as the document channel. If we go on,
-        // we'll blow away the current document. Make sure that's
-        // ok. If so, stop all pending network loads.
+    uint32_t disposition;
+    if (NS_FAILED(mStreamChannel->GetContentDisposition(&disposition)))
+        disposition = nsIChannel::DISPOSITION_INLINE;
+    if (loadFlags & LOAD_DOCUMENT_URI && disposition != nsIChannel::DISPOSITION_ATTACHMENT) {
+        // We're loaded as the document channel and not expecting to download
+        // the result. If we go on, we'll blow away the current document. Make
+        // sure that's ok. If so, stop all pending network loads.
 
         nsCOMPtr<nsIDocShell> docShell;
         NS_QueryNotificationCallbacks(mStreamChannel, docShell);

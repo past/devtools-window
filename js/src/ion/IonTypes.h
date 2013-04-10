@@ -13,19 +13,10 @@
 namespace js {
 namespace ion {
 
-typedef uint64_t uint64;
-typedef int64_t int64;
-typedef uint32_t uint32;
-typedef int32_t int32;
-typedef uint16_t uint16;
-typedef int16_t int16;
-typedef uint8_t uint8;
-typedef int8_t int8;
+typedef uint32_t SnapshotOffset;
+typedef uint32_t BailoutId;
 
-typedef uint32 SnapshotOffset;
-typedef uint32 BailoutId;
-
-static const SnapshotOffset INVALID_SNAPSHOT_OFFSET = uint32(-1);
+static const SnapshotOffset INVALID_SNAPSHOT_OFFSET = uint32_t(-1);
 
 // Different kinds of bailouts. When extending this enum, make sure to check
 // the bits reserved for bailout kinds in Bailouts.h
@@ -46,9 +37,6 @@ enum BailoutKind
     // A bailout required to monitor the result of a VM call.
     Bailout_Monitor,
 
-    // A bailout to trigger recompilation to inline calls when the script is hot.
-    Bailout_RecompileCheck,
-
     // A bailout triggered by a bounds-check failure.
     Bailout_BoundsCheck,
 
@@ -58,6 +46,32 @@ enum BailoutKind
     // A shape guard based on JM ICs failed.
     Bailout_CachedShapeGuard
 };
+
+#ifdef DEBUG
+inline const char *
+BailoutKindString(BailoutKind kind)
+{
+    switch (kind) {
+      case Bailout_Normal:
+        return "Bailout_Normal";
+      case Bailout_ArgumentCheck:
+        return "Bailout_ArgumentCheck";
+      case Bailout_TypeBarrier:
+        return "Bailout_TypeBarrier";
+      case Bailout_Monitor:
+        return "Bailout_Monitor";
+      case Bailout_BoundsCheck:
+        return "Bailout_BoundsCheck";
+      case Bailout_ShapeGuard:
+        return "Bailout_ShapeGuard";
+      case Bailout_CachedShapeGuard:
+        return "Bailout_CachedShapeGuard";
+      default:
+        JS_NOT_REACHED("Invalid BailoutKind");
+    }
+    return "INVALID_BAILOUT_KIND";
+}
+#endif
 
 // The ordering of this enumeration is important: Anything < Value is a
 // specialized type. Furthermore, anything < String has trivial conversion to
@@ -73,11 +87,12 @@ enum MIRType
     MIRType_Object,
     MIRType_Magic,
     MIRType_Value,
-    MIRType_None,       // Invalid, used as a placeholder.
-    MIRType_Slots,      // A slots vector
-    MIRType_Elements,   // An elements vector
-    MIRType_StackFrame, // StackFrame pointer for OSR.
-    MIRType_Shape       // A Shape pointer.
+    MIRType_None,         // Invalid, used as a placeholder.
+    MIRType_Slots,        // A slots vector
+    MIRType_Elements,     // An elements vector
+    MIRType_Pointer,      // An opaque pointer that receives no special treatment
+    MIRType_Shape,        // A Shape pointer.
+    MIRType_ForkJoinSlice // js::ForkJoinSlice*
 };
 
 #ifdef DEBUG

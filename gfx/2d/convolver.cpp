@@ -39,6 +39,18 @@
 #include <emmintrin.h>  // ARCH_CPU_X86_FAMILY was defined in build/config.h
 #endif
 
+#if defined(SK_CPU_LENDIAN)
+#define R_OFFSET_IDX 0
+#define G_OFFSET_IDX 1
+#define B_OFFSET_IDX 2
+#define A_OFFSET_IDX 3
+#else
+#define R_OFFSET_IDX 3
+#define G_OFFSET_IDX 2
+#define B_OFFSET_IDX 1
+#define A_OFFSET_IDX 0
+#endif
+
 namespace skia {
 
 namespace {
@@ -143,6 +155,12 @@ class CircularRowBuffer {
 // Convolves horizontally along a single row. The row data is given in
 // |src_data| and continues for the num_values() of the filter.
 template<bool has_alpha>
+// This function is miscompiled with gcc 4.5 with pgo. See bug 827946.
+#if defined(__GNUC__) && defined(MOZ_GCC_VERSION_AT_LEAST)
+#if MOZ_GCC_VERSION_AT_LEAST(4, 5, 0) && !MOZ_GCC_VERSION_AT_LEAST(4, 6, 0)
+__attribute__((optimize("-O1")))
+#endif
+#endif
 void ConvolveHorizontally(const unsigned char* src_data,
                           const ConvolutionFilter1D& filter,
                           unsigned char* out_row) {
@@ -162,11 +180,11 @@ void ConvolveHorizontally(const unsigned char* src_data,
     int accum[4] = {0};
     for (int filter_x = 0; filter_x < filter_length; filter_x++) {
       ConvolutionFilter1D::Fixed cur_filter = filter_values[filter_x];
-      accum[0] += cur_filter * row_to_filter[filter_x * 4 + 0];
-      accum[1] += cur_filter * row_to_filter[filter_x * 4 + 1];
-      accum[2] += cur_filter * row_to_filter[filter_x * 4 + 2];
+      accum[0] += cur_filter * row_to_filter[filter_x * 4 + R_OFFSET_IDX];
+      accum[1] += cur_filter * row_to_filter[filter_x * 4 + G_OFFSET_IDX];
+      accum[2] += cur_filter * row_to_filter[filter_x * 4 + B_OFFSET_IDX];
       if (has_alpha)
-        accum[3] += cur_filter * row_to_filter[filter_x * 4 + 3];
+        accum[3] += cur_filter * row_to_filter[filter_x * 4 + A_OFFSET_IDX];
     }
 
     // Bring this value back in range. All of the filter scaling factors
@@ -178,11 +196,11 @@ void ConvolveHorizontally(const unsigned char* src_data,
       accum[3] >>= ConvolutionFilter1D::kShiftBits;
 
     // Store the new pixel.
-    out_row[out_x * 4 + 0] = ClampTo8(accum[0]);
-    out_row[out_x * 4 + 1] = ClampTo8(accum[1]);
-    out_row[out_x * 4 + 2] = ClampTo8(accum[2]);
+    out_row[out_x * 4 + R_OFFSET_IDX] = ClampTo8(accum[0]);
+    out_row[out_x * 4 + G_OFFSET_IDX] = ClampTo8(accum[1]);
+    out_row[out_x * 4 + B_OFFSET_IDX] = ClampTo8(accum[2]);
     if (has_alpha)
-      out_row[out_x * 4 + 3] = ClampTo8(accum[3]);
+      out_row[out_x * 4 + A_OFFSET_IDX] = ClampTo8(accum[3]);
   }
 }
 
@@ -209,11 +227,15 @@ void ConvolveVertically(const ConvolutionFilter1D::Fixed* filter_values,
     int accum[4] = {0};
     for (int filter_y = 0; filter_y < filter_length; filter_y++) {
       ConvolutionFilter1D::Fixed cur_filter = filter_values[filter_y];
-      accum[0] += cur_filter * source_data_rows[filter_y][byte_offset + 0];
-      accum[1] += cur_filter * source_data_rows[filter_y][byte_offset + 1];
-      accum[2] += cur_filter * source_data_rows[filter_y][byte_offset + 2];
+      accum[0] += cur_filter 
+	* source_data_rows[filter_y][byte_offset + R_OFFSET_IDX];
+      accum[1] += cur_filter 
+	* source_data_rows[filter_y][byte_offset + G_OFFSET_IDX];
+      accum[2] += cur_filter 
+	* source_data_rows[filter_y][byte_offset + B_OFFSET_IDX];
       if (has_alpha)
-        accum[3] += cur_filter * source_data_rows[filter_y][byte_offset + 3];
+        accum[3] += cur_filter 
+	  * source_data_rows[filter_y][byte_offset + A_OFFSET_IDX];
     }
 
     // Bring this value back in range. All of the filter scaling factors
@@ -225,9 +247,9 @@ void ConvolveVertically(const ConvolutionFilter1D::Fixed* filter_values,
       accum[3] >>= ConvolutionFilter1D::kShiftBits;
 
     // Store the new pixel.
-    out_row[byte_offset + 0] = ClampTo8(accum[0]);
-    out_row[byte_offset + 1] = ClampTo8(accum[1]);
-    out_row[byte_offset + 2] = ClampTo8(accum[2]);
+    out_row[byte_offset + R_OFFSET_IDX] = ClampTo8(accum[0]);
+    out_row[byte_offset + G_OFFSET_IDX] = ClampTo8(accum[1]);
+    out_row[byte_offset + B_OFFSET_IDX] = ClampTo8(accum[2]);
     if (has_alpha) {
       unsigned char alpha = ClampTo8(accum[3]);
 
@@ -238,15 +260,15 @@ void ConvolveVertically(const ConvolutionFilter1D::Fixed* filter_values,
       // values) when the resulting bitmap is drawn to the screen.
       //
       // We only need to do this when generating the final output row (here).
-      int max_color_channel = NS_MAX(out_row[byte_offset + 0],
-          NS_MAX(out_row[byte_offset + 1], out_row[byte_offset + 2]));
+      int max_color_channel = std::max(out_row[byte_offset + R_OFFSET_IDX],
+          std::max(out_row[byte_offset + G_OFFSET_IDX], out_row[byte_offset + B_OFFSET_IDX]));
       if (alpha < max_color_channel)
-        out_row[byte_offset + 3] = max_color_channel;
+        out_row[byte_offset + A_OFFSET_IDX] = max_color_channel;
       else
-        out_row[byte_offset + 3] = alpha;
+        out_row[byte_offset + A_OFFSET_IDX] = alpha;
     } else {
       // No alpha channel, the image is opaque.
-      out_row[byte_offset + 3] = 0xff;
+      out_row[byte_offset + A_OFFSET_IDX] = 0xff;
     }
   }
 }
@@ -740,7 +762,7 @@ void ConvolutionFilter1D::AddFilter(int filter_offset,
   instance.length = filter_length;
   filters_.push_back(instance);
 
-  max_filter_ = NS_MAX(max_filter_, filter_length);
+  max_filter_ = std::max(max_filter_, filter_length);
 }
 
 void BGRAConvolve2D(const unsigned char* source_data,

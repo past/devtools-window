@@ -22,10 +22,10 @@
 #include "nsIListControlFrame.h"
 #include "nsISelectControlFrame.h"
 #include "nsIDOMEventListener.h"
-#include "nsIContent.h"
 #include "nsAutoPtr.h"
 #include "nsSelectsAreaFrame.h"
 
+class nsIContent;
 class nsIDOMHTMLSelectElement;
 class nsIDOMHTMLOptionsCollection;
 class nsIDOMHTMLOptionElement;
@@ -64,18 +64,18 @@ public:
                     const nsHTMLReflowState& aReflowState,
                     nsReflowStatus&          aStatus) MOZ_OVERRIDE;
 
-  NS_IMETHOD Init(nsIContent*      aContent,
-                   nsIFrame*        aParent,
-                   nsIFrame*        aPrevInFlow);
+  virtual void Init(nsIContent*      aContent,
+                    nsIFrame*        aParent,
+                    nsIFrame*        aPrevInFlow) MOZ_OVERRIDE;
 
   NS_IMETHOD DidReflow(nsPresContext*           aPresContext, 
                        const nsHTMLReflowState*  aReflowState, 
                        nsDidReflowStatus         aStatus);
   virtual void DestroyFrom(nsIFrame* aDestructRoot) MOZ_OVERRIDE;
 
-  NS_IMETHOD BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                              const nsRect&           aDirtyRect,
-                              const nsDisplayListSet& aLists);
+  virtual void BuildDisplayList(nsDisplayListBuilder*   aBuilder,
+                                const nsRect&           aDirtyRect,
+                                const nsDisplayListSet& aLists) MOZ_OVERRIDE;
 
   virtual nsIFrame* GetContentInsertionFrame();
 
@@ -98,7 +98,6 @@ public:
 
     // nsIFormControlFrame
   virtual nsresult SetFormProperty(nsIAtom* aName, const nsAString& aValue) MOZ_OVERRIDE;
-  virtual nsresult GetFormProperty(nsIAtom* aName, nsAString& aValue) const MOZ_OVERRIDE; 
   virtual void SetFocus(bool aOn = true, bool aRepaint = false);
 
   virtual nsGfxScrollFrameInner::ScrollbarStyles GetScrollbarStyles() const MOZ_OVERRIDE;
@@ -108,9 +107,6 @@ public:
 #ifdef ACCESSIBILITY
   virtual mozilla::a11y::AccType AccessibleType() MOZ_OVERRIDE;
 #endif
-
-    // nsContainerFrame
-  virtual int GetSkipSides() const MOZ_OVERRIDE;
 
     // nsIListControlFrame
   virtual void SetComboboxFrame(nsIFrame* aComboboxFrame);

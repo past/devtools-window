@@ -12,7 +12,7 @@ var gPane = null;
 var gTab = null;
 var gDebuggee = null;
 var gDebugger = null;
-var gScripts = null;
+var gSources = null;
 
 function test()
 {
@@ -40,11 +40,11 @@ function testInitialLoad() {
 function testLocationChange()
 {
   gDebugger.DebuggerController.activeThread.resume(function() {
-    gDebugger.DebuggerController.client.addOneTimeListener("tabNavigated", function(aEvent, aPacket) {
+    gDebugger.DebuggerController._target.once("navigate", function onTabNavigated(aEvent, aPacket) {
       ok(true, "tabNavigated event was fired.");
       info("Still attached to the tab.");
 
-      gDebugger.addEventListener("Debugger:AfterScriptsAdded", function _onEvent(aEvent) {
+      gDebugger.addEventListener("Debugger:AfterSourcesAdded", function _onEvent(aEvent) {
         gDebugger.removeEventListener(aEvent.type, _onEvent);
 
         executeSoon(function() {
@@ -59,11 +59,11 @@ function testLocationChange()
 
 function testBack()
 {
-  gDebugger.DebuggerController.client.addOneTimeListener("tabNavigated", function(aEvent, aPacket) {
+  gDebugger.DebuggerController._target.once("navigate", function onTabNavigated(aEvent, aPacket) {
     ok(true, "tabNavigated event was fired after going back.");
     info("Still attached to the tab.");
 
-    gDebugger.addEventListener("Debugger:AfterScriptsAdded", function _onEvent(aEvent) {
+    gDebugger.addEventListener("Debugger:AfterSourcesAdded", function _onEvent(aEvent) {
       gDebugger.removeEventListener(aEvent.type, _onEvent);
 
       executeSoon(function() {
@@ -79,11 +79,11 @@ function testBack()
 
 function testForward()
 {
-  gDebugger.DebuggerController.client.addOneTimeListener("tabNavigated", function(aEvent, aPacket) {
+  gDebugger.DebuggerController._target.once("navigate", function onTabNavigated(aEvent, aPacket) {
     ok(true, "tabNavigated event was fired after going forward.");
     info("Still attached to the tab.");
 
-    gDebugger.addEventListener("Debugger:AfterScriptsAdded", function _onEvent(aEvent) {
+    gDebugger.addEventListener("Debugger:AfterSourcesAdded", function _onEvent(aEvent) {
       gDebugger.removeEventListener(aEvent.type, _onEvent);
 
       executeSoon(function() {
@@ -98,23 +98,22 @@ function testForward()
 }
 
 function validateFirstPage() {
-  gScripts = gDebugger.DebuggerView.Sources._container;
+  gSources = gDebugger.DebuggerView.Sources;
 
-  is(gScripts.itemCount, 2, "Found the expected number of scripts.");
+  is(gSources.itemCount, 2,
+    "Found the expected number of scripts.");
 
-  let label1 = "test-script-switching-01.js";
-  let label2 = "test-script-switching-02.js";
-
-  ok(gDebugger.DebuggerView.Sources.containsLabel(label1),
+  ok(gDebugger.DebuggerView.Sources.containsLabel("test-script-switching-01.js"),
      "Found the first script label.");
-  ok(gDebugger.DebuggerView.Sources.containsLabel(label2),
+  ok(gDebugger.DebuggerView.Sources.containsLabel("test-script-switching-02.js"),
      "Found the second script label.");
 }
 
 function validateSecondPage() {
-  gScripts = gDebugger.DebuggerView.Sources._container;
+  gSources = gDebugger.DebuggerView.Sources;
 
-  is(gScripts.itemCount, 1, "Found the expected number of scripts.");
+  is(gSources.itemCount, 1,
+    "Found the expected number of scripts.");
 
   ok(gDebugger.DebuggerView.Sources.containsLabel("browser_dbg_stack.html"),
      "Found the single script label.");
@@ -126,5 +125,5 @@ registerCleanupFunction(function() {
   gTab = null;
   gDebuggee = null;
   gDebugger = null;
-  gScripts = null;
+  gSources = null;
 });

@@ -29,13 +29,16 @@ SizeOfFramePrefix(FrameType type)
     switch (type) {
       case IonFrame_Entry:
         return IonEntryFrameLayout::Size();
+      case IonFrame_BaselineJS:
       case IonFrame_OptimizedJS:
-      case IonFrame_Bailed_JS:
+      case IonFrame_Unwound_OptimizedJS:
         return IonJSFrameLayout::Size();
+      case IonFrame_BaselineStub:
+        return IonBaselineStubFrameLayout::Size();
       case IonFrame_Rectifier:
         return IonRectifierFrameLayout::Size();
-      case IonFrame_Bailed_Rectifier:
-        return IonBailedRectifierFrameLayout::Size();
+      case IonFrame_Unwound_Rectifier:
+        return IonUnwoundRectifierFrameLayout::Size();
       case IonFrame_Exit:
         return IonExitFrameLayout::Size();
       case IonFrame_Osr:
@@ -52,7 +55,7 @@ IonFrameIterator::current() const
     return (IonCommonFrameLayout *)current_;
 }
 
-inline uint8 *
+inline uint8_t *
 IonFrameIterator::returnAddress() const
 {
     IonCommonFrameLayout *current = (IonCommonFrameLayout *) current_;
@@ -73,6 +76,24 @@ IonFrameIterator::prevType() const
     return current->prevType();
 }
 
+inline bool
+IonFrameIterator::isFakeExitFrame() const
+{
+    bool res = (prevType() == IonFrame_Unwound_Rectifier ||
+                prevType() == IonFrame_Unwound_OptimizedJS ||
+                prevType() == IonFrame_Unwound_BaselineStub);
+    JS_ASSERT_IF(res, type() == IonFrame_Exit || type() == IonFrame_BaselineJS);
+    return res;
+}
+
+inline IonExitFrameLayout *
+IonFrameIterator::exitFrame() const
+{
+    JS_ASSERT(type() == IonFrame_Exit);
+    JS_ASSERT(!isFakeExitFrame());
+    return (IonExitFrameLayout *) fp();
+}
+
 size_t
 IonFrameIterator::frameSize() const
 {
@@ -81,11 +102,10 @@ IonFrameIterator::frameSize() const
 }
 
 // Returns the JSScript associated with the topmost Ion frame.
-inline JSScript *
+inline RawScript
 GetTopIonJSScript(JSContext *cx, const SafepointIndex **safepointIndexOut, void **returnAddrOut)
 {
-    AutoAssertNoGC nogc;
-    IonFrameIterator iter(cx->runtime->ionTop);
+    IonFrameIterator iter(cx->mainThread().ionTop);
     JS_ASSERT(iter.type() == IonFrame_Exit);
     ++iter;
 
@@ -97,9 +117,25 @@ GetTopIonJSScript(JSContext *cx, const SafepointIndex **safepointIndexOut, void 
     if (returnAddrOut)
         *returnAddrOut = (void *) iter.returnAddressToFp();
 
+    if (iter.isBaselineStub()) {
+        ++iter;
+        JS_ASSERT(iter.isBaselineJS());
+    }
+
     JS_ASSERT(iter.isScripted());
-    IonJSFrameLayout *frame = static_cast<IonJSFrameLayout*>(iter.current());
-    return ScriptFromCalleeToken(frame->calleeToken());
+    return iter.script();
+}
+
+inline BaselineFrame *
+GetTopBaselineFrame(JSContext *cx)
+{
+    IonFrameIterator iter(cx->mainThread().ionTop);
+    JS_ASSERT(iter.type() == IonFrame_Exit);
+    ++iter;
+    if (iter.isBaselineStub())
+        ++iter;
+    JS_ASSERT(iter.isBaselineJS());
+    return iter.baselineFrame();
 }
 
 } // namespace ion

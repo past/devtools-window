@@ -46,11 +46,19 @@ AlertsService.prototype = {
                                                         aTextClickable,
                                                         aCookie,
                                                         aAlertListener,
-                                                        aName) {
+                                                        aName,
+                                                        aBidi,
+                                                        aLang) {
     let browser = Services.wm.getMostRecentWindow("navigator:browser");
     browser.AlertsHelper.showAlertNotification(aImageUrl, aTitle, aText,
                                                aTextClickable, aCookie,
-                                               aAlertListener, aName);
+                                               aAlertListener, aName, aBidi,
+                                               aLang);
+  },
+
+  closeAlert: function(aName) {
+    let browser = Services.wm.getMostRecentWindow("navigator:browser");
+    browser.AlertsHelper.closeAlert(aName);
   },
 
   // nsIAppNotificationService
@@ -107,8 +115,6 @@ AlertsService.prototype = {
           Services.io.newURI(data.target, null, null),
           Services.io.newURI(listener.manifestURL, null, null));
       }
-
-      cpmm.sendAsyncMessage("app-notification-sysmsg-request", listener);
     }
 
     // we're done with this notification

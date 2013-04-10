@@ -20,11 +20,10 @@
 #include "nsEventStateManager.h"
 #include "nsCSSFrameConstructor.h"
 #include "nsLayoutUtils.h"
-#include "nsIViewManager.h"
+#include "nsViewManager.h"
 #include "nsIComponentManager.h"
 #include "nsITimer.h"
 #include "nsFocusManager.h"
-#include "nsIDocShellTreeItem.h"
 #include "nsIDocShell.h"
 #include "nsPIDOMWindow.h"
 #include "nsIInterfaceRequestorUtils.h"
@@ -226,9 +225,32 @@ bool nsXULPopupManager::ShouldRollupOnMouseWheelEvent()
   if (!content)
     return false;
 
+  if (content->AttrValueIs(kNameSpaceID_None, nsGkAtoms::rolluponmousewheel,
+                           nsGkAtoms::_true, eCaseMatters))
+    return true;
+
+  if (content->AttrValueIs(kNameSpaceID_None, nsGkAtoms::rolluponmousewheel,
+                           nsGkAtoms::_false, eCaseMatters))
+    return false;
+
   nsAutoString value;
   content->GetAttr(kNameSpaceID_None, nsGkAtoms::type, value);
   return StringBeginsWith(value, NS_LITERAL_STRING("autocomplete"));
+}
+
+bool nsXULPopupManager::ShouldConsumeOnMouseWheelEvent()
+{
+  nsMenuChainItem* item = GetTopVisibleMenu();
+  if (!item)
+    return false;
+
+  nsMenuPopupFrame* frame = item->Frame();
+  if (frame->PopupType() != ePopupTypePanel)
+    return true;
+
+  nsIContent* content = frame->GetContent();
+  return !(content && content->AttrValueIs(kNameSpaceID_None, nsGkAtoms::type,
+                                           nsGkAtoms::arrow, eCaseMatters));
 }
 
 // a menu should not roll up if activated by a mouse activate message (eg. X-mouse)
@@ -359,26 +381,28 @@ nsXULPopupManager::PopupResized(nsIFrame* aFrame, nsIntSize aSize)
   if (!menuPopupFrame)
     return;
 
+  nsView* view = menuPopupFrame->GetView();
+  if (!view)
+    return;
+
+  nsIntRect curDevSize = view->CalcWidgetBounds(eWindowType_popup);
+  // If the size is what we think it is, we have nothing to do.
+  if (curDevSize.width == aSize.width && curDevSize.height == aSize.height)
+    return;
+
+  // The size is different. Convert the actual size to css pixels and store it
+  // as 'width' and 'height' attributes on the popup.
   nsPresContext* presContext = menuPopupFrame->PresContext();
 
-  nsSize currentSize = menuPopupFrame->GetSize();
-
-  // convert both current and new sizes to integer CSS pixels for comparison;
-  // we won't set attributes if there is only a sub-CSS-pixel discrepancy
-  nsIntSize currCSS(nsPresContext::AppUnitsToIntCSSPixels(currentSize.width),
-                    nsPresContext::AppUnitsToIntCSSPixels(currentSize.height));
   nsIntSize newCSS(presContext->DevPixelsToIntCSSPixels(aSize.width),
                    presContext->DevPixelsToIntCSSPixels(aSize.height));
 
-  if (newCSS.width != currCSS.width || newCSS.height != currCSS.height) {
-    // for resizes, we just set the width and height attributes
-    nsIContent* popup = menuPopupFrame->GetContent();
-    nsAutoString width, height;
-    width.AppendInt(newCSS.width);
-    height.AppendInt(newCSS.height);
-    popup->SetAttr(kNameSpaceID_None, nsGkAtoms::width, width, false);
-    popup->SetAttr(kNameSpaceID_None, nsGkAtoms::height, height, true);
-  }
+  nsIContent* popup = menuPopupFrame->GetContent();
+  nsAutoString width, height;
+  width.AppendInt(newCSS.width);
+  height.AppendInt(newCSS.height);
+  popup->SetAttr(kNameSpaceID_None, nsGkAtoms::width, width, false);
+  popup->SetAttr(kNameSpaceID_None, nsGkAtoms::height, height, true);
 }
 
 nsMenuPopupFrame*
@@ -2262,7 +2286,7 @@ nsXULMenuCommandEvent::Run()
   if (!pm)
     return NS_OK;
 
-  // The order of the nsIViewManager and nsIPresShell COM pointers is
+  // The order of the nsViewManager and nsIPresShell COM pointers is
   // important below.  We want the pres shell to get released before the
   // associated view manager on exit from this function.
   // See bug 54233.
@@ -2295,7 +2319,7 @@ nsXULMenuCommandEvent::Run()
 
     nsPresContext* presContext = menuFrame->PresContext();
     nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
-    nsCOMPtr<nsIViewManager> kungFuDeathGrip = shell->GetViewManager();
+    nsRefPtr<nsViewManager> kungFuDeathGrip = shell->GetViewManager();
 
     // Deselect ourselves.
     if (mCloseMenuMode != CloseMenuMode_None)

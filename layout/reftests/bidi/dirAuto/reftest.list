@@ -1,3 +1,4 @@
+== bdi-auto-dir-default.html bdi-auto-dir-default-ref.html
 == dir_auto-contained-bdi-L.html dir_auto-contained-bdi-L-ref.html
 == dir_auto-contained-bdi-R.html dir_auto-contained-bdi-R-ref.html
 == dir_auto-contained-dir-L.html dir_auto-contained-dir-L-ref.html
@@ -159,3 +160,4 @@ fuzzy-if(/^Windows\x20NT\x206\.1/.test(http.oscpu)&&!layersGPUAccelerated&&!azur
 == dynamicDirAuto-DeleteText-RTL1.html dynamicDirAuto-refRTL-RTL.html
 == dynamicDirAuto-DeleteText-RTL2.html dynamicDirAuto-refRTL-RTL.html
 == dynamicDirAuto-DeleteText-RTL3.html dynamicDirAuto-refRTL-RTL.html
+== 839886-1.html 839886-1-ref.html

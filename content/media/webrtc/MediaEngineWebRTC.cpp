@@ -10,7 +10,11 @@
 #error "This file must be #included before any IPDL-generated files or other files that #include prlog.h"
 #endif
 
-#include "prlog.h"
+#include "nsIPrefService.h"
+#include "nsIPrefBranch.h"
+
+#include "CSFLog.h"
+#include "prenv.h"
 
 #ifdef PR_LOGGING
 static PRLogModuleInfo*
@@ -28,6 +32,9 @@ GetUserMediaLog()
 
 #include "MediaEngineWebRTC.h"
 #include "ImageContainer.h"
+#ifdef MOZ_WIDGET_ANDROID
+#include "AndroidBridge.h"
+#endif
 
 namespace mozilla {
 
@@ -39,10 +46,40 @@ MediaEngineWebRTC::EnumerateVideoDevices(nsTArray<nsRefPtr<MediaEngineVideoSourc
   // We spawn threads to handle gUM runnables, so we must protect the member vars
   MutexAutoLock lock(mMutex);
 
+#ifdef MOZ_WIDGET_ANDROID
+  jobject context = mozilla::AndroidBridge::Bridge()->GetGlobalContextRef();
+
+  // get the JVM
+  JavaVM *jvm = mozilla::AndroidBridge::Bridge()->GetVM();
+
+  JNIEnv *env;
+  jint res = jvm->AttachCurrentThread(&env, NULL);
+
+  webrtc::VideoEngine::SetAndroidObjects(jvm, (void*)context);
+
+  env->DeleteGlobalRef(context);
+#endif
+
   if (!mVideoEngine) {
     if (!(mVideoEngine = webrtc::VideoEngine::Create())) {
       return;
     }
+  }
+
+  PRLogModuleInfo *logs = GetWebRTCLogInfo();
+  if (!gWebrtcTraceLoggingOn && logs && logs->level > 0) {
+    // no need to a critical section or lock here
+    gWebrtcTraceLoggingOn = 1;
+
+    const char *file = PR_GetEnv("WEBRTC_TRACE_FILE");
+    if (!file) {
+      file = "WebRTC.log";
+    }
+
+    LOG(("Logging webrtc to %s level %d", __FUNCTION__, file, logs->level));
+
+    mVideoEngine->SetTraceFilter(logs->level);
+    mVideoEngine->SetTraceFile(file);
   }
 
   ptrViEBase = webrtc::ViEBase::GetInterface(mVideoEngine);
@@ -112,7 +149,7 @@ MediaEngineWebRTC::EnumerateVideoDevices(nsTArray<nsRefPtr<MediaEngineVideoSourc
     if (uniqueId[0] == '\0') {
       // In case a device doesn't set uniqueId!
       strncpy(uniqueId, deviceName, sizeof(uniqueId));
-	  uniqueId[sizeof(uniqueId)-1] = '\0'; // strncpy isn't safe
+      uniqueId[sizeof(uniqueId)-1] = '\0'; // strncpy isn't safe
     }
 
     nsRefPtr<MediaEngineWebRTCVideoSource> vSource;

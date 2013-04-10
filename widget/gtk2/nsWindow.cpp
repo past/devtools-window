@@ -6,6 +6,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/Util.h"
+#include <algorithm>
 
 #ifdef MOZ_PLATFORM_MAEMO
 // needed to include hildon parts in gtk.h
@@ -73,8 +74,9 @@
 #include "nsIPropertyBag2.h"
 
 #ifdef ACCESSIBILITY
+#include "mozilla/a11y/Accessible.h"
+#include "mozilla/a11y/Platform.h"
 #include "nsAccessibilityService.h"
-#include "nsIAccessibleDocument.h"
 
 using namespace mozilla;
 using namespace mozilla::widget;
@@ -356,11 +358,9 @@ nsWindow::nsWindow()
     mContainer           = nullptr;
     mGdkWindow           = nullptr;
     mShell               = nullptr;
-    mWindowGroup         = nullptr;
     mHasMappedToplevel   = false;
     mIsFullyObscured     = false;
     mRetryPointerGrab    = false;
-    mTransientParent     = nullptr;
     mWindowType          = eWindowType_child;
     mSizeState           = nsSizeMode_Normal;
     mLastSizeMode        = nsSizeMode_Normal;
@@ -637,9 +637,11 @@ nsWindow::Destroy(void)
                                          this);
 
     nsIRollupListener* rollupListener = nsBaseWidget::GetActiveRollupListener();
-    nsCOMPtr<nsIWidget> rollupWidget = rollupListener->GetRollupWidget();
-    if (static_cast<nsIWidget *>(this) == rollupWidget) {
-        rollupListener->Rollup(0, nullptr);
+    if (rollupListener) {
+        nsCOMPtr<nsIWidget> rollupWidget = rollupListener->GetRollupWidget();
+        if (static_cast<nsIWidget *>(this) == rollupWidget) {
+            rollupListener->Rollup(0, nullptr);
+        }
     }
 
     // dragService will be null after shutdown of the service manager.
@@ -667,11 +669,6 @@ nsWindow::Destroy(void)
     }
 #endif /* MOZ_X11 && MOZ_WIDGET_GTK2 */
   
-    if (mWindowGroup) {
-        g_object_unref(mWindowGroup);
-        mWindowGroup = nullptr;
-    }
-
     // Destroy thebes surface now. Badness can happen if we destroy
     // the surface after its X Window.
     mThebesSurface = nullptr;
@@ -770,8 +767,6 @@ nsWindow::SetParent(nsIWidget *aNewParent)
         return NS_ERROR_NOT_IMPLEMENTED;
     }
 
-    NS_ASSERTION(!mTransientParent, "child widget with transient parent");
-
     nsCOMPtr<nsIWidget> kungFuDeathGrip = this;
     if (mParent) {
         mParent->RemoveChild(this);
@@ -825,26 +820,12 @@ nsWindow::ReparentNativeWidget(nsIWidget* aNewParent)
     nsWindow* newParent = static_cast<nsWindow*>(aNewParent);
     GdkWindow* newParentWindow = newParent->mGdkWindow;
     GtkWidget* newContainer = newParent->GetMozContainerWidget();
+    GtkWindow* shell = GTK_WINDOW(mShell);
 
-    if (mTransientParent) {
+    if (shell && gtk_window_get_transient_for(shell)) {
       GtkWindow* topLevelParent =
           GTK_WINDOW(gtk_widget_get_toplevel(newContainer));
-      gtk_window_set_transient_for(GTK_WINDOW(mShell), topLevelParent);
-      mTransientParent = topLevelParent;
-      if (mWindowGroup) {
-          g_object_unref(mWindowGroup);
-          mWindowGroup = NULL;
-      }
-      if (gtk_window_get_group(mTransientParent)) {
-          gtk_window_group_add_window(gtk_window_get_group(mTransientParent),
-                                      GTK_WINDOW(mShell));
-          mWindowGroup = gtk_window_get_group(mTransientParent);
-          g_object_ref(mWindowGroup);
-      }
-      else if (gtk_window_get_group(GTK_WINDOW(mShell))) {
-          gtk_window_group_remove_window(gtk_window_get_group(GTK_WINDOW(mShell)),
-                                         GTK_WINDOW(mShell));
-      }
+      gtk_window_set_transient_for(shell, topLevelParent);
     }
 
     ReparentNativeWidgetInternal(aNewParent, newContainer, newParentWindow,
@@ -1011,15 +992,18 @@ nsWindow::Show(bool aState)
 }
 
 NS_IMETHODIMP
-nsWindow::Resize(int32_t aWidth, int32_t aHeight, bool aRepaint)
+nsWindow::Resize(double aWidth, double aHeight, bool aRepaint)
 {
-    ConstrainSize(&aWidth, &aHeight);
+    double scale = GetDefaultScale();
+    int32_t width = NSToIntRound(scale * aWidth);
+    int32_t height = NSToIntRound(scale * aHeight);
+    ConstrainSize(&width, &height);
 
     // For top-level windows, aWidth and aHeight should possibly be
     // interpreted as frame bounds, but NativeResize treats these as window
     // bounds (Bug 581866).
 
-    mBounds.SizeTo(aWidth, aHeight);
+    mBounds.SizeTo(width, height);
 
     if (!mCreated)
         return NS_OK;
@@ -1069,7 +1053,7 @@ nsWindow::Resize(int32_t aWidth, int32_t aHeight, bool aRepaint)
             // For widgets that we listen for resizes for (widgets created
             // with native parents) we apparently _always_ have to resize.  I
             // dunno why, but apparently we're lame like that.
-            NativeResize(aWidth, aHeight, aRepaint);
+            NativeResize(width, height, aRepaint);
         }
         else {
             mNeedsResize = true;
@@ -1080,21 +1064,26 @@ nsWindow::Resize(int32_t aWidth, int32_t aHeight, bool aRepaint)
 
     // send a resize notification if this is a toplevel
     if (mIsTopLevel || mListenForResizes) {
-        DispatchResized(aWidth, aHeight);
+        DispatchResized(width, height);
     }
 
     return NS_OK;
 }
 
 NS_IMETHODIMP
-nsWindow::Resize(int32_t aX, int32_t aY, int32_t aWidth, int32_t aHeight,
-                       bool aRepaint)
+nsWindow::Resize(double aX, double aY, double aWidth, double aHeight,
+                 bool aRepaint)
 {
-    ConstrainSize(&aWidth, &aHeight);
+    double scale = GetDefaultScale();
+    int32_t width = NSToIntRound(scale * aWidth);
+    int32_t height = NSToIntRound(scale * aHeight);
+    ConstrainSize(&width, &height);
 
-    mBounds.x = aX;
-    mBounds.y = aY;
-    mBounds.SizeTo(aWidth, aHeight);
+    int32_t x = NSToIntRound(scale * aX);
+    int32_t y = NSToIntRound(scale * aY);
+    mBounds.x = x;
+    mBounds.y = y;
+    mBounds.SizeTo(width, height);
 
     mNeedsMove = true;
 
@@ -1110,7 +1099,7 @@ nsWindow::Resize(int32_t aX, int32_t aY, int32_t aWidth, int32_t aHeight,
         // Are the bounds sane?
         if (AreBoundsSane()) {
             // Yep?  Resize the window
-            NativeResize(aX, aY, aWidth, aHeight, aRepaint);
+            NativeResize(x, y, width, height, aRepaint);
             // Does it need to be shown because it was previously insane?
             if (mNeedsShow)
                 NativeShow(true);
@@ -1135,7 +1124,7 @@ nsWindow::Resize(int32_t aX, int32_t aY, int32_t aWidth, int32_t aHeight,
             // For widgets that we listen for resizes for (widgets created
             // with native parents) we apparently _always_ have to resize.  I
             // dunno why, but apparently we're lame like that.
-            NativeResize(aX, aY, aWidth, aHeight, aRepaint);
+            NativeResize(x, y, width, height, aRepaint);
         }
         else {
             mNeedsResize = true;
@@ -1145,7 +1134,7 @@ nsWindow::Resize(int32_t aX, int32_t aY, int32_t aWidth, int32_t aHeight,
     NotifyRollupGeometryChange();
 
     if (mIsTopLevel || mListenForResizes) {
-        DispatchResized(aWidth, aHeight);
+        DispatchResized(width, height);
     }
 
     return NS_OK;
@@ -1168,10 +1157,14 @@ nsWindow::IsEnabled() const
 
 
 NS_IMETHODIMP
-nsWindow::Move(int32_t aX, int32_t aY)
+nsWindow::Move(double aX, double aY)
 {
-    LOG(("nsWindow::Move [%p] %d %d\n", (void *)this,
+    LOG(("nsWindow::Move [%p] %f %f\n", (void *)this,
          aX, aY));
+
+    double scale = GetDefaultScale();
+    int32_t x = NSToIntRound(aX * scale);
+    int32_t y = NSToIntRound(aY * scale);
 
     if (mWindowType == eWindowType_toplevel ||
         mWindowType == eWindowType_dialog) {
@@ -1181,14 +1174,14 @@ nsWindow::Move(int32_t aX, int32_t aY)
     // Since a popup window's x/y coordinates are in relation to to
     // the parent, the parent might have moved so we always move a
     // popup window.
-    if (aX == mBounds.x && aY == mBounds.y &&
+    if (x == mBounds.x && y == mBounds.y &&
         mWindowType != eWindowType_popup)
         return NS_OK;
 
     // XXX Should we do some AreBoundsSane check here?
 
-    mBounds.x = aX;
-    mBounds.y = aY;
+    mBounds.x = x;
+    mBounds.y = y;
 
     if (!mCreated)
         return NS_OK;
@@ -1196,10 +1189,10 @@ nsWindow::Move(int32_t aX, int32_t aY)
     mNeedsMove = false;
 
     if (mIsTopLevel) {
-        gtk_window_move(GTK_WINDOW(mShell), aX, aY);
+        gtk_window_move(GTK_WINDOW(mShell), x, y);
     }
     else if (mGdkWindow) {
-        gdk_window_move(mGdkWindow, aX, aY);
+        gdk_window_move(mGdkWindow, x, y);
     }
 
     NotifyRollupGeometryChange();
@@ -2018,12 +2011,19 @@ nsWindow::OnExposeEvent(cairo_t *cr)
     // Dispatch WillPaintWindow notification to allow scripts etc. to run
     // before we paint
     {
-        listener->WillPaintWindow(this, true);
+        listener->WillPaintWindow(this);
 
         // If the window has been destroyed during the will paint notification,
         // there is nothing left to do.
         if (!mGdkWindow)
             return TRUE;
+
+        // Re-get the listener since the will paint notification might have
+        // killed it.
+        listener =
+            mAttachedWidgetListener ? mAttachedWidgetListener : mWidgetListener;
+        if (!listener)
+            return FALSE;
     }
 
 #if defined(MOZ_WIDGET_GTK2)
@@ -2130,7 +2130,7 @@ nsWindow::OnExposeEvent(cairo_t *cr)
         nsBaseWidget::AutoLayerManagerSetup
           setupLayerManager(this, ctx, mozilla::layers::BUFFER_NONE);
 
-        listener->PaintWindow(this, region, nsIWidgetListener::SENT_WILL_PAINT | nsIWidgetListener::WILL_SEND_DID_PAINT);
+        listener->PaintWindow(this, region, 0);
         listener->DidPaintWindow();
 
         g_free(rects);
@@ -2140,7 +2140,7 @@ nsWindow::OnExposeEvent(cairo_t *cr)
         LayerManagerOGL *manager = static_cast<LayerManagerOGL*>(GetLayerManager());
         manager->SetClippingRegion(region);
 
-        listener->PaintWindow(this, region, nsIWidgetListener::SENT_WILL_PAINT | nsIWidgetListener::WILL_SEND_DID_PAINT);
+        listener->PaintWindow(this, region, 0);
         listener->DidPaintWindow();
 
         g_free(rects);
@@ -2203,7 +2203,7 @@ nsWindow::OnExposeEvent(cairo_t *cr)
     bool painted = false;
     {
       AutoLayerManagerSetup setupLayerManager(this, ctx, layerBuffering);
-      painted = listener->PaintWindow(this, region, nsIWidgetListener::SENT_WILL_PAINT | nsIWidgetListener::WILL_SEND_DID_PAINT);
+      painted = listener->PaintWindow(this, region, 0);
     }
 
 #ifdef MOZ_X11
@@ -3005,7 +3005,7 @@ nsWindow::OnKeyPressEvent(GdkEventKey *aEvent)
     KeymapWrapper::InitKeyEvent(event, aEvent);
     if (isKeyDownCancelled) {
       // If prevent default set for onkeydown, do the same for onkeypress
-      event.flags |= NS_EVENT_FLAG_NO_DEFAULT;
+      event.mFlags.mDefaultPrevented = true;
     }
 
     // before we dispatch a key, check if it's the context menu key.
@@ -3349,8 +3349,6 @@ nsWindow::Create(nsIWidget        *aParent,
          aInitData->mWindowType == eWindowType_invisible) ?
         nullptr : aParent;
 
-    NS_ASSERTION(!mWindowGroup, "already have window group (leaking it)");
-
 #ifdef ACCESSIBILITY
     // Send a DBus message to check whether a11y is enabled
     a11y::PreInit();
@@ -3432,24 +3430,6 @@ nsWindow::Create(nsIWidget        *aParent,
                                      GDK_WINDOW_TYPE_HINT_DIALOG);
             gtk_window_set_transient_for(GTK_WINDOW(mShell),
                                          topLevelParent);
-            mTransientParent = topLevelParent;
-            // add ourselves to the parent window's window group
-            if (!topLevelParent) {
-                gtk_widget_realize(mShell);
-                GdkWindow* dialoglead = gtk_widget_get_window(mShell);
-                gdk_window_set_group(dialoglead, dialoglead);
-            }
-            if (parentGdkWindow) {
-                if (parentnsWindow->mWindowGroup) {
-                    gtk_window_group_add_window(parentnsWindow->mWindowGroup,
-                                                GTK_WINDOW(mShell));
-                    // store this in case any children are created
-                    mWindowGroup = parentnsWindow->mWindowGroup;
-                    g_object_ref(mWindowGroup);
-                    LOG(("adding window %p to group %p\n",
-                         (void *)mShell, (void *)mWindowGroup));
-                }
-            }
         }
         else if (mWindowType == eWindowType_popup) {
             // With popup windows, we want to control their position, so don't
@@ -3536,14 +3516,6 @@ nsWindow::Create(nsIWidget        *aParent,
             if (topLevelParent) {
                 gtk_window_set_transient_for(GTK_WINDOW(mShell),
                                             topLevelParent);
-                mTransientParent = topLevelParent;
-
-                GtkWindowGroup *groupParent = gtk_window_get_group(topLevelParent);
-                if (groupParent) {
-                    gtk_window_group_add_window(groupParent, GTK_WINDOW(mShell));
-                    mWindowGroup = groupParent;
-                    g_object_ref(mWindowGroup);
-                }
             }
         }
         else { // must be eWindowType_toplevel
@@ -3553,12 +3525,9 @@ nsWindow::Create(nsIWidget        *aParent,
                                    gdk_get_program_class());
 
             // each toplevel window gets its own window group
-            mWindowGroup = gtk_window_group_new();
-
-            // and add ourselves to the window group
-            LOG(("adding window %p to new group %p\n",
-                 (void *)mShell, (void *)mWindowGroup));
-            gtk_window_group_add_window(mWindowGroup, GTK_WINDOW(mShell));
+            GtkWindowGroup *group = gtk_window_group_new();
+            gtk_window_group_add_window(group, GTK_WINDOW(mShell));
+            g_object_unref(group);
         }
 
         // Prevent GtkWindow from painting a background to flicker.
@@ -4224,8 +4193,8 @@ nsWindow::ResizeTransparencyBitmap()
     memset(newBits, 0, newSize);
 
     // Now copy the intersection of the old and new areas into the new mask
-    int32_t copyWidth = NS_MIN(mBounds.width, mTransparencyBitmapWidth);
-    int32_t copyHeight = NS_MIN(mBounds.height, mTransparencyBitmapHeight);
+    int32_t copyWidth = std::min(mBounds.width, mTransparencyBitmapWidth);
+    int32_t copyHeight = std::min(mBounds.height, mTransparencyBitmapHeight);
     int32_t oldRowBytes = GetBitmapStride(mTransparencyBitmapWidth);
     int32_t copyBytes = GetBitmapStride(copyWidth);
 
@@ -4765,55 +4734,58 @@ bool
 nsWindow::CheckForRollup(gdouble aMouseX, gdouble aMouseY,
                          bool aIsWheel, bool aAlwaysRollup)
 {
-    bool retVal = false;
     nsIRollupListener* rollupListener = GetActiveRollupListener();
-    nsCOMPtr<nsIWidget> rollupWidget = rollupListener->GetRollupWidget();
-    if (rollupWidget) {
-        GdkWindow *currentPopup =
-            (GdkWindow *)rollupWidget->GetNativeData(NS_NATIVE_WINDOW);
-        if (aAlwaysRollup || !is_mouse_in_window(currentPopup, aMouseX, aMouseY)) {
-            bool rollup = true;
-            if (aIsWheel) {
-                rollup = rollupListener->ShouldRollupOnMouseWheelEvent();
-                retVal = true;
-            }
-            // if we're dealing with menus, we probably have submenus and
-            // we don't want to rollup if the click is in a parent menu of
-            // the current submenu
-            uint32_t popupsToRollup = UINT32_MAX;
-            if (!aAlwaysRollup) {
-                nsAutoTArray<nsIWidget*, 5> widgetChain;
-                uint32_t sameTypeCount = rollupListener->GetSubmenuWidgetChain(&widgetChain);
-                for (uint32_t i=0; i<widgetChain.Length(); ++i) {
-                    nsIWidget* widget = widgetChain[i];
-                    GdkWindow* currWindow =
-                        (GdkWindow*) widget->GetNativeData(NS_NATIVE_WINDOW);
-                    if (is_mouse_in_window(currWindow, aMouseX, aMouseY)) {
-                      // don't roll up if the mouse event occurred within a
-                      // menu of the same type. If the mouse event occurred
-                      // in a menu higher than that, roll up, but pass the
-                      // number of popups to Rollup so that only those of the
-                      // same type close up.
-                      if (i < sameTypeCount) {
-                        rollup = false;
-                      }
-                      else {
-                        popupsToRollup = sameTypeCount;
-                      }
-                      break;
-                    }
-                } // foreach parent menu widget
-            } // if rollup listener knows about menus
-
-            // if we've determined that we should still rollup, do it.
-            if (rollup && rollupListener->Rollup(popupsToRollup, nullptr)) {
-                retVal = true;
-            }
-        }
-    } else {
+    nsCOMPtr<nsIWidget> rollupWidget;
+    if (rollupListener) {
+        rollupWidget = rollupListener->GetRollupWidget();
+    }
+    if (!rollupWidget) {
         nsBaseWidget::gRollupListener = nullptr;
+        return false;
     }
 
+    bool retVal = false;
+    GdkWindow *currentPopup =
+        (GdkWindow *)rollupWidget->GetNativeData(NS_NATIVE_WINDOW);
+    if (aAlwaysRollup || !is_mouse_in_window(currentPopup, aMouseX, aMouseY)) {
+        bool rollup = true;
+        if (aIsWheel) {
+            rollup = rollupListener->ShouldRollupOnMouseWheelEvent();
+            retVal = true;
+        }
+        // if we're dealing with menus, we probably have submenus and
+        // we don't want to rollup if the click is in a parent menu of
+        // the current submenu
+        uint32_t popupsToRollup = UINT32_MAX;
+        if (!aAlwaysRollup) {
+            nsAutoTArray<nsIWidget*, 5> widgetChain;
+            uint32_t sameTypeCount = rollupListener->GetSubmenuWidgetChain(&widgetChain);
+            for (uint32_t i=0; i<widgetChain.Length(); ++i) {
+                nsIWidget* widget = widgetChain[i];
+                GdkWindow* currWindow =
+                    (GdkWindow*) widget->GetNativeData(NS_NATIVE_WINDOW);
+                if (is_mouse_in_window(currWindow, aMouseX, aMouseY)) {
+                  // don't roll up if the mouse event occurred within a
+                  // menu of the same type. If the mouse event occurred
+                  // in a menu higher than that, roll up, but pass the
+                  // number of popups to Rollup so that only those of the
+                  // same type close up.
+                  if (i < sameTypeCount) {
+                    rollup = false;
+                  }
+                  else {
+                    popupsToRollup = sameTypeCount;
+                  }
+                  break;
+                }
+            } // foreach parent menu widget
+        } // if rollup listener knows about menus
+
+        // if we've determined that we should still rollup, do it.
+        if (rollup && rollupListener->Rollup(popupsToRollup, nullptr)) {
+            retVal = true;
+        }
+    }
     return retVal;
 }
 
@@ -5876,9 +5848,38 @@ nsChildWindow::~nsChildWindow()
 }
 
 NS_IMETHODIMP
-nsWindow::ResetInputState()
+nsWindow::NotifyIME(NotificationToIME aNotification)
 {
-    return mIMModule ? mIMModule->ResetInputState(this) : NS_OK;
+    if (MOZ_UNLIKELY(!mIMModule)) {
+        switch (aNotification) {
+            case NOTIFY_IME_OF_CURSOR_POS_CHANGED:
+            case REQUEST_TO_COMMIT_COMPOSITION:
+            case REQUEST_TO_CANCEL_COMPOSITION:
+            case NOTIFY_IME_OF_FOCUS:
+            case NOTIFY_IME_OF_BLUR:
+              return NS_ERROR_NOT_AVAILABLE;
+            default:
+              break;
+        }
+    }
+    switch (aNotification) {
+        // TODO: We should replace NOTIFY_IME_OF_CURSOR_POS_CHANGED with
+        //       NOTIFY_IME_OF_SELECTION_CHANGE.  The required behavior is
+        //       really different from committing composition.
+        case NOTIFY_IME_OF_CURSOR_POS_CHANGED:
+        case REQUEST_TO_COMMIT_COMPOSITION:
+            return mIMModule->CommitIMEComposition(this);
+        case REQUEST_TO_CANCEL_COMPOSITION:
+            return mIMModule->CancelIMEComposition(this);
+        case NOTIFY_IME_OF_FOCUS:
+            mIMModule->OnFocusChangeInGecko(true);
+            return NS_OK;
+        case NOTIFY_IME_OF_BLUR:
+            mIMModule->OnFocusChangeInGecko(false);
+            return NS_OK;
+        default:
+            return NS_ERROR_NOT_IMPLEMENTED;
+    }
 }
 
 NS_IMETHODIMP_(void)
@@ -5907,21 +5908,6 @@ nsWindow::GetInputContext()
       context.mNativeIMEContext = mIMModule;
   }
   return context;
-}
-
-NS_IMETHODIMP
-nsWindow::CancelIMEComposition()
-{
-    return mIMModule ? mIMModule->CancelIMEComposition(this) : NS_OK;
-}
-
-NS_IMETHODIMP
-nsWindow::OnIMEFocusChange(bool aFocus)
-{
-    if (mIMModule) {
-      mIMModule->OnFocusChangeInGecko(aFocus);
-    }
-    return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -6015,8 +6001,8 @@ nsWindow::GetThebesSurface(cairo_t *cr)
 #endif
 
     // Owen Taylor says this is the right thing to do!
-    width = NS_MIN(32767, width);
-    height = NS_MIN(32767, height);
+    width = std::min(32767, width);
+    height = std::min(32767, height);
     gfxIntSize size(width, height);
 
     GdkVisual *gdkVisual = gdk_window_get_visual(mGdkWindow);

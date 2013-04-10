@@ -5,62 +5,68 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
-const Cu = Components.utils;
+const { classes: Cc, interfaces: Ci, utils: Cu, results: Cr } = Components;
 
 this.EXPORTED_SYMBOLS = ["DebuggerPanel"];
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource:///modules/devtools/EventEmitter.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "Promise",
+  "resource://gre/modules/commonjs/sdk/core/promise.js");
+
 XPCOMUtils.defineLazyModuleGetter(this, "DebuggerServer",
   "resource://gre/modules/devtools/dbg-server.jsm");
 
 function DebuggerPanel(iframeWindow, toolbox) {
+  this.panelWin = iframeWindow;
   this._toolbox = toolbox;
-  this._controller = iframeWindow.DebuggerController;
-  this._view = iframeWindow.DebuggerView;
+
+  this._view = this.panelWin.DebuggerView;
+  this._controller = this.panelWin.DebuggerController;
   this._controller._target = this.target;
   this._bkp = this._controller.Breakpoints;
-  this.panelWin = iframeWindow;
 
-  this._ensureOnlyOneRunningDebugger();
-  if (!this.target.isRemote) {
-    if (!DebuggerServer.initialized) {
-      DebuggerServer.init();
-      DebuggerServer.addBrowserActors();
-    }
-  }
-
-  let onDebuggerLoaded = function () {
-    iframeWindow.removeEventListener("Debugger:Loaded", onDebuggerLoaded, true);
-    this.setReady();
-  }.bind(this);
-
-  let onDebuggerConnected = function () {
-    iframeWindow.removeEventListener("Debugger:Connected",
-      onDebuggerConnected, true);
-    this.emit("connected");
-  }.bind(this);
-
-  iframeWindow.addEventListener("Debugger:Loaded", onDebuggerLoaded, true);
-  iframeWindow.addEventListener("Debugger:Connected",
-    onDebuggerConnected, true);
-
-  new EventEmitter(this);
+  EventEmitter.decorate(this);
 }
 
 DebuggerPanel.prototype = {
+  /**
+   * Open is effectively an asynchronous constructor.
+   *
+   * @return object
+   *         A Promise that is resolved when the Debugger completes opening.
+   */
+  open: function DebuggerPanel_open() {
+    let promise;
+
+    // Local debugging needs to make the target remote.
+    if (!this.target.isRemote) {
+      promise = this.target.makeRemote();
+    } else {
+      promise = Promise.resolve(this.target);
+    }
+
+    return promise
+      .then(() => this._controller.startupDebugger())
+      .then(() => this._controller.connect())
+      .then(() => {
+        this.isReady = true;
+        this.emit("ready");
+        return this;
+      })
+      .then(null, function onError(aReason) {
+        Cu.reportError("DebuggerPanel open failed. " +
+                       reason.error + ": " + reason.message);
+      });
+  },
+
   // DevToolPanel API
   get target() this._toolbox.target,
 
-  get isReady() this._isReady,
-
-  setReady: function() {
-    this._isReady = true;
-    this.emit("ready");
-  },
-
   destroy: function() {
+    this.emit("destroyed");
+    return Promise.resolve(null);
   },
 
   // DebuggerPanel API

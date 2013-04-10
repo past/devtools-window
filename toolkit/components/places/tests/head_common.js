@@ -3,7 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const CURRENT_SCHEMA_VERSION = 21;
+const CURRENT_SCHEMA_VERSION = 22;
 
 const NS_APP_USER_PROFILE_50_DIR = "ProfD";
 const NS_APP_PROFILE_DIR_STARTUP = "ProfDS";
@@ -28,9 +28,11 @@ XPCOMUtils.defineLazyModuleGetter(this, "FileUtils",
 XPCOMUtils.defineLazyModuleGetter(this, "NetUtil",
                                   "resource://gre/modules/NetUtil.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Promise",
-                                  "resource://gre/modules/commonjs/promise/core.js");
+                                  "resource://gre/modules/commonjs/sdk/core/promise.js");
 XPCOMUtils.defineLazyModuleGetter(this, "Services",
                                   "resource://gre/modules/Services.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "Task",
+                                  "resource://gre/modules/Task.jsm");
 
 // This imports various other objects in addition to PlacesUtils.
 Cu.import("resource://gre/modules/PlacesUtils.jsm");
@@ -57,7 +59,6 @@ let gProfD = do_get_profile();
 
 // Remove any old database.
 clearDB();
-
 
 /**
  * Shortcut to create a nsIURI.
@@ -354,23 +355,6 @@ function check_no_bookmarks() {
   root.containerOpen = false;
 }
 
-
-
-/**
- * Sets title synchronously for a page in moz_places.
- *
- * @param aURI
- *        An nsIURI to set the title for.
- * @param aTitle
- *        The title to set the page to.
- * @throws if the page is not found in the database.
- *
- * @note This is just a test compatibility mock.
- */
-function setPageTitle(aURI, aTitle) {
-  PlacesUtils.history.setPageTitle(aURI, aTitle);
-}
-
 /**
  * Allows waiting for an observer notification once.
  *
@@ -403,7 +387,7 @@ function promiseTopicObserved(aTopic)
  */
 function promiseClearHistory() {
   let promise = promiseTopicObserved(PlacesUtils.TOPIC_EXPIRATION_FINISHED);
-  PlacesUtils.bhistory.removeAllPages();
+  do_execute_soon(function() PlacesUtils.bhistory.removeAllPages());
   return promise;
 }
 
@@ -489,7 +473,7 @@ function create_JSON_backup(aFilename) {
   let bookmarksBackupDir = gProfD.clone();
   bookmarksBackupDir.append("bookmarkbackups");
   if (!bookmarksBackupDir.exists()) {
-    bookmarksBackupDir.create(Ci.nsIFile.DIRECTORY_TYPE, parseInt("0755"));
+    bookmarksBackupDir.create(Ci.nsIFile.DIRECTORY_TYPE, parseInt("0755", 8));
     do_check_true(bookmarksBackupDir.exists());
   }
   let bookmarksJSONFile = gTestDir.clone();
@@ -793,6 +777,25 @@ function do_compare_arrays(a1, a2, sorted)
 }
 
 /**
+ * Generic nsINavBookmarkObserver that doesn't implement anything, but provides
+ * dummy methods to prevent errors about an object not having a certain method.
+ */
+function NavBookmarkObserver() {}
+
+NavBookmarkObserver.prototype = {
+  onBeginUpdateBatch: function () {},
+  onEndUpdateBatch: function () {},
+  onItemAdded: function () {},
+  onItemRemoved: function () {},
+  onItemChanged: function () {},
+  onItemVisited: function () {},
+  onItemMoved: function () {},
+  QueryInterface: XPCOMUtils.generateQI([
+    Ci.nsINavBookmarkObserver,
+  ])
+};
+
+/**
  * Generic nsINavHistoryObserver that doesn't implement anything, but provides
  * dummy methods to prevent errors about an object not having a certain method.
  */
@@ -803,7 +806,6 @@ NavHistoryObserver.prototype = {
   onEndUpdateBatch: function () {},
   onVisit: function () {},
   onTitleChanged: function () {},
-  onBeforeDeleteURI: function () {},
   onDeleteURI: function () {},
   onClearHistory: function () {},
   onPageChanged: function () {},
@@ -835,7 +837,6 @@ NavHistoryResultObserver.prototype = {
   nodeLastModifiedChanged: function () {},
   nodeMoved: function () {},
   nodeRemoved: function () {},
-  nodeReplaced: function () {},
   nodeTagsChanged: function () {},
   nodeTitleChanged: function () {},
   nodeURIChanged: function () {},
@@ -846,7 +847,7 @@ NavHistoryResultObserver.prototype = {
 };
 
 /**
- * Asynchronously adds visits to a page, invoking a callback function when done.
+ * Asynchronously adds visits to a page.
  *
  * @param aPlaceInfo
  *        Can be an nsIURI, in such a case a single LINK visit will be added.
@@ -858,14 +859,14 @@ NavHistoryResultObserver.prototype = {
  *            [optional] visitDate: visit date in microseconds from the epoch
  *            [optional] referrer: nsIURI of the referrer for this visit
  *          }
- * @param [optional] aCallback
- *        Function to be invoked on completion.
- * @param [optional] aStack
- *        The stack frame used to report errors.
+ *
+ * @return {Promise}
+ * @resolves When all visits have been added successfully.
+ * @rejects JavaScript exception.
  */
-function addVisits(aPlaceInfo, aCallback, aStack)
+function promiseAddVisits(aPlaceInfo)
 {
-  let stack = aStack || Components.stack.caller;
+  let deferred = Promise.defer();
   let places = [];
   if (aPlaceInfo instanceof Ci.nsIURI) {
     places.push({ uri: aPlaceInfo });
@@ -893,14 +894,36 @@ function addVisits(aPlaceInfo, aCallback, aStack)
   PlacesUtils.asyncHistory.updatePlaces(
     places,
     {
-      handleError: function AAV_handleError() {
-        do_throw("Unexpected error in adding visit.", stack);
+      handleError: function AAV_handleError(aResultCode, aPlaceInfo) {
+        let ex = new Components.Exception("Unexpected error in adding visits.",
+                                          aResultCode);
+        deferred.reject(ex);
       },
       handleResult: function () {},
       handleCompletion: function UP_handleCompletion() {
-        if (aCallback)
-          aCallback();
+        deferred.resolve();
       }
     }
   );
+
+  return deferred.promise;
 }
+
+/**
+ * Asynchronously check a url is visited.
+ *
+ * @param aURI The URI.
+ * @return {Promise}
+ * @resolves When the check has been added successfully.
+ * @rejects JavaScript exception.
+ */
+function promiseIsURIVisited(aURI) {
+  let deferred = Promise.defer();
+
+  PlacesUtils.asyncHistory.isURIVisited(aURI, function(aURI, aIsVisited) {
+    deferred.resolve(aIsVisited);
+  });
+
+  return deferred.promise;
+}
+

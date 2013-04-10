@@ -291,7 +291,6 @@ private:
  * txMozillaXSLTProcessor
  */
 
-NS_IMPL_CYCLE_COLLECTION_CLASS(txMozillaXSLTProcessor)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(txMozillaXSLTProcessor)
     NS_IMPL_CYCLE_COLLECTION_UNLINK(mEmbeddedStylesheetRoot)
     NS_IMPL_CYCLE_COLLECTION_UNLINK(mSource)
@@ -1248,7 +1247,8 @@ txMozillaXSLTProcessor::ContentRemoved(nsIDocument* aDocument,
 
 NS_IMETHODIMP
 txMozillaXSLTProcessor::Initialize(nsISupports* aOwner, JSContext* cx,
-                                   JSObject* obj, uint32_t argc, jsval* argv)
+                                   JSObject* obj, uint32_t argc,
+                                   JS::Value* argv)
 {
     nsCOMPtr<nsIPrincipal> prin;
     nsIScriptSecurityManager* secMan = nsContentUtils::GetSecurityManager();

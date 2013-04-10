@@ -6,6 +6,8 @@
 #ifndef MOZILLA_LAYERS_SHMEMYCBCRIMAGE_H
 #define MOZILLA_LAYERS_SHMEMYCBCRIMAGE_H
 
+#include "mozilla/DebugOnly.h"
+
 #include "base/basictypes.h"
 #include "Shmem.h"
 #include "gfxPoint.h"
@@ -42,11 +44,12 @@ public:
 
   /**
    * This function is meant as a helper to know how much shared memory we need
-   * to allocate in a shmem in order to place a shared YCbCr image blob of 
+   * to allocate in a shmem in order to place a shared YCbCr image blob of
    * given dimensions.
    */
   static size_t ComputeMinBufferSize(const gfxIntSize& aYSize,
                                      const gfxIntSize& aCbCrSize);
+  static size_t ComputeMinBufferSize(uint32_t aSize);
   /**
    * Write the image informations in a buffer for given dimensions.
    * The provided pointer should point to the beginning of the (chunk of)
@@ -94,11 +97,18 @@ public:
   gfxIntSize GetCbCrSize();
 
   /**
+   * Return a pointer to the begining of the data buffer.
+   */
+  uint8_t* GetData();
+
+  /**
    * Copies the data passed in parameter into the shmem.
    */
-  bool CopyData(uint8_t* aYData, uint8_t* aCbData, uint8_t* aCrData,
+  bool CopyData(const uint8_t* aYData,
+                const uint8_t* aCbData, const uint8_t* aCrData,
                 gfxIntSize aYSize, uint32_t aYStride,
-                gfxIntSize aCbCrSize, uint32_t aCbCrStride);
+                gfxIntSize aCbCrSize, uint32_t aCbCrStride,
+                uint32_t aYSkip, uint32_t aCbCrSkip);
 
 private:
   bool Open(Shmem& aShmem, size_t aOffset = 0);

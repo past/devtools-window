@@ -16,6 +16,7 @@ const PAYMENT_IPC_MSG_NAMES = ["Payment:Pay",
                                "Payment:Failed"];
 
 const PREF_PAYMENTPROVIDERS_BRANCH = "dom.payment.provider.";
+const PREF_PAYMENT_BRANCH = "dom.payment.";
 
 XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
                                    "@mozilla.org/parentprocessmessagemanager;1",
@@ -35,6 +36,17 @@ let PaymentManager =  {
     this.registeredProviders = null;
 
     this.messageManagers = {};
+
+    // The dom.payment.skipHTTPSCheck pref is supposed to be used only during
+    // development process. This preference should not be active for a
+    // production build.
+    let paymentPrefs = prefService.getBranch(PREF_PAYMENT_BRANCH);
+    this.checkHttps = true;
+    try {
+      if (paymentPrefs.getPrefType("skipHTTPSCheck")) {
+        this.checkHttps = !paymentPrefs.getBoolPref("skipHTTPSCheck");
+      }
+    } catch(e) {}
 
     for each (let msgname in PAYMENT_IPC_MSG_NAMES) {
       ppmm.addMessageListener(msgname, this);
@@ -242,23 +254,15 @@ let PaymentManager =  {
       // We only care about the payload segment, which contains the jwt type
       // that should match with any of the stored payment provider's data and
       // the payment request information to be shown to the user.
+      // Before decoding the JWT string we need to normalize it to be compliant
+      // with RFC 4648.
+      segments[1] = segments[1].replace("-", "+", "g").replace("_", "/", "g");
       let payload = atob(segments[1]);
       debug("Payload " + payload);
       if (!payload.length) {
         this.paymentFailed(aRequestId, "PAY_REQUEST_ERROR_EMPTY_PAYLOAD");
         return true;
       }
-
-      // We get rid off the quotes and backslashes so we can parse the JSON
-      // object.
-      if (payload.charAt(0) === '"') {
-        payload = payload.substr(1);
-      }
-      if (payload.charAt(payload.length - 1) === '"') {
-        payload = payload.slice(0, -1);
-      }
-      payload = payload.replace(/\\/g, '');
-
       payloadObject = JSON.parse(payload);
       if (!payloadObject) {
         this.paymentFailed(aRequestId,
@@ -303,7 +307,7 @@ let PaymentManager =  {
     }
 
     // We only allow https for payment providers uris.
-    if (!/^https/.exec(provider.uri.toLowerCase())) {
+    if (this.checkHttps && !/^https/.exec(provider.uri.toLowerCase())) {
       // We should never get this far.
       debug("Payment provider uris must be https: " + provider.uri);
       this.paymentFailed(aRequestId,

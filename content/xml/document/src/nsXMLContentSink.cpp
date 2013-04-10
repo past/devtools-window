@@ -14,11 +14,10 @@
 #include "nsIURI.h"
 #include "nsNetUtil.h"
 #include "nsIDocShell.h"
-#include "nsIDocShellTreeItem.h"
 #include "nsIStyleSheetLinkingElement.h"
 #include "nsIDOMComment.h"
 #include "nsIDOMCDATASection.h"
-#include "nsDOMDocumentType.h"
+#include "DocumentType.h"
 #include "nsHTMLParts.h"
 #include "nsCRT.h"
 #include "nsCSSStyleSheet.h"
@@ -136,8 +135,6 @@ NS_INTERFACE_MAP_END_INHERITING(nsContentSink)
 
 NS_IMPL_ADDREF_INHERITED(nsXMLContentSink, nsContentSink)
 NS_IMPL_RELEASE_INHERITED(nsXMLContentSink, nsContentSink)
-
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsXMLContentSink)
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(nsXMLContentSink,
                                                   nsContentSink)
@@ -528,10 +525,8 @@ nsXMLContentSink::CloseElement(nsIContent* aContent)
   if ((nodeInfo->NamespaceID() == kNameSpaceID_XHTML &&
        (nodeInfo->NameAtom() == nsGkAtoms::select ||
         nodeInfo->NameAtom() == nsGkAtoms::textarea ||
-#ifdef MOZ_MEDIA
         nodeInfo->NameAtom() == nsGkAtoms::video ||
         nodeInfo->NameAtom() == nsGkAtoms::audio ||
-#endif
         nodeInfo->NameAtom() == nsGkAtoms::object ||
         nodeInfo->NameAtom() == nsGkAtoms::applet))
       || nodeInfo->NameAtom() == nsGkAtoms::title
@@ -1031,13 +1026,9 @@ nsXMLContentSink::HandleStartElement(const PRUnichar *aName,
   if (nodeInfo->NamespaceID() == kNameSpaceID_XHTML) {
     if (nodeInfo->NameAtom() == nsGkAtoms::input ||
         nodeInfo->NameAtom() == nsGkAtoms::button ||
-        nodeInfo->NameAtom() == nsGkAtoms::menuitem
-#ifdef MOZ_MEDIA
-        ||
+        nodeInfo->NameAtom() == nsGkAtoms::menuitem ||
         nodeInfo->NameAtom() == nsGkAtoms::audio ||
-        nodeInfo->NameAtom() == nsGkAtoms::video
-#endif
-        ) {
+        nodeInfo->NameAtom() == nsGkAtoms::video) {
       content->DoneCreatingElement();
     } else if (nodeInfo->NameAtom() == nsGkAtoms::head && !mCurrentHead) {
       mCurrentHead = content;

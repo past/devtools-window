@@ -10,7 +10,7 @@
 #include "pmhutils.h"
 #include "sdp.h"
 #include "ccapi.h"
-
+#include "mozilla-config.h"
 
 /* SDP bitmask values */
 #define CCSIP_SRC_SDP_BIT       0x1
@@ -44,7 +44,7 @@ PMH_EXTERN void sipsdp_free(cc_sdp_t **sip_sdp);
  */
 #define SIPSDP_VERSION              0
 // RAMC_DEBUG #define SIPSDP_ORIGIN_USERNAME      "CiscoSystemsSIP-GW-UserAgent"
-#define SIPSDP_ORIGIN_USERNAME      "Mozilla-SIPUA"
+#define SIPSDP_ORIGIN_USERNAME      "Mozilla-SIPUA-" MOZ_APP_UA_VERSION
 #define SIPSDP_SESSION_NAME         "SIP Call"
 
 /* Possible encoding names fo static payload types*/
@@ -142,7 +142,7 @@ PMH_EXTERN void sipsdp_free(cc_sdp_t **sip_sdp);
  * Memory is allocated and should be freed by the user when done
  * Returns NULL on failure.
  */
-PMH_EXTERN char *sipsdp_write_to_buf(cc_sdp_t *, uint32_t *);
+PMH_EXTERN char *sipsdp_write_to_buf(sdp_t *, uint32_t *);
 
 #define SIPSDP_FREE(x) \
 if (x) \

@@ -321,10 +321,7 @@ IDBCursor::CreateCommon(IDBRequest* aRequest,
   cursor->mScriptOwner = database->GetScriptOwner();
 
   if (cursor->mScriptOwner) {
-    if (NS_FAILED(NS_HOLD_JS_OBJECTS(cursor, IDBCursor))) {
-      return nullptr;
-    }
-
+    NS_HOLD_JS_OBJECTS(cursor, IDBCursor);
     cursor->mRooted = true;
   }
 
@@ -444,8 +441,6 @@ IDBCursor::ContinueInternal(const Key& aKey,
   mContinueCalled = true;
   return NS_OK;
 }
-
-NS_IMPL_CYCLE_COLLECTION_CLASS(IDBCursor)
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(IDBCursor)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS

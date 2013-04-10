@@ -68,6 +68,12 @@ uint8_t* ShmemYCbCrImage::GetCrData()
   return reinterpret_cast<uint8_t*>(info) + info->mCrOffset;
 }
 
+uint8_t* ShmemYCbCrImage::GetData()
+{
+  YCbCrBufferInfo* info = GetYCbCrBufferInfo(mShmem, mOffset);
+  return (reinterpret_cast<uint8_t*>(info)) + MOZ_ALIGN_WORD(sizeof(YCbCrBufferInfo));
+}
+
 uint32_t ShmemYCbCrImage::GetYStride()
 {
   YCbCrBufferInfo* info = GetYCbCrBufferInfo(mShmem, mOffset);
@@ -119,6 +125,19 @@ size_t ShmemYCbCrImage::ComputeMinBufferSize(const gfxIntSize& aYSize,
          + MOZ_ALIGN_WORD(sizeof(YCbCrBufferInfo));
 }
 
+// Offset in bytes
+static size_t ComputeOffset(uint32_t aSize)
+{
+  return MOZ_ALIGN_WORD(aSize);
+}
+
+// Minimum required shmem size in bytes
+size_t ShmemYCbCrImage::ComputeMinBufferSize(uint32_t aSize)
+{
+
+  return ComputeOffset(aSize) + MOZ_ALIGN_WORD(sizeof(YCbCrBufferInfo));
+}
+
 void ShmemYCbCrImage::InitializeBufferInfo(uint8_t* aBuffer,
                                            const gfxIntSize& aYSize,
                                            const gfxIntSize& aCbCrSize)
@@ -150,25 +169,54 @@ bool ShmemYCbCrImage::IsValid()
   return true;
 }
 
-bool ShmemYCbCrImage::CopyData(uint8_t* aYData, uint8_t* aCbData, uint8_t* aCrData,
+static void CopyLineWithSkip(const uint8_t* src, uint8_t* dst, uint32_t len, uint32_t skip) {
+  for (uint32_t i = 0; i < len; ++i) {
+    *dst = *src;
+    src += 1 + skip;
+    ++dst;
+  }
+}
+
+bool ShmemYCbCrImage::CopyData(const uint8_t* aYData,
+                               const uint8_t* aCbData, const uint8_t* aCrData,
                                gfxIntSize aYSize, uint32_t aYStride,
-                               gfxIntSize aCbCrSize, uint32_t aCbCrStride)
+                               gfxIntSize aCbCrSize, uint32_t aCbCrStride,
+                               uint32_t aYSkip, uint32_t aCbCrSkip)
 {
   if (!IsValid() || GetYSize() != aYSize || GetCbCrSize() != aCbCrSize) {
     return false;
   }
-  for (int i = 0; i < aYSize.height; i++) {
-    memcpy(GetYData() + i * GetYStride(),
-           aYData + i * aYStride,
-           aYSize.width);
+  for (int i = 0; i < aYSize.height; ++i) {
+    if (aYSkip == 0) {
+      // fast path
+      memcpy(GetYData() + i * GetYStride(),
+             aYData + i * aYStride,
+             aYSize.width);
+    } else {
+      // slower path
+      CopyLineWithSkip(aYData + i * aYStride,
+                       GetYData() + i * GetYStride(),
+                       aYSize.width, aYSkip);
+    }
   }
-  for (int i = 0; i < aCbCrSize.height; i++) {
-    memcpy(GetCbData() + i * GetCbCrStride(),
-           aCbData + i * aCbCrStride,
-           aCbCrSize.width);
-    memcpy(GetCrData() + i * GetCbCrStride(),
-           aCrData + i * aCbCrStride,
-           aCbCrSize.width);
+  for (int i = 0; i < aCbCrSize.height; ++i) {
+    if (aCbCrSkip == 0) {
+      // fast path
+      memcpy(GetCbData() + i * GetCbCrStride(),
+             aCbData + i * aCbCrStride,
+             aCbCrSize.width);
+      memcpy(GetCrData() + i * GetCbCrStride(),
+             aCrData + i * aCbCrStride,
+             aCbCrSize.width);
+    } else {
+      // slower path
+      CopyLineWithSkip(aCbData + i * aCbCrStride,
+                       GetCbData() + i * GetCbCrStride(),
+                       aCbCrSize.width, aCbCrSkip);
+      CopyLineWithSkip(aCrData + i * aCbCrStride,
+                       GetCrData() + i * GetCbCrStride(),
+                       aCbCrSize.width, aCbCrSkip);
+    }
   }
   return true;
 }

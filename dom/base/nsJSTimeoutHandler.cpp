@@ -6,6 +6,7 @@
 
 #include "nsCOMPtr.h"
 #include "nsIScriptContext.h"
+#include "nsIDocument.h"
 #include "nsIArray.h"
 #include "nsIScriptTimeoutHandler.h"
 #include "nsIXPConnect.h"
@@ -21,6 +22,7 @@
 #include "nsAlgorithm.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Likely.h"
+#include <algorithm>
 
 static const char kSetIntervalStr[] = "setInterval";
 static const char kSetTimeoutStr[] = "setTimeout";
@@ -72,7 +74,6 @@ private:
 
 // nsJSScriptTimeoutHandler
 // QueryInterface implementation for nsJSScriptTimeoutHandler
-NS_IMPL_CYCLE_COLLECTION_CLASS(nsJSScriptTimeoutHandler)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsJSScriptTimeoutHandler)
   tmp->ReleaseJSObjects();
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
@@ -244,24 +245,39 @@ nsJSScriptTimeoutHandler::Init(nsGlobalWindow *aWindow, bool *aIsInterval,
       NS_ENSURE_SUCCESS(rv, rv);
 
       if (csp) {
-        bool allowsEval;
-        // this call will send violation reports as warranted (and return true if
-        // reportOnly is set).
-        rv = csp->GetAllowsEval(&allowsEval);
+        bool allowsEval = true;
+        bool reportViolation = false;
+        rv = csp->GetAllowsEval(&reportViolation, &allowsEval);
         NS_ENSURE_SUCCESS(rv, rv);
 
-        if (!allowsEval) {
-          ::JS_ReportError(cx, "call to %s blocked by CSP",
-                            *aIsInterval ? kSetIntervalStr : kSetTimeoutStr);
+        if (reportViolation) {
+          // TODO : FIX DATA in violation report.
+          NS_NAMED_LITERAL_STRING(scriptSample, "call to eval() or related function blocked by CSP");
 
+          // Get the calling location.
+          uint32_t lineNum = 0;
+          const char *fileName;
+          nsAutoCString aFileName;
+          if (nsJSUtils::GetCallingLocation(cx, &fileName, &lineNum)) {
+            aFileName.Assign(fileName);
+          } else {
+            aFileName.Assign("unknown");
+          }
+
+          csp->LogViolationDetails(nsIContentSecurityPolicy::VIOLATION_TYPE_EVAL,
+                                  NS_ConvertUTF8toUTF16(aFileName),
+                                  scriptSample,
+                                  lineNum);
+        }
+
+        if (!allowsEval) {
           // Note: Our only caller knows to turn NS_ERROR_DOM_TYPE_ERR into NS_OK.
           return NS_ERROR_DOM_TYPE_ERR;
         }
       }
     } // if there's no document, we don't have to do anything.
 
-    rv = NS_HOLD_JS_OBJECTS(this, nsJSScriptTimeoutHandler);
-    NS_ENSURE_SUCCESS(rv, rv);
+    NS_HOLD_JS_OBJECTS(this, nsJSScriptTimeoutHandler);
 
     mExpr = expr;
 
@@ -271,8 +287,7 @@ nsJSScriptTimeoutHandler::Init(nsGlobalWindow *aWindow, bool *aIsInterval,
       mFileName.Assign(filename);
     }
   } else if (funobj) {
-    rv = NS_HOLD_JS_OBJECTS(this, nsJSScriptTimeoutHandler);
-    NS_ENSURE_SUCCESS(rv, rv);
+    NS_HOLD_JS_OBJECTS(this, nsJSScriptTimeoutHandler);
 
     mFunObj = funobj;
 
@@ -281,8 +296,8 @@ nsJSScriptTimeoutHandler::Init(nsGlobalWindow *aWindow, bool *aIsInterval,
     // and the delay, so only arguments after that need to go in our
     // array.
     nsCOMPtr<nsIJSArgArray> array;
-    // NS_MAX(argc - 2, 0) wouldn't work right because argc is unsigned.
-    rv = NS_CreateJSArgv(cx, NS_MAX(argc, 2u) - 2, nullptr,
+    // std::max(argc - 2, 0) wouldn't work right because argc is unsigned.
+    rv = NS_CreateJSArgv(cx, std::max(argc, 2u) - 2, nullptr,
                          getter_AddRefs(array));
     if (NS_FAILED(rv)) {
       return NS_ERROR_OUT_OF_MEMORY;

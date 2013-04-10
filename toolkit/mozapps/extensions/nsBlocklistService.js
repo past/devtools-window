@@ -891,7 +891,7 @@ Blocklist.prototype = {
     var addonList = [];
 
     var self = this;
-    const types = ["extension", "theme", "locale", "dictionary"]
+    const types = ["extension", "theme", "locale", "dictionary", "service"]
     AddonManager.getAddonsByTypes(types, function blocklistUpdated_getAddonsByTypes(addons) {
 
       for (let addon of addons) {
@@ -1038,7 +1038,8 @@ Blocklist.prototype = {
 
       let blocklistWindow = Services.ww.openWindow(null, URI_BLOCKLIST_DIALOG, "",
                               "chrome,centerscreen,dialog,titlebar", args);
-      blocklistWindow.addEventListener("unload", blocklistUnloadHandler, false);
+      if (blocklistWindow)
+        blocklistWindow.addEventListener("unload", blocklistUnloadHandler, false);
     });
   },
 

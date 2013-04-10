@@ -14,21 +14,28 @@ using namespace js;
 using namespace js::ion;
 
 void
-AssemblerX86Shared::copyJumpRelocationTable(uint8 *dest)
+AssemblerX86Shared::copyJumpRelocationTable(uint8_t *dest)
 {
     if (jumpRelocations_.length())
         memcpy(dest, jumpRelocations_.buffer(), jumpRelocations_.length());
 }
 
 void
-AssemblerX86Shared::copyDataRelocationTable(uint8 *dest)
+AssemblerX86Shared::copyDataRelocationTable(uint8_t *dest)
 {
     if (dataRelocations_.length())
         memcpy(dest, dataRelocations_.buffer(), dataRelocations_.length());
 }
 
+void
+AssemblerX86Shared::copyPreBarrierTable(uint8_t *dest)
+{
+    if (preBarriers_.length())
+        memcpy(dest, preBarriers_.buffer(), preBarriers_.length());
+}
+
 static void
-TraceDataRelocations(JSTracer *trc, uint8 *buffer, CompactBufferReader &reader)
+TraceDataRelocations(JSTracer *trc, uint8_t *buffer, CompactBufferReader &reader)
 {
     while (reader.more()) {
         size_t offset = reader.readUnsigned();
@@ -53,6 +60,7 @@ TraceDataRelocations(JSTracer *trc, uint8 *buffer, CompactBufferReader &reader)
     }
 }
 
+
 void
 AssemblerX86Shared::TraceDataRelocations(JSTracer *trc, IonCode *code, CompactBufferReader &reader)
 {
@@ -65,9 +73,9 @@ AssemblerX86Shared::trace(JSTracer *trc)
     for (size_t i = 0; i < jumps_.length(); i++) {
         RelativePatch &rp = jumps_[i];
         if (rp.kind == Relocation::IONCODE) {
-            IonCode *code = IonCode::FromExecutable((uint8 *)rp.target);
+            IonCode *code = IonCode::FromExecutable((uint8_t *)rp.target);
             MarkIonCodeUnbarriered(trc, &code, "masmrel32");
-            JS_ASSERT(code == IonCode::FromExecutable((uint8 *)rp.target));
+            JS_ASSERT(code == IonCode::FromExecutable((uint8_t *)rp.target));
         }
     }
     if (dataRelocations_.length()) {
@@ -83,21 +91,11 @@ AssemblerX86Shared::executableCopy(void *buffer)
 }
 
 void
-AssemblerX86Shared::processDeferredData(IonCode *code, uint8 *data)
-{
-    for (size_t i = 0; i < data_.length(); i++) {
-        DeferredData *deferred = data_[i];
-        Bind(code, deferred->label(), data + deferred->offset());
-        deferred->copy(code, data + deferred->offset());
-    }
-}
-
-void
-AssemblerX86Shared::processCodeLabels(IonCode *code)
+AssemblerX86Shared::processCodeLabels(uint8_t *rawCode)
 {
     for (size_t i = 0; i < codeLabels_.length(); i++) {
-        CodeLabel *label = codeLabels_[i];
-        Bind(code, label->dest(), code->raw() + label->src()->offset());
+        CodeLabel label = codeLabels_[i];
+        Bind(rawCode, label.dest(), rawCode + label.src()->offset());
     }
 }
 
@@ -143,9 +141,9 @@ AutoFlushCache::flushAnyway()
 
 AutoFlushCache::~AutoFlushCache()
 {
-    if (!myCompartment_)
+    if (!runtime_)
         return;
 
-    if (myCompartment_->flusher() == this)
-        myCompartment_->setFlusher(NULL);
+    if (runtime_->flusher() == this)
+        runtime_->setFlusher(NULL);
 }

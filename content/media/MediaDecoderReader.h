@@ -14,7 +14,7 @@
 #include "ImageLayers.h"
 #include "AudioSampleFormat.h"
 #include "MediaResource.h"
-#include "nsHTMLMediaElement.h"
+#include "mozilla/dom/HTMLMediaElement.h"
 
 namespace mozilla {
 
@@ -132,14 +132,39 @@ public:
     Plane mPlanes[3];
   };
 
-  // Constructs a VideoData object. Makes a copy of YCbCr data in aBuffer.
-  // aTimecode is a codec specific number representing the timestamp of
-  // the frame of video data. Returns nullptr if an error occurs. This may
-  // indicate that memory couldn't be allocated to create the VideoData
-  // object, or it may indicate some problem with the input data (e.g.
-  // negative stride).
+  // Constructs a VideoData object. If aImage is NULL, creates a new Image
+  // holding a copy of the YCbCr data passed in aBuffer. If aImage is not NULL,
+  // it's stored as the underlying video image and aBuffer is assumed to point
+  // to memory within aImage so no copy is made. aTimecode is a codec specific
+  // number representing the timestamp of the frame of video data. Returns
+  // nsnull if an error occurs. This may indicate that memory couldn't be
+  // allocated to create the VideoData object, or it may indicate some problem
+  // with the input data (e.g. negative stride).
   static VideoData* Create(VideoInfo& aInfo,
                            ImageContainer* aContainer,
+                           Image* aImage,
+                           int64_t aOffset,
+                           int64_t aTime,
+                           int64_t aEndTime,
+                           const YCbCrBuffer &aBuffer,
+                           bool aKeyframe,
+                           int64_t aTimecode,
+                           nsIntRect aPicture);
+
+  // Variant that always makes a copy of aBuffer
+  static VideoData* Create(VideoInfo& aInfo,
+                           ImageContainer* aContainer,
+                           int64_t aOffset,
+                           int64_t aTime,
+                           int64_t aEndTime,
+                           const YCbCrBuffer &aBuffer,
+                           bool aKeyframe,
+                           int64_t aTimecode,
+                           nsIntRect aPicture);
+
+  // Variant to create a VideoData instance given an existing aImage
+  static VideoData* Create(VideoInfo& aInfo,
+                           Image* aImage,
                            int64_t aOffset,
                            int64_t aTime,
                            int64_t aEndTime,
@@ -153,10 +178,20 @@ public:
                            int64_t aOffset,
                            int64_t aTime,
                            int64_t aEndTime,
-                           layers::GraphicBufferLocked *aBuffer,
+                           layers::GraphicBufferLocked* aBuffer,
                            bool aKeyframe,
                            int64_t aTimecode,
                            nsIntRect aPicture);
+
+  static VideoData* CreateFromImage(VideoInfo& aInfo,
+                                    ImageContainer* aContainer,
+                                    int64_t aOffset,
+                                    int64_t aTime,
+                                    int64_t aEndTime,
+                                    const nsRefPtr<Image>& aImage,
+                                    bool aKeyframe,
+                                    int64_t aTimecode,
+                                    nsIntRect aPicture);
 
   // Constructs a duplicate VideoData object. This intrinsically tells the
   // player that it does not need to update the displayed frame when this
@@ -341,6 +376,16 @@ template <class T> class MediaQueue : private nsDeque {
     }
   }
 
+  uint32_t FrameCount() {
+    ReentrantMonitorAutoEnter mon(mReentrantMonitor);
+    uint32_t frames = 0;
+    for (int32_t i = 0; i < GetSize(); ++i) {
+      T* v = static_cast<T*>(ObjectAt(i));
+      frames += v->mFrames;
+    }
+    return frames;
+  }
+
 private:
   mutable ReentrantMonitor mReentrantMonitor;
 
@@ -358,8 +403,6 @@ public:
   MediaDecoderReader(AbstractMediaDecoder* aDecoder);
   virtual ~MediaDecoderReader();
 
-  NS_INLINE_DECL_REFCOUNTING(MediaDecoderReader)
-
   // Initializes the reader, returns NS_OK on success, or NS_ERROR_FAILURE
   // on failure.
   virtual nsresult Init(MediaDecoderReader* aCloneDonor) = 0;
@@ -372,6 +415,11 @@ public:
   // false if the audio is finished, end of file has been reached,
   // or an un-recoverable read error has occured.
   virtual bool DecodeAudioData() = 0;
+
+#ifdef MOZ_DASH
+  // Steps to carry out at the start of the |DecodeLoop|.
+  virtual void PrepareToDecode() { }
+#endif
 
   // Reads and decodes one video frame. Packets with a timestamp less
   // than aTimeThreshold will be decoded (unless they're not keyframes
@@ -401,6 +449,17 @@ public:
                         int64_t aStartTime,
                         int64_t aEndTime,
                         int64_t aCurrentTime) = 0;
+  
+  // Called when the decode thread is started, before calling any other
+  // decode, read metadata, or seek functions. Do any thread local setup
+  // in this function.
+  virtual void OnDecodeThreadStart() {}
+  
+  // Called when the decode thread is about to finish, after all calls to
+  // any other decode, read metadata, or seek functions. Any backend specific
+  // thread local tear down must be done in this function. Note that another
+  // decode thread could start up and run in future.
+  virtual void OnDecodeThreadFinish() {}
 
 protected:
   // Queue of audio frames. This queue is threadsafe, and is accessed from
@@ -416,11 +475,8 @@ public:
   // must be the presentation time of the first frame in the media, e.g.
   // the media time corresponding to playback time/position 0. This function
   // should only be called on the main thread.
-  virtual nsresult GetBuffered(nsTimeRanges* aBuffered,
+  virtual nsresult GetBuffered(dom::TimeRanges* aBuffered,
                                int64_t aStartTime) = 0;
-
-  // True if we can seek using only buffered ranges. This is backend dependant.
-  virtual bool IsSeekableInBufferedRanges() = 0;
 
   class VideoQueueMemoryFunctor : public nsDequeFunctor {
   public:
@@ -470,17 +526,6 @@ public:
 
   AudioData* DecodeToFirstAudioData();
   VideoData* DecodeToFirstVideoData();
-
-  // Sets range for initialization bytes; used by DASH.
-  virtual void SetInitByteRange(MediaByteRange &aByteRange) { }
-
-  // Sets range for index frame bytes; used by DASH.
-  virtual void SetIndexByteRange(MediaByteRange &aByteRange) { }
-
-  // Returns list of ranges for index frame start/end offsets. Used by DASH.
-  virtual nsresult GetIndexByteRanges(nsTArray<MediaByteRange>& aByteRanges) {
-    return NS_ERROR_NOT_AVAILABLE;
-  }
 
 protected:
   // Pumps the decode until we reach frames required to play at time aTarget

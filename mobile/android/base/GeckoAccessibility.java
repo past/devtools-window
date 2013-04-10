@@ -5,24 +5,28 @@
 
 package org.mozilla.gecko;
 
-import org.mozilla.gecko.GeckoApp;
 import org.mozilla.gecko.gfx.LayerView;
+import org.mozilla.gecko.util.ThreadUtils;
 
-import android.view.accessibility.*;
-import android.view.View;
-import android.util.Log;
-import android.os.Build;
-import android.os.Bundle;
-import android.content.Context;
-import android.graphics.Rect;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import android.app.ActivityManager;
 import android.app.ActivityManager.RunningServiceInfo;
+import android.content.Context;
+import android.graphics.Rect;
+import android.os.Build;
+import android.os.Bundle;
+import android.util.Log;
+import android.view.View;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityManager;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityNodeProvider;
 
-import java.util.HashSet;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
-
-import org.json.*;
 
 public class GeckoAccessibility {
     private static final String LOGTAG = "GeckoAccessibility";
@@ -30,9 +34,10 @@ public class GeckoAccessibility {
     private static final int VIRTUAL_CURSOR_POSITION = 2;
     private static final int VIRTUAL_CURSOR_NEXT = 3;
 
-    private static boolean mEnabled = false;
-    private static JSONObject mEventMessage = null;
-    private static AccessibilityNodeInfo mVirtualCursorNode = null;
+    private static boolean sEnabled = false;
+    // Used to store the JSON message and populate the event later in the code path.
+    private static JSONObject sEventMessage = null;
+    private static AccessibilityNodeInfo sVirtualCursorNode = null;
 
     private static final HashSet<String> sServiceWhitelist =
         new HashSet<String>(Arrays.asList(new String[] {
@@ -43,10 +48,11 @@ public class GeckoAccessibility {
                 }));
 
     public static void updateAccessibilitySettings () {
-        GeckoAppShell.getHandler().post(new Runnable() {
+        ThreadUtils.postToBackgroundThread(new Runnable() {
+                @Override
                 public void run() {
                     JSONObject ret = new JSONObject();
-                    mEnabled = false;
+                    sEnabled = false;
                     AccessibilityManager accessibilityManager =
                         (AccessibilityManager) GeckoApp.mAppContext.getSystemService(Context.ACCESSIBILITY_SERVICE);
                     if (accessibilityManager.isEnabled()) {
@@ -55,14 +61,14 @@ public class GeckoAccessibility {
                         List<RunningServiceInfo> runningServices = activityManager.getRunningServices(Integer.MAX_VALUE);
 
                         for (RunningServiceInfo runningServiceInfo : runningServices) {
-                            mEnabled = sServiceWhitelist.contains(runningServiceInfo.service.getClassName());
-                            if (mEnabled)
+                            sEnabled = sServiceWhitelist.contains(runningServiceInfo.service.getClassName());
+                            if (sEnabled)
                                 break;
                         }
                     }
 
                     try {
-                        ret.put("enabled", mEnabled);
+                        ret.put("enabled", sEnabled);
                     } catch (Exception ex) {
                         Log.e(LOGTAG, "Error building JSON arguments for Accessibility:Settings:", ex);
                     }
@@ -117,6 +123,9 @@ public class GeckoAccessibility {
     }
 
     public static void sendAccessibilityEvent (final JSONObject message) {
+        if (!sEnabled)
+            return;
+
         final int eventType = message.optInt("eventType", -1);
         if (eventType < 0) {
             Log.e(LOGTAG, "No accessibility event type provided");
@@ -126,7 +135,8 @@ public class GeckoAccessibility {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN) {
             // Before Jelly Bean we send events directly from here while spoofing the source by setting
             // the package and class name manually.
-            GeckoAppShell.getHandler().post(new Runnable() {
+            ThreadUtils.postToBackgroundThread(new Runnable() {
+                    @Override
                     public void run() {
                         sendDirectAccessibilityEvent(eventType, message);
                 }
@@ -138,40 +148,43 @@ public class GeckoAccessibility {
             if (view == null)
                 return;
 
-            if (mVirtualCursorNode == null)
-                mVirtualCursorNode = AccessibilityNodeInfo.obtain(view, VIRTUAL_CURSOR_POSITION);
-            mVirtualCursorNode.setEnabled(message.optBoolean("enabled", true));
-            mVirtualCursorNode.setChecked(message.optBoolean("checked"));
-            mVirtualCursorNode.setPassword(message.optBoolean("password"));
+            if (sVirtualCursorNode == null)
+                sVirtualCursorNode = AccessibilityNodeInfo.obtain(view, VIRTUAL_CURSOR_POSITION);
+            sVirtualCursorNode.setEnabled(message.optBoolean("enabled", true));
+            sVirtualCursorNode.setChecked(message.optBoolean("checked"));
+            sVirtualCursorNode.setPassword(message.optBoolean("password"));
             JSONObject bounds = message.optJSONObject("bounds");
             if (bounds != null) {
                 Rect relativeBounds = new Rect(bounds.optInt("left"), bounds.optInt("top"),
                                                bounds.optInt("right"), bounds.optInt("bottom"));
-                mVirtualCursorNode.setBoundsInParent(relativeBounds);
+                sVirtualCursorNode.setBoundsInParent(relativeBounds);
                 int[] locationOnScreen = new int[2];
                 view.getLocationOnScreen(locationOnScreen);
                 Rect screenBounds = new Rect(relativeBounds);
                 screenBounds.offset(locationOnScreen[0], locationOnScreen[1]);
-                mVirtualCursorNode.setBoundsInScreen(screenBounds);
+                sVirtualCursorNode.setBoundsInScreen(screenBounds);
             }
 
-            // Store the JSON message and use it to populate the event later in the code path.
-            mEventMessage = message;
-            GeckoApp.mAppContext.mMainHandler.post(new Runnable() {
+            ThreadUtils.postToUiThread(new Runnable() {
+                    @Override
                     public void run() {
                         // If this is an accessibility focus, a lot of internal voodoo happens so we perform an
                         // accessibility focus action on the view, and it in turn sends the right events.
                         switch (eventType) {
                         case AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED:
+                            sEventMessage = message;
                             view.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null);
                             break;
                         case AccessibilityEvent.TYPE_ANNOUNCEMENT:
+                        case AccessibilityEvent.TYPE_VIEW_SCROLLED:
+                            sEventMessage = null;
                             final AccessibilityEvent accEvent = AccessibilityEvent.obtain(eventType);
                             view.onInitializeAccessibilityEvent(accEvent);
                             populateEventFromJSON(accEvent, message);
                             view.getParent().requestSendAccessibilityEvent(view, accEvent);
                             break;
                         default:
+                            sEventMessage = message;
                             view.sendAccessibilityEvent(eventType);
                             break;
                         }
@@ -190,7 +203,7 @@ public class GeckoAccessibility {
     }
 
     public static void onLayerViewFocusChanged(LayerView layerview, boolean gainFocus) {
-        if (mEnabled)
+        if (sEnabled)
             GeckoAppShell.sendEventToGecko(GeckoEvent.createBroadcastEvent("Accessibility:Focus",
                                                                            gainFocus ? "true" : "false"));
     }
@@ -201,11 +214,11 @@ public class GeckoAccessibility {
         @Override
         public void onPopulateAccessibilityEvent (View host, AccessibilityEvent event) {
             super.onPopulateAccessibilityEvent(host, event);
-            if (mEventMessage != null)
-                populateEventFromJSON(event, mEventMessage);
+            if (sEventMessage != null)
+                populateEventFromJSON(event, sEventMessage);
             // We save the hover enter event so that we could reuse it for a subsequent accessibility focus event.
             if (event.getEventType() != AccessibilityEvent.TYPE_VIEW_HOVER_ENTER)
-                mEventMessage = null;
+                sEventMessage = null;
             // No matter where the a11y focus is requested, we always force it back to the current vc position.
             event.setSource(host, VIRTUAL_CURSOR_POSITION);
         }
@@ -221,8 +234,8 @@ public class GeckoAccessibility {
                 mAccessibilityNodeProvider = new AccessibilityNodeProvider() {
                         @Override
                         public AccessibilityNodeInfo createAccessibilityNodeInfo(int virtualDescendantId) {
-                            AccessibilityNodeInfo info = (virtualDescendantId == VIRTUAL_CURSOR_POSITION && mVirtualCursorNode != null) ?
-                                AccessibilityNodeInfo.obtain(mVirtualCursorNode) :
+                            AccessibilityNodeInfo info = (virtualDescendantId == VIRTUAL_CURSOR_POSITION && sVirtualCursorNode != null) ?
+                                AccessibilityNodeInfo.obtain(sVirtualCursorNode) :
                                 AccessibilityNodeInfo.obtain(host, virtualDescendantId);
 
 

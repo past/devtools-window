@@ -111,7 +111,11 @@ class YarrGenerator : private MacroAssembler {
     static const RegisterID regT1 = X86Registers::ebx;
 
     static const RegisterID returnRegister = X86Registers::eax;
+
+# if !WTF_PLATFORM_WIN
+    // no way to use int128_t as return value on Win64 ABI
     static const RegisterID returnRegister2 = X86Registers::edx;
+# endif
 #endif
 
     void optimizeAlternative(PatternAlternative* alternative)
@@ -1411,7 +1415,14 @@ class YarrGenerator : private MacroAssembler {
                     getMatchStart(returnRegister);
                 if (compileMode == IncludeSubpatterns)
                     store32(index, Address(output, 4));
+#if WTF_CPU_X86_64
+                // upper 32bit to 0
+                move32(returnRegister, returnRegister);
+                lshiftPtr(Imm32(32), index);
+                orPtr(index, returnRegister);
+#else
                 move(index, returnRegister2);
+#endif
 
                 generateReturn();
 
@@ -1730,8 +1741,12 @@ class YarrGenerator : private MacroAssembler {
 #if !WTF_CPU_SPARC
                 removeCallFrame();
 #endif
+#if WTF_CPU_X86_64
+                move(TrustedImm32(int(WTF::notFound)), returnRegister);
+#else
                 move(TrustedImmPtr((void*)WTF::notFound), returnRegister);
                 move(TrustedImm32(0), returnRegister2);
+#endif
                 generateReturn();
                 break;
             }
@@ -1972,8 +1987,12 @@ class YarrGenerator : private MacroAssembler {
 #if !WTF_CPU_SPARC
                 removeCallFrame();
 #endif
+#if WTF_CPU_X86_64
+                move(TrustedImm32(int(WTF::notFound)), returnRegister);
+#else
                 move(TrustedImmPtr((void*)WTF::notFound), returnRegister);
                 move(TrustedImm32(0), returnRegister2);
+#endif
                 generateReturn();
                 break;
             }
@@ -2539,6 +2558,9 @@ class YarrGenerator : private MacroAssembler {
         push(X86Registers::ebp);
         move(stackPointerRegister, X86Registers::ebp);
         push(X86Registers::ebx);
+        // The ABI doesn't guarantee the upper bits are zero on unsigned arguments, so clear them ourselves.
+        zeroExtend32ToPtr(index, index);
+        zeroExtend32ToPtr(length, length);
 #elif WTF_CPU_X86
         push(X86Registers::ebp);
         move(stackPointerRegister, X86Registers::ebp);
@@ -2620,8 +2642,12 @@ public:
         generateEnter();
 
         Jump hasInput = checkInput();
+#if WTF_CPU_X86_64
+        move(TrustedImm32(int(WTF::notFound)), returnRegister);
+#else
         move(TrustedImmPtr((void*)WTF::notFound), returnRegister);
         move(TrustedImm32(0), returnRegister2);
+#endif
         generateReturn();
         hasInput.link(this);
 

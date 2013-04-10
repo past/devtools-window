@@ -10,6 +10,10 @@
 #ifndef jsion_c1spewer_h__
 #define jsion_c1spewer_h__
 
+#include "jsscript.h"
+
+#include "js/RootingAPI.h"
+
 namespace js {
 namespace ion {
 
@@ -23,16 +27,16 @@ class LInstruction;
 class C1Spewer
 {
     MIRGraph *graph;
-    JSScript *script;
+    HandleScript script;
     FILE *spewout_;
 
   public:
     C1Spewer()
-      : graph(NULL), script(NULL), spewout_(NULL)
+      : graph(NULL), script(NullPtr()), spewout_(NULL)
     { }
 
     bool init(const char *path);
-    void beginFunction(MIRGraph *graph, JSScript *script);
+    void beginFunction(MIRGraph *graph, HandleScript script);
     void spewPass(const char *pass);
     void spewIntervals(const char *pass, LinearScanAllocator *regalloc);
     void endFunction();

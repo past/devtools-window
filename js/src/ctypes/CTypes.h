@@ -304,7 +304,7 @@ struct ClosureInfo
       ffi_closure_free(closure);
     if (errResult)
       js_free(errResult);
-  };
+  }
 };
 
 bool IsCTypesGlobal(JSObject* obj);
@@ -319,7 +319,7 @@ JSBool ConvertToJS(JSContext* cx, JSHandleObject typeObj, JSHandleObject dataObj
 JSBool ImplicitConvert(JSContext* cx, jsval val, JSObject* targetType,
   void* buffer, bool isArgument, bool* freePointer);
 
-JSBool ExplicitConvert(JSContext* cx, jsval val, JSHandleObject targetType,
+JSBool ExplicitConvert(JSContext* cx, JSHandleValue val, JSHandleObject targetType,
   void* buffer);
 
 /*******************************************************************************

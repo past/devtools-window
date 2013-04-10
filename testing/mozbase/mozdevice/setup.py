@@ -2,37 +2,28 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import os
 from setuptools import setup
 
-PACKAGE_VERSION = '0.15'
-
-# take description from README
-here = os.path.dirname(os.path.abspath(__file__))
-try:
-    description = file(os.path.join(here, 'README.md')).read()
-except (OSError, IOError):
-    description = ''
-
-deps = ['mozprocess == 0.8']
+PACKAGE_VERSION = '0.21'
 
 setup(name='mozdevice',
       version=PACKAGE_VERSION,
       description="Mozilla-authored device management",
-      long_description=description,
+      long_description="see http://mozbase.readthedocs.org/",
       classifiers=[], # Get strings from http://pypi.python.org/pypi?%3Aaction=list_classifiers
       keywords='',
       author='Mozilla Automation and Testing Team',
       author_email='tools@lists.mozilla.org',
-      url='https://wiki.mozilla.org/Auto-tools/Projects/MozBase',
+      url='https://wiki.mozilla.org/Auto-tools/Projects/Mozbase',
       license='MPL',
       packages=['mozdevice'],
       include_package_data=True,
       zip_safe=False,
-      install_requires=deps,
+      install_requires=[],
       entry_points="""
       # -*- Entry points: -*-
       [console_scripts]
       dm = mozdevice.dmcli:cli
+      sutini = mozdevice.sutini:main
       """,
       )

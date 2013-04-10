@@ -107,6 +107,10 @@
 #include "nsIDocShellTreeItem.h"
 #include "ExternalHelperAppChild.h"
 
+#ifdef XP_WIN
+#include "nsWindowsHelpers.h"
+#endif
+
 #ifdef MOZ_WIDGET_ANDROID
 #include "AndroidBridge.h"
 #endif
@@ -346,6 +350,16 @@ static nsresult GetDownloadDirectory(nsIFile **_directory)
 #elif defined(MOZ_PLATFORM_MAEMO)
   nsresult rv = NS_GetSpecialDirectory(NS_UNIX_XDG_DOCUMENTS_DIR, getter_AddRefs(dir));
   NS_ENSURE_SUCCESS(rv, rv);
+#elif defined(XP_WIN)
+  // On metro we want to be able to search opened files and the temp directory
+  // is exlcuded in searches.
+  nsresult rv;
+  if (IsRunningInWindowsMetro()) {
+    rv = NS_GetSpecialDirectory(NS_WIN_DEFAULT_DOWNLOAD_DIR, getter_AddRefs(dir));
+  } else {
+    rv = NS_GetSpecialDirectory(NS_OS_TEMP_DIR, getter_AddRefs(dir));
+  }
+  NS_ENSURE_SUCCESS(rv, rv);
 #else
   // On all other platforms, we default to the systems temporary directory.
   nsresult rv = NS_GetSpecialDirectory(NS_OS_TEMP_DIR, getter_AddRefs(dir));
@@ -381,8 +395,8 @@ static nsDefaultMimeTypeEntry defaultMimeEntries [] =
   { IMAGE_PNG, "png" },
   // -- end extensions used during startup
   { TEXT_CSS, "css" },
-  { IMAGE_JPG, "jpeg" },
-  { IMAGE_JPG, "jpg" },
+  { IMAGE_JPEG, "jpeg" },
+  { IMAGE_JPEG, "jpg" },
   { TEXT_HTML, "html" },
   { TEXT_HTML, "htm" },
   { APPLICATION_XPINSTALL, "xpi" },
@@ -405,8 +419,10 @@ static nsDefaultMimeTypeEntry defaultMimeEntries [] =
 #ifdef MOZ_DASH
   { APPLICATION_DASH, "mpd" },
 #endif
-#ifdef MOZ_GSTREAMER
+#if defined(MOZ_GSTREAMER) || defined(MOZ_WMF)
   { VIDEO_MP4, "mp4" },
+  { AUDIO_MP4, "m4a" },
+  { AUDIO_MP3, "mp3" },
 #endif
 #ifdef MOZ_RAW
   { VIDEO_RAW, "yuv" }
@@ -458,10 +474,13 @@ static nsExtraMimeTypeEntry extraMimeEntries [] =
   { IMAGE_BMP, "bmp", "BMP Image" },
   { IMAGE_GIF, "gif", "GIF Image" },
   { IMAGE_ICO, "ico,cur", "ICO Image" },
-  { IMAGE_JPG, "jpeg,jpg,jfif,pjpeg,pjp", "JPEG Image" },
+  { IMAGE_JPEG, "jpeg,jpg,jfif,pjpeg,pjp", "JPEG Image" },
   { IMAGE_PNG, "png", "PNG Image" },
   { IMAGE_TIFF, "tiff,tif", "TIFF Image" },
   { IMAGE_XBM, "xbm", "XBM Image" },
+#ifdef MOZ_WBMP
+  { IMAGE_WBMP, "wbmp", "WBMP Image" },
+#endif
   { "image/svg+xml", "svg", "Scalable Vector Graphics" },
   { MESSAGE_RFC822, "eml", "RFC-822 data" },
   { TEXT_PLAIN, "txt,text", "Text File" },
@@ -477,15 +496,17 @@ static nsExtraMimeTypeEntry extraMimeEntries [] =
   { APPLICATION_OGG, "ogg", "Ogg Video"},
   { AUDIO_OGG, "oga", "Ogg Audio" },
   { AUDIO_OGG, "opus", "Opus Audio" },
+#ifdef MOZ_WIDGET_GONK
+  { AUDIO_AMR, "amr", "Adaptive Multi-Rate Audio" },
+#endif
   { VIDEO_WEBM, "webm", "Web Media Video" },
   { AUDIO_WEBM, "webm", "Web Media Audio" },
 #ifdef MOZ_DASH
   { APPLICATION_DASH, "mpd", "DASH Media Presentation Description" },
 #endif
-#if defined(MOZ_MEDIA_PLUGINS) || defined(MOZ_WIDGET_GONK)
   { AUDIO_MP3, "mp3", "MPEG Audio" },
-#endif
   { VIDEO_MP4, "mp4", "MPEG-4 Video" },
+  { AUDIO_MP4, "m4a", "MPEG-4 Audio" },
   { VIDEO_RAW, "yuv", "Raw YUV Video" },
   { AUDIO_WAV, "wav", "Waveform Audio" },
   { VIDEO_3GPP, "3gpp,3gp", "3GPP Video" }
@@ -1074,6 +1095,7 @@ NS_INTERFACE_MAP_BEGIN(nsExternalAppHandler)
    NS_INTERFACE_MAP_ENTRY(nsIHelperAppLauncher)   
    NS_INTERFACE_MAP_ENTRY(nsICancelable)
    NS_INTERFACE_MAP_ENTRY(nsITimerCallback)
+   NS_INTERFACE_MAP_ENTRY(nsIBackgroundFileSaverObserver)   
 NS_INTERFACE_MAP_END_THREADSAFE
 
 nsExternalAppHandler::nsExternalAppHandler(nsIMIMEInfo * aMIMEInfo,
@@ -1095,7 +1117,7 @@ nsExternalAppHandler::nsExternalAppHandler(nsIMIMEInfo * aMIMEInfo,
 , mReason(aReason)
 , mContentLength(-1)
 , mProgress(0)
-, mDataBuffer(nullptr)
+, mSaver(nullptr)
 , mKeepRequestAlive(false)
 , mRequest(nullptr)
 , mExtProtSvc(aExtProtSvc)
@@ -1127,15 +1149,11 @@ nsExternalAppHandler::nsExternalAppHandler(nsIMIMEInfo * aMIMEInfo,
   EnsureSuggestedFileName();
 
   mBufferSize = Preferences::GetUint("network.buffer.cache.size", 4096);
-  mDataBuffer = (char*) malloc(mBufferSize);
-  if (!mDataBuffer)
-    return;
 }
 
 nsExternalAppHandler::~nsExternalAppHandler()
 {
-  if (mDataBuffer)
-    free(mDataBuffer);
+  MOZ_ASSERT(!mSaver, "Saver should hold a reference to us until deleted");
 }
 
 NS_IMETHODIMP nsExternalAppHandler::SetWebProgressListener(nsIWebProgressListener2 * aWebProgressListener)
@@ -1355,31 +1373,35 @@ nsresult nsExternalAppHandler::SetUpTempFile(nsIChannel * aChannel)
   rv = mTempFile->CreateUnique(nsIFile::NORMAL_FILE_TYPE, 0600);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  nsCOMPtr<nsIOutputStream> outputStream;
-  rv = NS_NewLocalFileOutputStream(getter_AddRefs(outputStream), mTempFile,
-                                   PR_WRONLY | PR_CREATE_FILE, 0600);
+  // Now save the temp leaf name, minus the ".part" bit, so we can use it later.
+  // This is a bit broken in the case when createUnique actually had to append
+  // some numbers, because then we now have a filename like foo.bar-1.part and
+  // we'll end up with foo.bar-1.bar as our final filename if we end up using
+  // this.  But the other options are all bad too....  Ideally we'd have a way
+  // to tell createUnique to put its unique marker before the extension that
+  // comes before ".part" or something.
+  rv = mTempFile->GetLeafName(mTempLeafName);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  NS_ENSURE_TRUE(StringEndsWith(mTempLeafName, NS_LITERAL_STRING(".part")),
+                 NS_ERROR_UNEXPECTED);
+
+  // Strip off the ".part" from mTempLeafName
+  mTempLeafName.Truncate(mTempLeafName.Length() - ArrayLength(".part") + 1);
+
+  MOZ_ASSERT(!mSaver, "Output file initialization called more than once!");
+  mSaver = do_CreateInstance(NS_BACKGROUNDFILESAVERSTREAMLISTENER_CONTRACTID,
+                             &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = mSaver->SetObserver(this);
   if (NS_FAILED(rv)) {
-    mTempFile->Remove(false);
+    mSaver = nullptr;
     return rv;
   }
 
-  mOutStream = NS_BufferOutputStream(outputStream, BUFFERED_OUTPUT_SIZE);
-
-#if defined(XP_MACOSX) && !defined(__LP64__)
-    nsAutoCString contentType;
-    mMimeInfo->GetMIMEType(contentType);
-    if (contentType.LowerCaseEqualsLiteral(APPLICATION_APPLEFILE) ||
-        contentType.LowerCaseEqualsLiteral(MULTIPART_APPLEDOUBLE))
-    {
-      nsCOMPtr<nsIAppleFileDecoder> appleFileDecoder = do_CreateInstance(NS_IAPPLEFILEDECODER_CONTRACTID, &rv);
-      if (NS_SUCCEEDED(rv))
-      {
-        rv = appleFileDecoder->Initialize(mOutStream, mTempFile);
-        if (NS_SUCCEEDED(rv))
-          mOutStream = do_QueryInterface(appleFileDecoder, &rv);
-      }
-    }
-#endif
+  rv = mSaver->SetTarget(mTempFile, false);
+  NS_ENSURE_SUCCESS(rv, rv);
 
   return rv;
 }
@@ -1661,7 +1683,12 @@ void nsExternalAppHandler::SendStatusChange(ErrorType type, nsresult rv, nsIRequ
     case NS_ERROR_FILE_ACCESS_DENIED:
         if (type == kWriteError) {
           // Attempt to write without sufficient permissions.
+#if defined(ANDROID)
+          // On Android, assume the SD card is missing or read-only
+          msgId.AssignLiteral("accessErrorSD");
+#else
           msgId.AssignLiteral("accessError");
+#endif
         }
         else
         {
@@ -1744,57 +1771,24 @@ nsExternalAppHandler::OnDataAvailable(nsIRequest *request, nsISupports * aCtxt,
 {
   nsresult rv = NS_OK;
   // first, check to see if we've been canceled....
-  if (mCanceled || !mDataBuffer) // then go cancel our underlying channel too
+  if (mCanceled || !mSaver) // then go cancel our underlying channel too
     return request->Cancel(NS_BINDING_ABORTED);
 
   // read the data out of the stream and write it to the temp file.
-  if (mOutStream && count > 0)
+  if (count > 0)
   {
-    uint32_t numBytesRead = 0; 
-    uint32_t numBytesWritten = 0;
     mProgress += count;
-    bool readError = true;
-    while (NS_SUCCEEDED(rv) && count > 0) // while we still have bytes to copy...
-    {
-      readError = true;
-      rv = inStr->Read(mDataBuffer, NS_MIN(count, mBufferSize - 1), &numBytesRead);
-      if (NS_SUCCEEDED(rv))
-      {
-        if (count >= numBytesRead)
-          count -= numBytesRead; // subtract off the number of bytes we just read
-        else
-          count = 0;
-        readError = false;
-        // Write out the data until something goes wrong, or, it is
-        // all written.  We loop because for some errors (e.g., disk
-        // full), we get NS_OK with some bytes written, then an error.
-        // So, we want to write again in that case to get the actual
-        // error code.
-        const char *bufPtr = mDataBuffer; // Where to write from.
-        while (NS_SUCCEEDED(rv) && numBytesRead)
-        {
-          numBytesWritten = 0;
-          rv = mOutStream->Write(bufPtr, numBytesRead, &numBytesWritten);
-          if (NS_SUCCEEDED(rv))
-          {
-            numBytesRead -= numBytesWritten;
-            bufPtr += numBytesWritten;
-            // Force an error if (for some reason) we get NS_OK but
-            // no bytes written.
-            if (!numBytesWritten)
-            {
-              rv = NS_ERROR_FAILURE;
-            }
-          }
-        }
-      }
-    }
+
+    nsCOMPtr<nsIStreamListener> saver = do_QueryInterface(mSaver);
+    rv = saver->OnDataAvailable(request, aCtxt, inStr, sourceOffset, count);
     if (NS_SUCCEEDED(rv))
     {
       // Send progress notification.
       if (mWebProgressListener)
       {
-        mWebProgressListener->OnProgressChange64(nullptr, request, mProgress, mContentLength, mProgress, mContentLength);
+        mWebProgressListener->OnProgressChange64(nullptr, request, mProgress,
+                                                 mContentLength, mProgress,
+                                                 mContentLength);
       }
     }
     else
@@ -1803,7 +1797,7 @@ nsExternalAppHandler::OnDataAvailable(nsIRequest *request, nsISupports * aCtxt,
       nsAutoString tempFilePath;
       if (mTempFile)
         mTempFile->GetPath(tempFilePath);
-      SendStatusChange(readError ? kReadError : kWriteError, rv, request, tempFilePath);
+      SendStatusChange(kReadError, rv, request, tempFilePath);
 
       // Cancel the download.
       Cancel(rv);
@@ -1833,21 +1827,41 @@ NS_IMETHODIMP nsExternalAppHandler::OnStopRequest(nsIRequest *request, nsISuppor
   }
 
   // first, check to see if we've been canceled....
+  if (mCanceled || !mSaver)
+    return NS_OK;
+
+  return mSaver->Finish(NS_OK);
+}
+
+NS_IMETHODIMP
+nsExternalAppHandler::OnTargetChange(nsIBackgroundFileSaver *aSaver,
+                                     nsIFile *aTarget)
+{
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsExternalAppHandler::OnSaveComplete(nsIBackgroundFileSaver *aSaver,
+                                     nsresult aStatus)
+{
+  // Free the reference that the saver keeps on us.
+  mSaver = nullptr;
+
   if (mCanceled)
     return NS_OK;
 
-  // close the stream...
-  if (mOutStream)
-  {
-    mOutStream->Close();
-    mOutStream = nullptr;
+  if (NS_FAILED(aStatus)) {
+    nsAutoString path;
+    mTempFile->GetPath(path);
+    SendStatusChange(kWriteError, aStatus, nullptr, path);
+    if (!mCanceled)
+      Cancel(aStatus);
+    return NS_OK;
   }
 
   // Do what the user asked for
   ExecuteDesiredAction();
 
-  // At this point, the channel should still own us. So releasing the reference
-  // to us in the nsITransfer should be ok.
   // This nsITransfer object holds a reference to us (we are its observer), so
   // we need to release the reference to break a reference cycle (and therefore
   // to prevent leaking)
@@ -1980,7 +1994,17 @@ nsresult nsExternalAppHandler::CreateProgressListener()
   return rv;
 }
 
-nsresult nsExternalAppHandler::PromptForSaveToFile(nsIFile ** aNewFile, const nsAFlatString &aDefaultFile, const nsAFlatString &aFileExtension)
+nsresult nsExternalAppHandler::SaveDestinationAvailable(nsIFile * aFile)
+{
+  if (aFile)
+    ContinueSave(aFile);
+  else
+    Cancel(NS_BINDING_ABORTED);
+
+  return NS_OK;
+}
+
+void nsExternalAppHandler::RequestSaveDestination(const nsAFlatString &aDefaultFile, const nsAFlatString &aFileExtension)
 {
   // invoke the dialog!!!!! use mWindowContext as the window context parameter for the dialog request
   // Convert to use file picker? No, then embeddors could not do any sort of
@@ -1990,7 +2014,10 @@ nsresult nsExternalAppHandler::PromptForSaveToFile(nsIFile ** aNewFile, const ns
   {
     // Get helper app launcher dialog.
     mDialog = do_CreateInstance( NS_HELPERAPPLAUNCHERDLG_CONTRACTID, &rv );
-    NS_ENSURE_SUCCESS(rv, rv);
+    if (rv != NS_OK) {
+      Cancel(NS_BINDING_ABORTED);
+      return;
+    }
   }
 
   // we want to explicitly unescape aDefaultFile b4 passing into the dialog. we can't unescape
@@ -2001,14 +2028,25 @@ nsresult nsExternalAppHandler::PromptForSaveToFile(nsIFile ** aNewFile, const ns
   // picker is up would cause Cancel() to be called, and the dialog would be
   // released, which would release this object too, which would crash.
   // See Bug 249143
+  nsIFile* fileToUse;
   nsRefPtr<nsExternalAppHandler> kungFuDeathGrip(this);
   nsCOMPtr<nsIHelperAppLauncherDialog> dlg(mDialog);
-  rv = mDialog->PromptForSaveToFile(this, 
+  rv = mDialog->PromptForSaveToFile(this,
                                     mWindowContext,
                                     aDefaultFile.get(),
                                     aFileExtension.get(),
-                                    mForceSave, aNewFile);
-  return rv;
+                                    mForceSave, &fileToUse);
+
+  if (rv == NS_ERROR_NOT_AVAILABLE) {
+    // we need to use the async version -> nsIHelperAppLauncherDialog.promptForSaveToFileAsync.
+    rv = mDialog->PromptForSaveToFileAsync(this, 
+                                           mWindowContext,
+                                           aDefaultFile.get(),
+                                           aFileExtension.get(),
+                                           mForceSave);
+  } else {
+    SaveDestinationAvailable(rv == NS_OK ? fileToUse : nullptr);
+  }
 }
 
 nsresult nsExternalAppHandler::MoveFile(nsIFile * aNewFileLocation)
@@ -2075,7 +2113,6 @@ nsresult nsExternalAppHandler::MoveFile(nsIFile * aNewFileLocation)
 
 NS_IMETHODIMP nsExternalAppHandler::SaveToDisk(nsIFile * aNewFileLocation, bool aRememberThisPreference)
 {
-  nsresult rv = NS_OK;
   if (mCanceled)
     return NS_OK;
 
@@ -2084,13 +2121,9 @@ NS_IMETHODIMP nsExternalAppHandler::SaveToDisk(nsIFile * aNewFileLocation, bool 
   // The helper app dialog has told us what to do.
   mReceivedDispositionInfo = true;
 
-  nsCOMPtr<nsIFile> fileToUse = do_QueryInterface(aNewFileLocation);
-  if (!fileToUse)
-  {
-    nsAutoString leafName;
-    mTempFile->GetLeafName(leafName);
+  if (!aNewFileLocation) {
     if (mSuggestedFileName.IsEmpty())
-      rv = PromptForSaveToFile(getter_AddRefs(fileToUse), leafName, mTempFileExtension);
+      RequestSaveDestination(mTempLeafName, mTempFileExtension);
     else
     {
       nsAutoString fileExt;
@@ -2100,15 +2133,20 @@ NS_IMETHODIMP nsExternalAppHandler::SaveToDisk(nsIFile * aNewFileLocation, bool 
       if (fileExt.IsEmpty())
         fileExt = mTempFileExtension;
 
-      rv = PromptForSaveToFile(getter_AddRefs(fileToUse), mSuggestedFileName, fileExt);
+      RequestSaveDestination(mSuggestedFileName, fileExt);
     }
-
-    if (NS_FAILED(rv) || !fileToUse) {
-      Cancel(NS_BINDING_ABORTED);
-      return NS_ERROR_FAILURE;
-    }
+  } else {
+    ContinueSave(aNewFileLocation);
   }
-  
+
+  return NS_OK;
+}
+nsresult nsExternalAppHandler::ContinueSave(nsIFile * aNewFileLocation)
+{
+  NS_PRECONDITION(aNewFileLocation, "Must be called with a non-null file");
+
+  nsresult rv = NS_OK;
+  nsCOMPtr<nsIFile> fileToUse = do_QueryInterface(aNewFileLocation);
   mFinalFileDestination = do_QueryInterface(fileToUse);
 
   // Move what we have in the final directory, but append .part
@@ -2125,27 +2163,19 @@ NS_IMETHODIMP nsExternalAppHandler::SaveToDisk(nsIFile * aNewFileLocation, bool 
       name.AppendLiteral(".part");
       movedFile->SetLeafName(name);
 
-      nsCOMPtr<nsIFile> dir;
-      movedFile->GetParent(getter_AddRefs(dir));
-
-      mOutStream->Close();
-
-      rv = mTempFile->MoveTo(dir, name);
-      if (NS_SUCCEEDED(rv)) // if it failed, we just continue with $TEMP
-        mTempFile = movedFile;
-
-      nsCOMPtr<nsIOutputStream> outputStream;
-      rv = NS_NewLocalFileOutputStream(getter_AddRefs(outputStream), mTempFile,
-                                       PR_WRONLY | PR_APPEND, 0600);
-      if (NS_FAILED(rv)) { // (Re-)opening the output stream failed. bad luck.
-        nsAutoString path;
-        mTempFile->GetPath(path);
-        SendStatusChange(kWriteError, rv, nullptr, path);
-        Cancel(rv);
-        return NS_OK;
+      if (mSaver)
+      {
+        rv = mSaver->SetTarget(movedFile, true);
+        if (NS_FAILED(rv)) {
+          nsAutoString path;
+          mTempFile->GetPath(path);
+          SendStatusChange(kWriteError, rv, nullptr, path);
+          Cancel(rv);
+          return NS_OK;
+        }
       }
 
-      mOutStream = NS_BufferOutputStream(outputStream, BUFFERED_OUTPUT_SIZE);
+      mTempFile = movedFile;
     }
   }
 
@@ -2274,7 +2304,7 @@ NS_IMETHODIMP nsExternalAppHandler::LaunchWithApplication(nsIFile * aApplication
   if (mSuggestedFileName.IsEmpty())
   {
     // Keep using the leafname of the temp file, since we're just starting a helper
-    mTempFile->GetLeafName(mSuggestedFileName);
+    mSuggestedFileName = mTempLeafName;
   }
 
 #ifdef XP_WIN
@@ -2310,35 +2340,14 @@ NS_IMETHODIMP nsExternalAppHandler::Cancel(nsresult aReason)
   // XXX should not ignore the reason
 
   mCanceled = true;
+  if (mSaver)
+    mSaver->Finish(aReason);
+
   // Break our reference cycle with the helper app dialog (set up in
   // OnStartRequest)
   mDialog = nullptr;
 
   mRequest = nullptr;
-
-  // shutdown our stream to the temp file
-  if (mOutStream)
-  {
-    mOutStream->Close();
-    mOutStream = nullptr;
-  }
-
-  // Clean up after ourselves and delete the temp file only if the user
-  // canceled the helper app dialog (we didn't get the disposition info yet).
-  // We leave the partial file for everything else because it could be useful
-  // e.g., resume a download
-  if (mTempFile && !mReceivedDispositionInfo)
-  {
-    mTempFile->Remove(false);
-    mTempFile = nullptr;
-  }
-
-  // If we have already created a final destination file, we remove it as well
-  if (mFinalFileDestination)
-  {
-    mFinalFileDestination->Remove(false);
-    mFinalFileDestination = nullptr;
-  }
 
   // Release the listener, to break the reference cycle with it (we are the
   // observer of the listener).

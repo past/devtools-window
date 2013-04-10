@@ -405,7 +405,7 @@ var BookmarkPropertiesPanel = {
     if (this._batching)
       return;
 
-    PlacesUtils.transactionManager.beginBatch();
+    PlacesUtils.transactionManager.beginBatch(null);
     this._batching = true;
   },
 
@@ -413,7 +413,7 @@ var BookmarkPropertiesPanel = {
     if (!this._batching)
       return;
 
-    PlacesUtils.transactionManager.endBatch();
+    PlacesUtils.transactionManager.endBatch(false);
     this._batching = false;
   },
 
@@ -572,7 +572,7 @@ var BookmarkPropertiesPanel = {
 
     //XXX TODO: this should be in a transaction!
     if (this._charSet && !PrivateBrowsingUtils.isWindowPrivate(window))
-      PlacesUtils.history.setCharsetForURI(this._uri, this._charSet);
+      PlacesUtils.setCharsetForURI(this._uri, this._charSet);
 
     let createTxn = new PlacesCreateBookmarkTransaction(this._uri,
                                                         aContainer,

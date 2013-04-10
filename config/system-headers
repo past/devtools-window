@@ -473,7 +473,6 @@ iterator
 JavaControl.h
 JavaEmbedding/JavaControl.h
 JavaVM/jni.h
-jemalloc.h
 JManager.h
 JNIEnvTests.h
 jni.h
@@ -1108,7 +1107,6 @@ vpx/vpx_decoder.h
 vpx/vpx_encoder.h
 vpx/vp8cx.h
 vpx/vp8dx.h
-sydneyaudio/sydney_audio.h
 vorbis/codec.h
 theora/theoradec.h
 tremor/ivorbiscodec.h

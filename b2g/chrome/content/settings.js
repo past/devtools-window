@@ -14,6 +14,13 @@ const Cr = Components.results;
 Cu.import('resource://gre/modules/XPCOMUtils.jsm');
 Cu.import('resource://gre/modules/Services.jsm');
 
+#ifdef MOZ_WIDGET_GONK
+XPCOMUtils.defineLazyGetter(this, "libcutils", function () {
+  Cu.import("resource://gre/modules/systemlibs.js");
+  return libcutils;
+});
+#endif
+
 // Once Bug 731746 - Allow chrome JS object to implement nsIDOMEventTarget
 // is resolved this helper could be removed.
 var SettingsListener = {
@@ -56,7 +63,7 @@ var SettingsListener = {
 SettingsListener.init();
 
 // =================== Audio ====================
-SettingsListener.observe('audio.volume.master', 0.5, function(value) {
+SettingsListener.observe('audio.volume.master', 1.0, function(value) {
   let audioManager = Services.audioManager;
   if (!audioManager)
     return;
@@ -64,42 +71,39 @@ SettingsListener.observe('audio.volume.master', 0.5, function(value) {
   audioManager.masterVolume = Math.max(0.0, Math.min(value, 1.0));
 });
 
-let audioSettings = [];
+let audioChannelSettings = [];
 
 if ("nsIAudioManager" in Ci) {
   const nsIAudioManager = Ci.nsIAudioManager;
-  audioSettings = [
-    // settings name, default value, stream type
-    ['audio.volume.voice_call', 10, nsIAudioManager.STREAM_TYPE_VOICE_CALL],
-    ['audio.volume.system', 15,  nsIAudioManager.STREAM_TYPE_SYSTEM],
-    ['audio.volume.ring', 7, nsIAudioManager.STREAM_TYPE_RING],
-    ['audio.volume.music', 15, nsIAudioManager.STREAM_TYPE_MUSIC],
-    ['audio.volume.alarm', 7, nsIAudioManager.STREAM_TYPE_ALARM],
-    ['audio.volume.notification', 7, nsIAudioManager.STREAM_TYPE_NOTIFICATION],
-    ['audio.volume.bt_sco', 15, nsIAudioManager.STREAM_TYPE_BLUETOOTH_SCO],
-    ['audio.volume.enforced_audible', 7, nsIAudioManager.STREAM_TYPE_ENFORCED_AUDIBLE],
-    ['audio.volume.dtmf', 15, nsIAudioManager.STREAM_TYPE_DTMF],
-    ['audio.volume.tts', 15, nsIAudioManager.STREAM_TYPE_TTS],
-    ['audio.volume.fm', 15, nsIAudioManager.STREAM_TYPE_FM],
+  audioChannelSettings = [
+    // settings name, max value, apply to stream types
+    ['audio.volume.content', 15, [nsIAudioManager.STREAM_TYPE_SYSTEM, nsIAudioManager.STREAM_TYPE_MUSIC]],
+    ['audio.volume.notification', 15, [nsIAudioManager.STREAM_TYPE_RING, nsIAudioManager.STREAM_TYPE_NOTIFICATION]],
+    ['audio.volume.alarm', 15, [nsIAudioManager.STREAM_TYPE_ALARM]],
+    ['audio.volume.telephony', 5, [nsIAudioManager.STREAM_TYPE_VOICE_CALL]],
+    ['audio.volume.bt_sco', 15, [nsIAudioManager.STREAM_TYPE_BLUETOOTH_SCO]],
   ];
 }
 
-for each (let [setting, defaultValue, streamType] in audioSettings) {
-  (function AudioStreamSettings(s, d, t) {
-    SettingsListener.observe(s, d, function(value) {
+for each (let [setting, maxValue, streamTypes] in audioChannelSettings) {
+  (function AudioStreamSettings(setting, maxValue, streamTypes) {
+    SettingsListener.observe(setting, maxValue, function(value) {
       let audioManager = Services.audioManager;
       if (!audioManager)
         return;
 
-      audioManager.setStreamVolumeIndex(t, Math.min(value, d));
+      for each(let streamType in streamTypes) {
+        audioManager.setStreamVolumeIndex(streamType, Math.min(value, maxValue));
+      }
     });
-  })(setting, defaultValue, streamType);
+  })(setting, maxValue, streamTypes);
 }
 
 // =================== Console ======================
 
 SettingsListener.observe('debug.console.enabled', true, function(value) {
   Services.prefs.setBoolPref('consoleservice.enabled', value);
+  Services.prefs.setBoolPref('layout.css.report_errors', value);
 });
 
 // =================== Languages ====================
@@ -117,9 +121,17 @@ SettingsListener.observe('language.current', 'en-US', function(value) {
                                           Ci.nsIPrefLocalizedString).data;
   } catch(e) {}
 
+  // Bug 830782 - Homescreen is in English instead of selected locale after
+  // the first run experience.
+  // In order to ensure the current intl value is reflected on the child
+  // process let's always write a user value, even if this one match the
+  // current localized pref value.
   if (!((new RegExp('^' + value + '[^a-z-_] *[,;]?', 'i')).test(intl))) {
-    Services.prefs.setCharPref(prefName, value + ', ' + intl);
+    value = value + ', ' + intl;
+  } else {
+    value = intl;
   }
+  Services.prefs.setCharPref(prefName, value);
 
   if (shell.hasStarted() == false) {
     shell.start();
@@ -143,6 +155,11 @@ SettingsListener.observe('language.current', 'en-US', function(value) {
     });
   });
 
+  SettingsListener.observe('ril.mms.retrieval_mode', 'manual',
+    function(value) {
+      Services.prefs.setCharPref('dom.mms.retrieval_mode', value);
+  });
+
   SettingsListener.observe('ril.sms.strict7BitEncoding.enabled', false,
     function(value) {
       Services.prefs.setBoolPref('dom.sms.strict7BitEncoding', value);
@@ -157,12 +174,14 @@ Components.utils.import('resource://gre/modules/ctypes.jsm');
                                      '@mozilla.org/settingsService;1',
                                      'nsISettingsService');
   let lock = gSettingsService.createLock();
-  //MOZ_B2G_VERSION is set in b2g/confvars.sh, and is outputed as a #define value
-  //from configure.in, defaults to 1.0.0 if this value is not exist
+  // MOZ_B2G_VERSION is set in b2g/confvars.sh, and is output as a #define value
+  // from configure.in, defaults to 1.0.0 if this value is not exist.
 #filter attemptSubstitution
   let os_version = '@MOZ_B2G_VERSION@';
+  let os_name = '@MOZ_B2G_OS_NAME@';
 #unfilter attemptSubstitution
   lock.set('deviceinfo.os', os_version, null, null);
+  lock.set('deviceinfo.software', os_name + ' ' + os_version, null, null);
 
   let appInfo = Cc["@mozilla.org/xre/app-info;1"]
                   .getService(Ci.nsIXULAppInfo);
@@ -172,29 +191,15 @@ Components.utils.import('resource://gre/modules/ctypes.jsm');
   let update_channel = Services.prefs.getCharPref('app.update.channel');
   lock.set('deviceinfo.update_channel', update_channel, null, null);
 
-  //Get the hardware info from android properties
-  let hardware_version = null;
-  try {
-    let cutils = ctypes.open('libcutils.so');
-    let cbuf = ctypes.char.array(128)();
-    let c_property_get = cutils.declare('property_get', ctypes.default_abi,
-                                        ctypes.int,       // return value: length
-                                        ctypes.char.ptr,  // key
-                                        ctypes.char.ptr,  // value
-                                        ctypes.char.ptr); // default
-    let property_get = function (key, defaultValue) {
-      if (defaultValue === undefined) {
-        defaultValue = null;
-      }
-      c_property_get(key, cbuf, defaultValue);
-      return cbuf.readString();
-    }
-    hardware_version = property_get('ro.hardware');
-    cutils.close();
-  } catch(e) {
-    //Error
-  }
-  lock.set('deviceinfo.hardware', hardware_version, null, null);
+  // Get the hardware info and firmware revision from device properties.
+  let hardware_info = null;
+  let firmware_revision = null;
+#ifdef MOZ_WIDGET_GONK
+    hardware_info = libcutils.property_get('ro.hardware');
+    firmware_revision = libcutils.property_get('ro.firmware_revision');
+#endif
+  lock.set('deviceinfo.hardware', hardware_info, null, null);
+  lock.set('deviceinfo.firmware_revision', firmware_revision, null, null);
 })();
 
 // =================== Debugger ====================
@@ -202,15 +207,53 @@ SettingsListener.observe('devtools.debugger.remote-enabled', false, function(val
   Services.prefs.setBoolPref('devtools.debugger.remote-enabled', value);
   // This preference is consulted during startup
   Services.prefs.savePrefFile(null);
-  value ? startDebugger() : stopDebugger();
+  value ? RemoteDebugger.start() : RemoteDebugger.stop();
+
+#ifdef MOZ_WIDGET_GONK
+  let enableAdb = value;
+
+  try {
+    if (Services.prefs.getBoolPref('marionette.defaultPrefs.enabled')) {
+      // Marionette is enabled. Force adb on, since marionette requires remote
+      // debugging to be disabled (we don't want adb to track the remote debugger
+      // setting).
+
+      enableAdb = true;
+    }
+  } catch (e) {
+    // This means that the pref doesn't exist. Which is fine. We just leave
+    // enableAdb alone.
+  }
+
+  // Configure adb.
+  try {
+    let currentConfig = libcutils.property_get("persist.sys.usb.config");
+    let configFuncs = currentConfig.split(",");
+    let adbIndex = configFuncs.indexOf("adb");
+
+    if (enableAdb) {
+      // Add adb to the list of functions, if not already present
+      if (adbIndex < 0) {
+        configFuncs.push("adb");
+      }
+    } else {
+      // Remove adb from the list of functions, if present
+      if (adbIndex >= 0) {
+        configFuncs.splice(adbIndex,1);
+      }
+    }
+    let newConfig = configFuncs.join(",");
+    if (newConfig != currentConfig) {
+      libcutils.property_set("persist.sys.usb.config", newConfig);
+    }
+  } catch(e) {
+    dump("Error configuring adb: " + e);
+  }
+#endif
 });
 
 SettingsListener.observe('debug.log-animations.enabled', false, function(value) {
   Services.prefs.setBoolPref('layers.offmainthreadcomposition.log-animations', value);
-});
-
-SettingsListener.observe('debug.dev-mode', false, function(value) {
-  Services.prefs.setBoolPref('dom.mozApps.dev_mode', value);
 });
 
 // =================== Privacy ====================

@@ -6,6 +6,10 @@
 
 #include "MediaPipeline.h"
 
+#ifndef USE_FAKE_MEDIA_STREAMS
+#include "MediaStreamGraphImpl.h"
+#endif
+
 #include <math.h>
 
 #include "nspr.h"
@@ -17,12 +21,14 @@
 #include "Layers.h"
 #include "ImageTypes.h"
 #include "ImageContainer.h"
+#include "VideoUtils.h"
 #endif
 
 #include "logging.h"
 #include "nsError.h"
 #include "AudioSegment.h"
 #include "MediaSegment.h"
+#include "databuffer.h"
 #include "transportflow.h"
 #include "transportlayer.h"
 #include "transportlayerdtls.h"
@@ -32,35 +38,70 @@
 
 using namespace mozilla;
 
+#ifdef DEBUG
+// Dial up pipeline logging in debug mode
+#define MP_LOG_INFO PR_LOG_WARN
+#else
+#define MP_LOG_INFO PR_LOG_DEBUG
+#endif
+
+
 // Logging context
-MOZ_MTLOG_MODULE("mediapipeline");
+MOZ_MTLOG_MODULE("mediapipeline")
 
 namespace mozilla {
 
 static char kDTLSExporterLabel[] = "EXTRACTOR-dtls_srtp";
 
 nsresult MediaPipeline::Init() {
+  ASSERT_ON_THREAD(main_thread_);
+
+  RUN_ON_THREAD(sts_thread_,
+                WrapRunnable(
+                    nsRefPtr<MediaPipeline>(this),
+                    &MediaPipeline::Init_s),
+                NS_DISPATCH_NORMAL);
+
+  return NS_OK;
+}
+
+nsresult MediaPipeline::Init_s() {
+  ASSERT_ON_THREAD(sts_thread_);
   conduit_->AttachTransport(transport_);
 
-  MOZ_ASSERT(rtp_transport_);
-
   nsresult res;
-
+  MOZ_ASSERT(rtp_transport_);
   // Look to see if the transport is ready
   rtp_transport_->SignalStateChange.connect(this,
                                             &MediaPipeline::StateChange);
 
   if (rtp_transport_->state() == TransportLayer::TS_OPEN) {
-    res = TransportReady(rtp_transport_);
-    NS_ENSURE_SUCCESS(res, res);
+    res = TransportReady_s(rtp_transport_);
+    if (NS_FAILED(res)) {
+      MOZ_MTLOG(PR_LOG_ERROR, "Error calling TransportReady(); res="
+                << static_cast<uint32_t>(res) << " in " << __FUNCTION__);
+      return res;
+    }
+  } else if (rtp_transport_->state() == TransportLayer::TS_ERROR) {
+    MOZ_MTLOG(PR_LOG_ERROR, "RTP transport is already in error state");
+    TransportFailed_s(rtp_transport_);
+    return NS_ERROR_FAILURE;
   } else {
     if (!muxed_) {
       rtcp_transport_->SignalStateChange.connect(this,
                                                  &MediaPipeline::StateChange);
 
       if (rtcp_transport_->state() == TransportLayer::TS_OPEN) {
-        res = TransportReady(rtcp_transport_);
-        NS_ENSURE_SUCCESS(res, res);
+        res = TransportReady_s(rtcp_transport_);
+        if (NS_FAILED(res)) {
+          MOZ_MTLOG(PR_LOG_ERROR, "Error calling TransportReady(); res="
+                    << static_cast<uint32_t>(res) << " in " << __FUNCTION__);
+          return res;
+        }
+      } else if (rtcp_transport_->state() == TransportLayer::TS_ERROR) {
+        MOZ_MTLOG(PR_LOG_ERROR, "RTCP transport is already in error state");
+        TransportFailed_s(rtcp_transport_);
+        return NS_ERROR_FAILURE;
       }
     }
   }
@@ -70,56 +111,43 @@ nsresult MediaPipeline::Init() {
 
 // Disconnect us from the transport so that we can cleanly destruct
 // the pipeline on the main thread.
-void MediaPipeline::DetachTransportInt() {
+void MediaPipeline::ShutdownTransport_s() {
+  ASSERT_ON_THREAD(sts_thread_);
+
+  disconnect_all();
   transport_->Detach();
   rtp_transport_ = NULL;
   rtcp_transport_ = NULL;
 }
 
-void MediaPipeline::DetachTransport() {
-  RUN_ON_THREAD(sts_thread_,
-                WrapRunnable(this, &MediaPipeline::DetachTransportInt),
-                NS_DISPATCH_SYNC);
-}
-
 void MediaPipeline::StateChange(TransportFlow *flow, TransportLayer::State state) {
   if (state == TransportLayer::TS_OPEN) {
-    MOZ_MTLOG(PR_LOG_DEBUG, "Flow is ready");
-    TransportReady(flow);
+    MOZ_MTLOG(MP_LOG_INFO, "Flow is ready");
+    TransportReady_s(flow);
   } else if (state == TransportLayer::TS_CLOSED ||
              state == TransportLayer::TS_ERROR) {
-    TransportFailed(flow);
+    TransportFailed_s(flow);
   }
 }
 
-nsresult MediaPipeline::TransportReady(TransportFlow *flow) {
-  nsresult rv;
-  nsresult res;
-
-  rv = RUN_ON_THREAD(sts_thread_,
-    WrapRunnableRet(this, &MediaPipeline::TransportReadyInt, flow, &res),
-    NS_DISPATCH_SYNC);
-
-  // res is invalid unless the dispatch succeeded
-  if (NS_FAILED(rv))
-    return rv;
-
-  return res;
-}
-
-nsresult MediaPipeline::TransportReadyInt(TransportFlow *flow) {
+nsresult MediaPipeline::TransportReady_s(TransportFlow *flow) {
+  MOZ_ASSERT(!description_.empty());
   bool rtcp = !(flow == rtp_transport_);
   State *state = rtcp ? &rtcp_state_ : &rtp_state_;
 
+  // TODO(ekr@rtfm.com): implement some kind of notification on
+  // failure. bug 852665.
   if (*state != MP_CONNECTING) {
     MOZ_MTLOG(PR_LOG_ERROR, "Transport ready for flow in wrong state:" <<
-              (rtcp ? "rtcp" : "rtp"));
+	      description_ << ": " << (rtcp ? "rtcp" : "rtp"));
     return NS_ERROR_FAILURE;
   }
 
   nsresult res;
 
-  MOZ_MTLOG(PR_LOG_DEBUG, "Transport ready for flow " << (rtcp ? "rtcp" : "rtp"));
+  MOZ_MTLOG(MP_LOG_INFO, "Transport ready for pipeline " <<
+	    static_cast<void *>(this) << " flow " << description_ << ": " <<
+	    (rtcp ? "rtcp" : "rtp"));
 
   // Now instantiate the SRTP objects
   TransportLayerDtls *dtls = static_cast<TransportLayerDtls *>(
@@ -130,6 +158,7 @@ nsresult MediaPipeline::TransportReadyInt(TransportFlow *flow) {
   res = dtls->GetSrtpCipher(&cipher_suite);
   if (NS_FAILED(res)) {
     MOZ_MTLOG(PR_LOG_ERROR, "Failed to negotiate DTLS-SRTP. This is an error");
+    *state = MP_CLOSED;
     return res;
   }
 
@@ -192,14 +221,14 @@ nsresult MediaPipeline::TransportReadyInt(TransportFlow *flow) {
       rtcp_send_srtp_ = rtp_send_srtp_;
       rtcp_recv_srtp_ = rtp_recv_srtp_;
 
-      MOZ_MTLOG(PR_LOG_DEBUG, "Listening for packets received on " <<
+      MOZ_MTLOG(MP_LOG_INFO, "Listening for packets received on " <<
                 static_cast<void *>(dtls->downward()));
 
       dtls->downward()->SignalPacketReceived.connect(this,
                                                      &MediaPipeline::
                                                      PacketReceived);
     } else {
-      MOZ_MTLOG(PR_LOG_DEBUG, "Listening for RTP packets received on " <<
+      MOZ_MTLOG(MP_LOG_INFO, "Listening for RTP packets received on " <<
                 static_cast<void *>(dtls->downward()));
 
       dtls->downward()->SignalPacketReceived.connect(this,
@@ -219,7 +248,7 @@ nsresult MediaPipeline::TransportReadyInt(TransportFlow *flow) {
       return NS_ERROR_FAILURE;
     }
 
-    MOZ_MTLOG(PR_LOG_DEBUG, "Listening for RTCP packets received on " <<
+    MOZ_MTLOG(MP_LOG_INFO, "Listening for RTCP packets received on " <<
       static_cast<void *>(dtls->downward()));
 
     // Start listening
@@ -232,14 +261,15 @@ nsresult MediaPipeline::TransportReadyInt(TransportFlow *flow) {
   return NS_OK;
 }
 
-nsresult MediaPipeline::TransportFailed(TransportFlow *flow) {
+nsresult MediaPipeline::TransportFailed_s(TransportFlow *flow) {
+  ASSERT_ON_THREAD(sts_thread_);
   bool rtcp = !(flow == rtp_transport_);
 
   State *state = rtcp ? &rtcp_state_ : &rtp_state_;
 
   *state = MP_CLOSED;
 
-  MOZ_MTLOG(PR_LOG_DEBUG, "Transport closed for flow " << (rtcp ? "rtcp" : "rtp"));
+  MOZ_MTLOG(MP_LOG_INFO, "Transport closed for flow " << (rtcp ? "rtcp" : "rtp"));
 
   NS_WARNING(
       "MediaPipeline Transport failed. This is not properly cleaned up yet");
@@ -254,25 +284,10 @@ nsresult MediaPipeline::TransportFailed(TransportFlow *flow) {
 }
 
 
-// Wrapper to send a packet on the STS thread.
 nsresult MediaPipeline::SendPacket(TransportFlow *flow, const void *data,
                                    int len) {
-  nsresult rv;
-  nsresult res;
+  ASSERT_ON_THREAD(sts_thread_);
 
-  rv = RUN_ON_THREAD(sts_thread_,
-    WrapRunnableRet(this, &MediaPipeline::SendPacketInt, flow, data, len, &res),
-    NS_DISPATCH_SYNC);
-
-  // res is invalid unless the dispatch succeeded
-  if (NS_FAILED(rv))
-    return rv;
-
-  return res;
-}
-
-nsresult MediaPipeline::SendPacketInt(TransportFlow *flow, const void *data,
-                                   int len) {
   // Note that we bypass the DTLS layer here
   TransportLayerDtls *dtls = static_cast<TransportLayerDtls *>(
       flow->GetLayer(TransportLayerDtls::ID()));
@@ -295,36 +310,44 @@ nsresult MediaPipeline::SendPacketInt(TransportFlow *flow, const void *data,
 
 void MediaPipeline::increment_rtp_packets_sent() {
   ++rtp_packets_sent_;
-  if (!(rtp_packets_sent_ % 1000)) {
-    MOZ_MTLOG(PR_LOG_DEBUG, "RTP packet count " << static_cast<void *>(this)
+
+  if (!(rtp_packets_sent_ % 100)) {
+    MOZ_MTLOG(MP_LOG_INFO, "RTP sent packet count for " << description_
+              << " Pipeline " << static_cast<void *>(this)
+              << " Flow : " << static_cast<void *>(rtp_transport_)
               << ": " << rtp_packets_sent_);
   }
 }
 
 void MediaPipeline::increment_rtcp_packets_sent() {
   ++rtcp_packets_sent_;
-  if (!(rtcp_packets_sent_ % 1000)) {
-    MOZ_MTLOG(PR_LOG_DEBUG, "RTCP packet count " << static_cast<void *>(this)
+  if (!(rtcp_packets_sent_ % 100)) {
+    MOZ_MTLOG(MP_LOG_INFO, "RTCP sent packet count for " << description_
+              << " Pipeline " << static_cast<void *>(this)
+              << " Flow : " << static_cast<void *>(rtcp_transport_)
               << ": " << rtcp_packets_sent_);
   }
 }
 
 void MediaPipeline::increment_rtp_packets_received() {
   ++rtp_packets_received_;
-  if (!(rtp_packets_received_ % 1000)) {
-    MOZ_MTLOG(PR_LOG_DEBUG, "RTP packet count " << static_cast<void *>(this)
+  if (!(rtp_packets_received_ % 100)) {
+    MOZ_MTLOG(MP_LOG_INFO, "RTP received packet count for " << description_
+              << " Pipeline " << static_cast<void *>(this)
+              << " Flow : " << static_cast<void *>(rtp_transport_)
               << ": " << rtp_packets_received_);
   }
 }
 
 void MediaPipeline::increment_rtcp_packets_received() {
   ++rtcp_packets_received_;
-  if (!(rtcp_packets_received_ % 1000)) {
-    MOZ_MTLOG(PR_LOG_DEBUG, "RTCP packet count " << static_cast<void *>(this)
+  if (!(rtcp_packets_received_ % 100)) {
+    MOZ_MTLOG(MP_LOG_INFO, "RTCP received packet count for " << description_
+              << " Pipeline " << static_cast<void *>(this)
+              << " Flow : " << static_cast<void *>(rtcp_transport_)
               << ": " << rtcp_packets_received_);
   }
 }
-
 
 void MediaPipeline::RtpPacketReceived(TransportLayer *layer,
                                       const unsigned char *data,
@@ -334,9 +357,20 @@ void MediaPipeline::RtpPacketReceived(TransportLayer *layer,
     return;
   }
 
-  // TODO(ekr@rtfm.com): filter for DTLS here and in RtcpPacketReceived
-  // TODO(ekr@rtfm.com): filter on SSRC for bundle
-  increment_rtp_packets_received();
+  if (!conduit_) {
+    MOZ_MTLOG(PR_LOG_DEBUG, "Discarding incoming packet; media disconnected");
+    return;
+  }
+
+  if (rtp_state_ != MP_OPEN) {
+    MOZ_MTLOG(PR_LOG_DEBUG, "Discarding incoming packet; pipeline not open");
+    return;
+  }
+
+  if (rtp_transport_->state() != TransportLayer::TS_OPEN) {
+    MOZ_MTLOG(PR_LOG_ERROR, "Discarding incoming packet; transport not open");
+    return;
+  }
 
   MOZ_ASSERT(rtp_recv_srtp_);  // This should never happen
 
@@ -345,6 +379,10 @@ void MediaPipeline::RtpPacketReceived(TransportLayer *layer,
     // This will be unnecessary when we have SSRC filtering.
     return;
   }
+
+  // TODO(ekr@rtfm.com): filter for DTLS here and in RtcpPacketReceived
+  // TODO(ekr@rtfm.com): filter on SSRC for bundle
+  increment_rtp_packets_received();
 
   // Make a copy rather than cast away constness
   ScopedDeletePtr<unsigned char> inner_data(
@@ -364,6 +402,27 @@ void MediaPipeline::RtcpPacketReceived(TransportLayer *layer,
                                        size_t len) {
   if (!transport_->pipeline()) {
     MOZ_MTLOG(PR_LOG_DEBUG, "Discarding incoming packet; transport disconnected");
+    return;
+  }
+
+  if (!conduit_) {
+    MOZ_MTLOG(PR_LOG_DEBUG, "Discarding incoming packet; media disconnected");
+    return;
+  }
+
+  if (rtcp_state_ != MP_OPEN) {
+    MOZ_MTLOG(PR_LOG_DEBUG, "Discarding incoming packet; pipeline not open");
+    return;
+  }
+
+  if (rtcp_transport_->state() != TransportLayer::TS_OPEN) {
+    MOZ_MTLOG(PR_LOG_ERROR, "Discarding incoming packet; transport not open");
+    return;
+  }
+
+  if (direction_ == RECEIVE) {
+    // Discard any RTCP that is being transmitted to us
+    // This will be unnecessary when we have SSRC filtering.
     return;
   }
 
@@ -434,22 +493,60 @@ void MediaPipeline::PacketReceived(TransportLayer *layer,
 }
 
 nsresult MediaPipelineTransmit::Init() {
+  char track_id_string[11];
+  ASSERT_ON_THREAD(main_thread_);
+
+  // We can replace this when we are allowed to do streams or std::to_string
+  PR_snprintf(track_id_string, sizeof(track_id_string), "%d", track_id_);
+
+  description_ = pc_ + "| ";
+  description_ += conduit_->type() == MediaSessionConduit::AUDIO ?
+      "Transmit audio[" : "Transmit video[";
+  description_ += track_id_string;
+  description_ += "]";
+
   // TODO(ekr@rtfm.com): Check for errors
   MOZ_MTLOG(PR_LOG_DEBUG, "Attaching pipeline to stream "
             << static_cast<void *>(stream_) <<
             " conduit type=" <<
             (conduit_->type() == MediaSessionConduit::AUDIO ?
-             "audio" : "video") <<
-            " hints=" << stream_->GetHintContents());
+             "audio" : "video"));
 
-  return RUN_ON_THREAD(main_thread_, WrapRunnable(stream_->GetStream(),
-                                                  &MediaStream::AddListener,
-                                                  listener_),
-                       NS_DISPATCH_SYNC);
+  stream_->AddListener(listener_);
+
+  return MediaPipeline::Init();
+}
+
+nsresult MediaPipelineTransmit::TransportReady_s(TransportFlow *flow) {
+  // Call base ready function.
+  MediaPipeline::TransportReady_s(flow);
+
+  if (flow == rtp_transport_) {
+    // TODO(ekr@rtfm.com): Move onto MSG thread.
+    listener_->SetActive(true);
+  }
+
+  return NS_OK;
 }
 
 nsresult MediaPipeline::PipelineTransport::SendRtpPacket(
     const void *data, int len) {
+
+    nsAutoPtr<DataBuffer> buf(new DataBuffer(static_cast<const uint8_t *>(data),
+                                             len));
+
+    RUN_ON_THREAD(sts_thread_,
+                  WrapRunnable(
+                      RefPtr<MediaPipeline::PipelineTransport>(this),
+                      &MediaPipeline::PipelineTransport::SendRtpPacket_s,
+                      buf),
+                  NS_DISPATCH_NORMAL);
+
+    return NS_OK;
+}
+
+nsresult MediaPipeline::PipelineTransport::SendRtpPacket_s(
+    nsAutoPtr<DataBuffer> data) {
   if (!pipeline_)
     return NS_OK;  // Detached
 
@@ -464,14 +561,15 @@ nsresult MediaPipeline::PipelineTransport::SendRtpPacket(
   // libsrtp enciphers in place, so we need a new, big enough
   // buffer.
   // XXX. allocates and deletes one buffer per packet sent.
-  int max_len = len + SRTP_MAX_EXPANSION;
+  // Bug 822129
+  int max_len = data->len() + SRTP_MAX_EXPANSION;
   ScopedDeletePtr<unsigned char> inner_data(
       new unsigned char[max_len]);
-  memcpy(inner_data, data, len);
+  memcpy(inner_data, data->data(), data->len());
 
   int out_len;
   nsresult res = pipeline_->rtp_send_srtp_->ProtectRtp(inner_data,
-                                                       len,
+                                                       data->len(),
                                                        max_len,
                                                        &out_len);
   if (!NS_SUCCEEDED(res))
@@ -484,6 +582,22 @@ nsresult MediaPipeline::PipelineTransport::SendRtpPacket(
 
 nsresult MediaPipeline::PipelineTransport::SendRtcpPacket(
     const void *data, int len) {
+
+    nsAutoPtr<DataBuffer> buf(new DataBuffer(static_cast<const uint8_t *>(data),
+                                             len));
+
+    RUN_ON_THREAD(sts_thread_,
+                  WrapRunnable(
+                      RefPtr<MediaPipeline::PipelineTransport>(this),
+                      &MediaPipeline::PipelineTransport::SendRtcpPacket_s,
+                      buf),
+                  NS_DISPATCH_NORMAL);
+
+    return NS_OK;
+}
+
+nsresult MediaPipeline::PipelineTransport::SendRtcpPacket_s(
+    nsAutoPtr<DataBuffer> data) {
   if (!pipeline_)
     return NS_OK;  // Detached
 
@@ -498,14 +612,15 @@ nsresult MediaPipeline::PipelineTransport::SendRtcpPacket(
   // libsrtp enciphers in place, so we need a new, big enough
   // buffer.
   // XXX. allocates and deletes one buffer per packet sent.
-  int max_len = len + SRTP_MAX_EXPANSION;
+  // Bug 822129.
+  int max_len = data->len() + SRTP_MAX_EXPANSION;
   ScopedDeletePtr<unsigned char> inner_data(
       new unsigned char[max_len]);
-  memcpy(inner_data, data, len);
+  memcpy(inner_data, data->data(), data->len());
 
   int out_len;
   nsresult res = pipeline_->rtcp_send_srtp_->ProtectRtcp(inner_data,
-                                                         len,
+                                                         data->len(),
                                                          max_len,
                                                          &out_len);
   if (!NS_SUCCEEDED(res))
@@ -522,22 +637,18 @@ NotifyQueuedTrackChanges(MediaStreamGraph* graph, TrackID tid,
                          TrackTicks offset,
                          uint32_t events,
                          const MediaSegment& queued_media) {
-  if (!pipeline_)
-    return;  // Detached
-
   MOZ_MTLOG(PR_LOG_DEBUG, "MediaPipeline::NotifyQueuedTrackChanges()");
 
-  // Return early if we are not connected to avoid queueing stuff
-  // up in the conduit
-  if (pipeline_->rtp_transport_->state() != TransportLayer::TS_OPEN) {
-    MOZ_MTLOG(PR_LOG_DEBUG, "Transport not ready yet, dropping packets");
+  if (!active_) {
+    MOZ_MTLOG(PR_LOG_DEBUG, "Discarding packets because transport not ready");
     return;
   }
 
   // TODO(ekr@rtfm.com): For now assume that we have only one
   // track type and it's destined for us
+  // See bug 784517
   if (queued_media.GetType() == MediaSegment::AUDIO) {
-    if (pipeline_->conduit_->type() != MediaSessionConduit::AUDIO) {
+    if (conduit_->type() != MediaSessionConduit::AUDIO) {
       // Ignore data in case we have a muxed stream
       return;
     }
@@ -546,14 +657,13 @@ NotifyQueuedTrackChanges(MediaStreamGraph* graph, TrackID tid,
 
     AudioSegment::ChunkIterator iter(*audio);
     while(!iter.IsEnded()) {
-      pipeline_->ProcessAudioChunk(static_cast<AudioSessionConduit *>
-                                   (pipeline_->conduit_.get()),
-                                   rate, *iter);
+      ProcessAudioChunk(static_cast<AudioSessionConduit*>(conduit_.get()),
+                        rate, *iter);
       iter.Next();
     }
   } else if (queued_media.GetType() == MediaSegment::VIDEO) {
 #ifdef MOZILLA_INTERNAL_API
-    if (pipeline_->conduit_->type() != MediaSessionConduit::VIDEO) {
+    if (conduit_->type() != MediaSessionConduit::VIDEO) {
       // Ignore data in case we have a muxed stream
       return;
     }
@@ -562,9 +672,8 @@ NotifyQueuedTrackChanges(MediaStreamGraph* graph, TrackID tid,
 
     VideoSegment::ChunkIterator iter(*video);
     while(!iter.IsEnded()) {
-      pipeline_->ProcessVideoChunk(static_cast<VideoSessionConduit *>
-                                   (pipeline_->conduit_.get()),
-                                   rate, *iter);
+      ProcessVideoChunk(static_cast<VideoSessionConduit*>(conduit_.get()),
+                        rate, *iter);
       iter.Next();
     }
 #endif
@@ -573,14 +682,15 @@ NotifyQueuedTrackChanges(MediaStreamGraph* graph, TrackID tid,
   }
 }
 
-void MediaPipelineTransmit::ProcessAudioChunk(AudioSessionConduit *conduit,
-                                              TrackRate rate,
-                                              AudioChunk& chunk) {
+void MediaPipelineTransmit::PipelineListener::ProcessAudioChunk(
+    AudioSessionConduit *conduit,
+    TrackRate rate,
+    AudioChunk& chunk) {
   // TODO(ekr@rtfm.com): Do more than one channel
   nsAutoArrayPtr<int16_t> samples(new int16_t[chunk.mDuration]);
 
   if (chunk.mBuffer) {
-    switch(chunk.mBufferFormat) {
+    switch (chunk.mBufferFormat) {
       case AUDIO_FORMAT_FLOAT32:
         MOZ_MTLOG(PR_LOG_ERROR, "Can't process audio except in 16-bit PCM yet");
         MOZ_ASSERT(PR_FALSE);
@@ -588,7 +698,7 @@ void MediaPipelineTransmit::ProcessAudioChunk(AudioSessionConduit *conduit,
         break;
       case AUDIO_FORMAT_S16:
         {
-          const short* buf = static_cast<const short *>(chunk.mBuffer->Data());
+          const short* buf = static_cast<const short *>(chunk.mChannelData[0]);
           ConvertAudioSamplesWithScale(buf, samples, chunk.mDuration, chunk.mVolume);
         }
         break;
@@ -604,14 +714,73 @@ void MediaPipelineTransmit::ProcessAudioChunk(AudioSessionConduit *conduit,
     }
   }
 
-  MOZ_MTLOG(PR_LOG_DEBUG, "Sending an audio frame");
-  conduit->SendAudioFrame(samples.get(), chunk.mDuration, rate, 0);
+  MOZ_ASSERT(!(rate%100)); // rate should be a multiple of 100
+
+  // Check if the rate has changed since the last time we came through
+  // I realize it may be overkill to check if the rate has changed, but
+  // I believe it is possible (e.g. if we change sources) and it costs us
+  // very little to handle this case
+
+  if (samplenum_10ms_ !=  rate/100) {
+    // Determine number of samples in 10 ms from the rate:
+    samplenum_10ms_ = rate/100;
+    // If we switch sample rates (e.g. if we switch codecs),
+    // we throw away what was in the sample_10ms_buffer at the old rate
+    samples_10ms_buffer_ = new int16_t[samplenum_10ms_];
+    buffer_current_ = 0;
+  }
+
+  // Vars to handle the non-sunny-day case (where the audio chunks
+  // we got are not multiples of 10ms OR there were samples left over
+  // from the last run)
+  int64_t chunk_remaining;
+  int64_t tocpy;
+  int16_t *samples_tmp = samples.get();
+
+  chunk_remaining = chunk.mDuration;
+
+  MOZ_ASSERT(chunk_remaining >= 0);
+
+  if (buffer_current_) {
+    tocpy = std::min(chunk_remaining, samplenum_10ms_ - buffer_current_);
+    memcpy(&samples_10ms_buffer_[buffer_current_], samples_tmp, tocpy * sizeof(int16_t));
+    buffer_current_ += tocpy;
+    samples_tmp += tocpy;
+    chunk_remaining -= tocpy;
+
+    if (buffer_current_ == samplenum_10ms_) {
+      // Send out the audio buffer we just finished filling
+      conduit->SendAudioFrame(samples_10ms_buffer_, samplenum_10ms_, rate, 0);
+      buffer_current_ = 0;
+    } else {
+      // We still don't have enough data to send a buffer
+      return;
+    }
+  }
+
+  // Now send (more) frames if there is more than 10ms of input left
+  tocpy = (chunk_remaining / samplenum_10ms_) * samplenum_10ms_;
+  if (tocpy > 0) {
+    conduit->SendAudioFrame(samples_tmp, tocpy, rate, 0);
+    samples_tmp += tocpy;
+    chunk_remaining -= tocpy;
+  }
+  // Copy what remains for the next run
+
+  MOZ_ASSERT(chunk_remaining < samplenum_10ms_);
+
+  if (chunk_remaining) {
+    memcpy(samples_10ms_buffer_, samples_tmp, chunk_remaining * sizeof(int16_t));
+    buffer_current_ = chunk_remaining;
+  }
+
 }
 
 #ifdef MOZILLA_INTERNAL_API
-void MediaPipelineTransmit::ProcessVideoChunk(VideoSessionConduit *conduit,
-                                              TrackRate rate,
-                                              VideoChunk& chunk) {
+void MediaPipelineTransmit::PipelineListener::ProcessVideoChunk(
+    VideoSessionConduit* conduit,
+    TrackRate rate,
+    VideoChunk& chunk) {
   // We now need to send the video frame to the other side
   layers::Image *img = chunk.mFrame.GetImage();
   if (!img) {
@@ -664,104 +833,203 @@ void MediaPipelineTransmit::ProcessVideoChunk(VideoSessionConduit *conduit,
 #endif
 
 nsresult MediaPipelineReceiveAudio::Init() {
+  char track_id_string[11];
+  ASSERT_ON_THREAD(main_thread_);
   MOZ_MTLOG(PR_LOG_DEBUG, __FUNCTION__);
-  return RUN_ON_THREAD(main_thread_, WrapRunnable(stream_->GetStream(),
-                                           &MediaStream::AddListener,
-                                           listener_),
-                       NS_DISPATCH_SYNC);
+
+  // We can replace this when we are allowed to do streams or std::to_string
+  PR_snprintf(track_id_string, sizeof(track_id_string), "%d", track_id_);
+
+  description_ = pc_ + "| Receive audio[";
+  description_ += track_id_string;
+  description_ += "]";
+
+  listener_->AddSelf(new AudioSegment());
+
+  return MediaPipelineReceive::Init();
+}
+
+
+// Add a track and listener on the MSG thread using the MSG command queue
+static void AddTrackAndListener(MediaStream* source,
+                                TrackID track_id, TrackRate track_rate,
+                                MediaStreamListener* listener, MediaSegment* segment,
+                                const RefPtr<TrackAddedCallback>& completed) {
+  // This both adds the listener and the track
+#ifdef MOZILLA_INTERNAL_API
+  class Message : public ControlMessage {
+   public:
+    Message(MediaStream* stream, TrackID track, TrackRate rate,
+            MediaSegment* segment, MediaStreamListener* listener,
+            const RefPtr<TrackAddedCallback>& completed)
+      : ControlMessage(stream),
+        track_id_(track),
+        track_rate_(rate),
+        segment_(segment),
+        listener_(listener),
+        completed_(completed) {}
+
+    virtual void Run() MOZ_OVERRIDE {
+      StreamTime current_end = mStream->GetBufferEnd();
+      TrackTicks current_ticks = TimeToTicksRoundUp(track_rate_, current_end);
+
+      mStream->AddListenerImpl(listener_.forget());
+
+      // Add a track 'now' to avoid possible underrun, especially if we add
+      // a track "later".
+
+      if (current_end != 0L) {
+        MOZ_MTLOG(MP_LOG_INFO, "added track @ " << current_end <<
+                  " -> " << MediaTimeToSeconds(current_end));
+      }
+
+      // To avoid assertions, we need to insert a dummy segment that covers up
+      // to the "start" time for the track
+      segment_->AppendNullData(current_ticks);
+      mStream->AsSourceStream()->AddTrack(track_id_, track_rate_,
+                                          current_ticks, segment_);
+      // AdvanceKnownTracksTicksTime(HEAT_DEATH_OF_UNIVERSE) means that in
+      // theory per the API, we can't add more tracks before that
+      // time. However, the impl actually allows it, and it avoids a whole
+      // bunch of locking that would be required (and potential blocking)
+      // if we used smaller values and updated them on each NotifyPull.
+      mStream->AsSourceStream()->AdvanceKnownTracksTime(STREAM_TIME_MAX);
+
+      // We need to know how much has been "inserted" because we're given absolute
+      // times in NotifyPull.
+      completed_->TrackAdded(current_ticks);
+    }
+   private:
+    TrackID track_id_;
+    TrackRate track_rate_;
+    MediaSegment* segment_;
+    nsRefPtr<MediaStreamListener> listener_;
+    const RefPtr<TrackAddedCallback> completed_;
+  };
+
+  MOZ_ASSERT(listener);
+
+  source->GraphImpl()->AppendMessage(new Message(source, track_id, track_rate, segment, listener, completed));
+#else
+  source->AddListener(listener);
+  source->AsSourceStream()->AddTrack(track_id, track_rate, 0, segment);
+#endif
+}
+
+void GenericReceiveListener::AddSelf(MediaSegment* segment) {
+  RefPtr<TrackAddedCallback> callback = new GenericReceiveCallback(this);
+  AddTrackAndListener(source_, track_id_, track_rate_, this, segment, callback);
+}
+
+MediaPipelineReceiveAudio::PipelineListener::PipelineListener(
+    SourceMediaStream * source, TrackID track_id,
+    const RefPtr<MediaSessionConduit>& conduit)
+  : GenericReceiveListener(source, track_id, 16000), // XXX rate assumption
+    conduit_(conduit)
+{
+  MOZ_ASSERT(track_rate_%100 == 0);
 }
 
 void MediaPipelineReceiveAudio::PipelineListener::
-NotifyPull(MediaStreamGraph* graph, StreamTime total) {
-  if (!pipeline_)
-    return;  // Detached
-
-  SourceMediaStream *source =
-    pipeline_->stream_->GetStream()->AsSourceStream();
-
-  MOZ_ASSERT(source);
-  if (!source) {
+NotifyPull(MediaStreamGraph* graph, StreamTime desired_time) {
+  MOZ_ASSERT(source_);
+  if (!source_) {
     MOZ_MTLOG(PR_LOG_ERROR, "NotifyPull() called from a non-SourceMediaStream");
     return;
   }
 
-  // "total" is absolute stream time.
-  // StreamTime desired = total - played_;
-  played_ = total;
-  //double time_s = MediaTimeToSeconds(desired);
+  // This comparison is done in total time to avoid accumulated roundoff errors.
+  while (TicksToTimeRoundDown(track_rate_, played_ticks_) < desired_time) {
+    // TODO(ekr@rtfm.com): Is there a way to avoid mallocating here?  Or reduce the size?
+    // Max size given mono is 480*2*1 = 960 (48KHz)
+#define AUDIO_SAMPLE_BUFFER_MAX 1000
+    MOZ_ASSERT((track_rate_/100)*sizeof(uint16_t) <= AUDIO_SAMPLE_BUFFER_MAX);
 
-  // Number of 10 ms samples we need
-  //int num_samples = ceil(time_s / .01f);
-
-  // Doesn't matter what was asked for, always give 160 samples per 10 ms.
-  int num_samples = 1;
-
-  MOZ_MTLOG(PR_LOG_DEBUG, "Asking for " << num_samples << "sample from Audio Conduit");
-
-  if (num_samples <= 0) {
-    return;
-  }
-
-  while (num_samples--) {
-    // TODO(ekr@rtfm.com): Is there a way to avoid mallocating here?
-    nsRefPtr<SharedBuffer> samples = SharedBuffer::Create(1000);
+    nsRefPtr<SharedBuffer> samples = SharedBuffer::Create(AUDIO_SAMPLE_BUFFER_MAX);
+    int16_t *samples_data = static_cast<int16_t *>(samples->Data());
     int samples_length;
 
+    // This fetches 10ms of data
     MediaConduitErrorCode err =
-        static_cast<AudioSessionConduit*>(pipeline_->conduit_.get())->GetAudioFrame(
-            static_cast<int16_t *>(samples->Data()),
-            16000,  // Sampling rate fixed at 16 kHz for now
-            0,  // TODO(ekr@rtfm.com): better estimate of capture delay
+        static_cast<AudioSessionConduit*>(conduit_.get())->GetAudioFrame(
+            samples_data,
+            track_rate_,
+            0,  // TODO(ekr@rtfm.com): better estimate of "capture" (really playout) delay
             samples_length);
+    MOZ_ASSERT(samples_length < AUDIO_SAMPLE_BUFFER_MAX);
 
-    if (err != kMediaConduitNoError)
-      return;
+    if (err != kMediaConduitNoError) {
+      // Insert silence on conduit/GIPS failure (extremely unlikely)
+      MOZ_MTLOG(PR_LOG_ERROR, "Audio conduit failed (" << err << ") to return data @ " << played_ticks_ <<
+                " (desired " << desired_time << " -> " << MediaTimeToSeconds(desired_time) << ")");
+      MOZ_ASSERT(err == kMediaConduitNoError);
+      samples_length = (track_rate_/100)*sizeof(uint16_t); // if this is not enough we'll loop and provide more
+      memset(samples_data, '\0', samples_length);
+    }
 
     MOZ_MTLOG(PR_LOG_DEBUG, "Audio conduit returned buffer of length " << samples_length);
 
     AudioSegment segment;
-    segment.Init(1);
-    segment.AppendFrames(samples.forget(), samples_length,
-                         0, samples_length, AUDIO_FORMAT_S16);
+    nsAutoTArray<const int16_t*,1> channels;
+    channels.AppendElement(samples_data);
+    segment.AppendFrames(samples.forget(), channels, samples_length);
 
-    char buf[32];
-    PR_snprintf(buf, 32, "%p", source);
-    source->AppendToTrack(1,  // TODO(ekr@rtfm.com): Track ID
-                          &segment);
+    // Handle track not actually added yet or removed/finished
+    if (source_->AppendToTrack(track_id_, &segment)) {
+      played_ticks_ += track_rate_/100; // 10ms in TrackTicks
+    } else {
+      MOZ_MTLOG(PR_LOG_ERROR, "AppendToTrack failed");
+      // we can't un-read the data, but that's ok since we don't want to
+      // buffer - but don't i-loop!
+      return;
+    }
   }
 }
 
 nsresult MediaPipelineReceiveVideo::Init() {
+  char track_id_string[11];
+  ASSERT_ON_THREAD(main_thread_);
   MOZ_MTLOG(PR_LOG_DEBUG, __FUNCTION__);
+
+  // We can replace this when we are allowed to do streams or std::to_string
+  PR_snprintf(track_id_string, sizeof(track_id_string), "%d", track_id_);
+
+  description_ = pc_ + "| Receive video[";
+  description_ += track_id_string;
+  description_ += "]";
+
+#ifdef MOZILLA_INTERNAL_API
+  listener_->AddSelf(new VideoSegment());
+#endif
 
   static_cast<VideoSessionConduit *>(conduit_.get())->
       AttachRenderer(renderer_);
 
-  return NS_OK;
+  return MediaPipelineReceive::Init();
 }
 
-MediaPipelineReceiveVideo::PipelineRenderer::PipelineRenderer(
-    MediaPipelineReceiveVideo *pipeline) :
-    pipeline_(pipeline),
-    width_(640), height_(480) {
-
+MediaPipelineReceiveVideo::PipelineListener::PipelineListener(
+  SourceMediaStream* source, TrackID track_id)
+  : GenericReceiveListener(source, track_id, USECS_PER_S),
+    width_(640),
+    height_(480),
+#ifdef MOZILLA_INTERNAL_API
+    image_container_(),
+    image_(),
+#endif
+    monitor_("Video PipelineListener") {
 #ifdef MOZILLA_INTERNAL_API
   image_container_ = layers::LayerManager::CreateImageContainer();
-  SourceMediaStream *source =
-      pipeline_->stream_->GetStream()->AsSourceStream();
-  source->AddTrack(1 /* Track ID */, 30, 0, new VideoSegment());
-  source->AdvanceKnownTracksTime(STREAM_TIME_MAX);
 #endif
 }
 
-void MediaPipelineReceiveVideo::PipelineRenderer::RenderVideoFrame(
+void MediaPipelineReceiveVideo::PipelineListener::RenderVideoFrame(
     const unsigned char* buffer,
     unsigned int buffer_size,
     uint32_t time_stamp,
     int64_t render_time) {
 #ifdef MOZILLA_INTERNAL_API
-  SourceMediaStream *source =
-      pipeline_->stream_->GetStream()->AsSourceStream();
+  ReentrantMonitorAutoEnter enter(monitor_);
 
   // Create a video frame and append it to the track.
   ImageFormat format = PLANAR_YCBCR;
@@ -787,15 +1055,36 @@ void MediaPipelineReceiveVideo::PipelineRenderer::RenderVideoFrame(
 
   videoImage->SetData(data);
 
-  VideoSegment segment;
-  char buf[32];
-  PR_snprintf(buf, 32, "%p", source);
+  image_ = image.forget();
+#endif
+}
 
-  segment.AppendFrame(image.forget(), 1, gfxIntSize(width_, height_));
-  source->AppendToTrack(1, &(segment));
+void MediaPipelineReceiveVideo::PipelineListener::
+NotifyPull(MediaStreamGraph* graph, StreamTime desired_time) {
+  ReentrantMonitorAutoEnter enter(monitor_);
+
+#ifdef MOZILLA_INTERNAL_API
+  nsRefPtr<layers::Image> image = image_;
+  TrackTicks target = TimeToTicksRoundUp(USECS_PER_S, desired_time);
+  TrackTicks delta = target - played_ticks_;
+
+  // Don't append if we've already provided a frame that supposedly
+  // goes past the current aDesiredTime Doing so means a negative
+  // delta and thus messes up handling of the graph
+  if (delta > 0) {
+    VideoSegment segment;
+    segment.AppendFrame(image ? image.forget() : nullptr, delta,
+                        gfxIntSize(width_, height_));
+    // Handle track not actually added yet or removed/finished
+    if (source_->AppendToTrack(track_id_, &segment)) {
+      played_ticks_ = target;
+    } else {
+      MOZ_MTLOG(PR_LOG_ERROR, "AppendToTrack failed");
+      return;
+    }
+  }
 #endif
 }
 
 
 }  // end namespace
-

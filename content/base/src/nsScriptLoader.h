@@ -12,7 +12,6 @@
 
 #include "nsCOMPtr.h"
 #include "nsIScriptElement.h"
-#include "nsIURI.h"
 #include "nsCOMArray.h"
 #include "nsTArray.h"
 #include "nsAutoPtr.h"
@@ -20,6 +19,7 @@
 #include "nsIStreamLoader.h"
 
 class nsScriptLoadRequest;
+class nsIURI;
 
 //////////////////////////////////////////////////////////////
 // Script loader implementation
@@ -200,10 +200,12 @@ public:
    * @param aType The type parameter for the script.
    * @param aCrossOrigin The crossorigin attribute for the script.
    *                     Void if not present.
+   * @param aScriptFromHead Whether or not the script was a child of head
    */
   virtual void PreloadURI(nsIURI *aURI, const nsAString &aCharset,
                           const nsAString &aType,
-                          const nsAString &aCrossOrigin);
+                          const nsAString &aCrossOrigin,
+                          bool aScriptFromHead);
 
 private:
   /**
@@ -228,7 +230,8 @@ private:
   /**
    * Start a load for aRequest's URI.
    */
-  nsresult StartLoad(nsScriptLoadRequest *aRequest, const nsAString &aType);
+  nsresult StartLoad(nsScriptLoadRequest *aRequest, const nsAString &aType,
+                     bool aScriptFromHead);
 
   /**
    * Process any pending requests asynchronously (i.e. off an event) if there

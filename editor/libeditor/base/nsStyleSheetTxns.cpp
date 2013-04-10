@@ -4,7 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 
-#include <stddef.h>                     // for NULL
+#include <stddef.h>                     // for nullptr
 
 #include "nsAString.h"
 #include "nsCOMPtr.h"                   // for nsCOMPtr, do_QueryInterface, etc
@@ -47,11 +47,9 @@ RemoveStyleSheet(nsIEditor *aEditor, nsIStyleSheet *aSheet)
 
 AddStyleSheetTxn::AddStyleSheetTxn()
 :  EditTxn()
-,  mEditor(NULL)
+,  mEditor(nullptr)
 {
 }
-
-NS_IMPL_CYCLE_COLLECTION_CLASS(AddStyleSheetTxn)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(AddStyleSheetTxn, EditTxn)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mSheet)
@@ -104,11 +102,9 @@ AddStyleSheetTxn::GetTxnDescription(nsAString& aString)
 
 RemoveStyleSheetTxn::RemoveStyleSheetTxn()
 :  EditTxn()
-,  mEditor(NULL)
+,  mEditor(nullptr)
 {
 }
-
-NS_IMPL_CYCLE_COLLECTION_CLASS(RemoveStyleSheetTxn)
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(RemoveStyleSheetTxn, EditTxn)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mSheet)

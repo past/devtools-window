@@ -67,7 +67,7 @@ DOMProxyHandler::EnsureExpandoObject(JSContext* cx, JSObject* obj)
     }
 
     nsWrapperCache* cache;
-    CallQueryInterface(UnwrapDOMObject<nsISupports>(obj, eProxyDOMObject), &cache);
+    CallQueryInterface(UnwrapDOMObject<nsISupports>(obj), &cache);
     cache->SetPreservingWrapper(true);
 
     js::SetProxyExtra(obj, JSPROXYSLOT_EXPANDO, ObjectValue(*expando));
@@ -76,10 +76,24 @@ DOMProxyHandler::EnsureExpandoObject(JSContext* cx, JSObject* obj)
 }
 
 bool
-DOMProxyHandler::getPropertyDescriptor(JSContext* cx, JSObject* proxy, jsid id, bool set,
-                                       JSPropertyDescriptor* desc)
+DOMProxyHandler::isExtensible(JSObject *proxy)
 {
-  if (!getOwnPropertyDescriptor(cx, proxy, id, set, desc)) {
+  return true; // always extensible per WebIDL
+}
+
+bool
+DOMProxyHandler::preventExtensions(JSContext *cx, JS::Handle<JSObject*> proxy)
+{
+  // Throw a TypeError, per WebIDL.
+  JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL, JSMSG_CANT_CHANGE_EXTENSIBILITY);
+  return false;
+}
+
+bool
+DOMProxyHandler::getPropertyDescriptor(JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
+                                       JSPropertyDescriptor* desc, unsigned flags)
+{
+  if (!getOwnPropertyDescriptor(cx, proxy, id, desc, flags)) {
     return false;
   }
   if (desc->obj) {
@@ -95,11 +109,11 @@ DOMProxyHandler::getPropertyDescriptor(JSContext* cx, JSObject* proxy, jsid id, 
     return true;
   }
 
-  return JS_GetPropertyDescriptorById(cx, proto, id, JSRESOLVE_QUALIFIED, desc);
+  return JS_GetPropertyDescriptorById(cx, proto, id, 0, desc);
 }
 
 bool
-DOMProxyHandler::defineProperty(JSContext* cx, JSObject* proxy, jsid id,
+DOMProxyHandler::defineProperty(JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id,
                                 JSPropertyDescriptor* desc)
 {
   if ((desc->attrs & JSPROP_GETTER) && desc->setter == JS_StrictPropertyStub) {
@@ -124,7 +138,8 @@ DOMProxyHandler::defineProperty(JSContext* cx, JSObject* proxy, jsid id,
 }
 
 bool
-DOMProxyHandler::delete_(JSContext* cx, JSObject* proxy, jsid id, bool* bp)
+DOMProxyHandler::delete_(JSContext* cx, JS::Handle<JSObject*> proxy,
+                         JS::Handle<jsid> id, bool* bp)
 {
   JSBool b = true;
 
@@ -141,7 +156,7 @@ DOMProxyHandler::delete_(JSContext* cx, JSObject* proxy, jsid id, bool* bp)
 }
 
 bool
-DOMProxyHandler::enumerate(JSContext* cx, JSObject* proxy, AutoIdVector& props)
+DOMProxyHandler::enumerate(JSContext* cx, JS::Handle<JSObject*> proxy, AutoIdVector& props)
 {
   JSObject* proto;
   if (!JS_GetPrototype(cx, proxy, &proto)) {
@@ -152,14 +167,7 @@ DOMProxyHandler::enumerate(JSContext* cx, JSObject* proxy, AutoIdVector& props)
 }
 
 bool
-DOMProxyHandler::fix(JSContext* cx, JSObject* proxy, Value* vp)
-{
-  vp->setUndefined();
-  return true;
-}
-
-bool
-DOMProxyHandler::has(JSContext* cx, JSObject* proxy, jsid id, bool* bp)
+DOMProxyHandler::has(JSContext* cx, JS::Handle<JSObject*> proxy, JS::Handle<jsid> id, bool* bp)
 {
   if (!hasOwn(cx, proxy, id, bp)) {
     return false;
@@ -246,7 +254,7 @@ IdToInt32(JSContext* cx, jsid id)
 {
   JSAutoRequest ar(cx);
 
-  jsval idval;
+  JS::Value idval;
   double array_index;
   int32_t i;
   if (!::JS_IdToValue(cx, id, &idval) ||

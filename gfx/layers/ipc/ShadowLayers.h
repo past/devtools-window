@@ -14,6 +14,7 @@
 #include "ImageLayers.h"
 #include "mozilla/ipc/SharedMemory.h"
 #include "mozilla/WidgetUtils.h"
+#include "mozilla/dom/ScreenOrientation.h"
 
 class gfxSharedImageSurface;
 
@@ -116,7 +117,9 @@ public:
    * ShadowLayerManager.
    */
   void BeginTransaction(const nsIntRect& aTargetBounds,
-                        ScreenRotation aRotation);
+                        ScreenRotation aRotation,
+                        const nsIntRect& aClientBounds,
+                        mozilla::dom::ScreenOrientation aOrientation);
 
   /**
    * The following methods may only be called after BeginTransaction()
@@ -216,6 +219,9 @@ public:
   void PaintedCanvas(ShadowableLayer* aCanvas,
                      bool aNeedYFlip,
                      const SurfaceDescriptor& aNewFrontSurface);
+  void PaintedCanvasNoSwap(ShadowableLayer* aCanvas,
+                           bool aNeedYFlip,
+                           const SurfaceDescriptor& aNewFrontSurface);
 
   /**
    * End the current transaction and forward it to ShadowLayerManager.
@@ -578,6 +584,7 @@ public:
    */
   virtual void SetValidRegion(const nsIntRegion& aRegion)
   {
+    MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) ValidRegion", this));
     mValidRegion = aRegion;
     Mutated();
   }
